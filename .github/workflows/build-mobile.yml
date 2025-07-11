@@ -2,7 +2,12 @@ name: Build
 
 on:
   workflow_dispatch:
-
+    inputs:
+      tag:
+        description: "Tag to build (e.g. v18.20.4)"
+        required: true
+        default: v18.20.4
+        
 env:
   SCCACHE_GHA_ENABLED: 'true'
   ANDROID_NDK_VERSION: r28
@@ -28,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: '0'
+          ref: ${{ github.event.inputs.tag }}
 
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.6
