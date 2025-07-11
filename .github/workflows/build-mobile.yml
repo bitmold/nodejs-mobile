@@ -10,8 +10,8 @@ on:
         
 env:
   SCCACHE_GHA_ENABLED: 'true'
-  ANDROID_NDK_VERSION: r26
-  ANDROID_TARGET_SDK_VERSION: 35
+  ANDROID_NDK_VERSION: r24
+  ANDROID_TARGET_SDK_VERSION: 24
 
 permissions:
   contents: read
