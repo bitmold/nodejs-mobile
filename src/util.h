@@ -57,6 +57,8 @@
 
 namespace node {
 
+constexpr char kPathSeparator = std::filesystem::path::preferred_separator;
+
 #ifdef _WIN32
 /* MAX_PATH is in characters, not bytes. Make sure we have enough headroom. */
 #define PATH_MAX_BYTES (MAX_PATH * 4)
