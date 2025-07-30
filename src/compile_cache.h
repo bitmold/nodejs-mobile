@@ -93,7 +93,7 @@ class CompileCacheHandler {
   bool is_debug_ = false;
 
   std::string compile_cache_dir_str_;
-  //std::filesystem::path compile_cache_dir_;
+  std::filesystem::path compile_cache_dir_;
   std::unordered_map<uint32_t, std::unique_ptr<CompileCacheEntry>>
       compiler_cache_store_;
 };
