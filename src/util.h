@@ -38,6 +38,7 @@
 
 #include <array>
 #include <bit>
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <optional>
