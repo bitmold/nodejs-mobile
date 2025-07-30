@@ -225,7 +225,7 @@ CompileCacheEntry* CompileCacheHandler::GetOrInsert(
   result->code_size = code_utf8.length();
   result->cache_key = key;
   result->cache_filename =
-      compile_cache_dir_ + kPathSeparator + Uint32ToHex(key);
+      std::filesystem::path(compile_cache_dir_) + kPathSeparator + Uint32ToHex(key);
   result->source_filename = filename_utf8.ToString();
   result->cache = nullptr;
   result->type = type;
