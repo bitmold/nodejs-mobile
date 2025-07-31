@@ -1,11 +1,13 @@
 name: Build
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: "Branch to build (e.g. update22-9-0)"
+        required: true
+        default: update22-9-0
+        
 env:
   SCCACHE_GHA_ENABLED: 'true'
   ANDROID_NDK_VERSION: r24
@@ -31,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: '0'
+          ref: ${{ github.event.inputs.branch }}
 
       - name: Run sccache-cache
         uses: mozilla-actions/sccache-action@v0.0.6
@@ -51,6 +53,7 @@ jobs:
       - name: Build
         env:
           MY_ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          LDFLAGS: "-Wl,-z,max-page-size=16384"
         run: |
           ./tools/android_build.sh $MY_ANDROID_NDK_HOME $ANDROID_TARGET_SDK_VERSION $TARGET_ARCH
           rm -rf ./out_android/libnode
@@ -59,3 +62,55 @@ jobs:
         with:
           name: node-android-${{ env.TARGET_ARCH }}
           path: out_android
+
+  combine-android:
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - { os: ubuntu-22.04 }
+    runs-on: ${{ matrix.config.os }}
+    needs: build-android
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Install build utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: ${{ env.ANDROID_NDK_VERSION }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: node-android-*
+          merge-multiple: true
+          path: out_android
+
+      - run: rm -rf out_android/libnode
+
+      - name: Generate config.gypi
+        run: ./configure
+
+      - name: Combine
+        run: |
+          mkdir -p artifacts/bin
+          mkdir -p artifacts/include
+          cp -R out_android/* artifacts/bin
+          ./tools/copy_libnode_headers.sh android
+          cp -R out_android/libnode/include/* artifacts/include
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nodejs-mobile-android
+          path: artifacts
+
+      - uses: geekyeggo/delete-artifact@v5
+        with:
+          name: node-android-*
+          
