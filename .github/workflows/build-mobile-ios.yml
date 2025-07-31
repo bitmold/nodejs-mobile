@@ -1,4 +1,4 @@
-name: Build
+name: Build-ios
 
 on:
   workflow_dispatch:
