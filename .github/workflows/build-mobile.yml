@@ -22,8 +22,10 @@ jobs:
       fail-fast: false
       matrix:
         config:
+          - { os: ubuntu-22.04, target_arch: arm }
           - { os: ubuntu-22.04, target_arch: arm64 }
-
+          - { os: ubuntu-22.04, target_arch: x86_64 }
+          
     runs-on: ${{ matrix.config.os }}
     env:
       TARGET_ARCH: ${{ matrix.config.target_arch }}
