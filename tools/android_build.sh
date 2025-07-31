@@ -29,9 +29,9 @@ BUILD_ARCH() {
 
    # Add special flags for arm64 to fix CRC32 SIMD crash
   if [ "$TARGET_ARCH" == "arm64" ]; then
-    export CFLAGS="$CFLAGS -march=armv8-a+crc"
-    export CXXFLAGS="$CXXFLAGS -march=armv8-a+crc"
-    echo "[INFO] Injected -march=armv8-a+crc for arm64"
+    export CFLAGS="$CFLAGS -march=armv8-a+crc+aes"
+    export CXXFLAGS="$CXXFLAGS -march=armv8-a+crc+aes"
+    echo "[INFO] Injected -march=armv8-a+crc+aes for arm64"
   fi
 
   # Compile
