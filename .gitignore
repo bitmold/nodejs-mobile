@@ -168,3 +168,8 @@ __pycache__
 
 # === Rules for C++ development ===
 compile_commands.json
+
+bin/
+lib/python3.12/
+out_ios_arm64/
+pyvenv.cfg
