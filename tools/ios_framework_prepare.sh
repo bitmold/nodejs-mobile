@@ -17,10 +17,6 @@ NODELIB_PROJECT_PATH='tools/ios-framework'
 XCODE_PROJECT_PATH='tools/ios-framework/NodeMobile.xcodeproj/project.pbxproj'
 
 declare -a outputs_common=(
-)
-declare -a outputs_x64_only=(
-)
-declare -a outputs_arm64_only=(
     "libada.a"
     "libbrotli.a"
     "libcares.a"
@@ -52,6 +48,10 @@ declare -a outputs_arm64_only=(
     "libv8_turboshaft.a"
     "libv8_zlib.a"
     "libzlib.a"
+)
+declare -a outputs_x64_only=(
+)
+declare -a outputs_arm64_only=(
     "libzlib_inflate_chunk_simd.a"
 )
 
