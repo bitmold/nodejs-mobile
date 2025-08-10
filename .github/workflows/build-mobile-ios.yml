@@ -69,7 +69,7 @@ jobs:
     strategy:
       matrix:
         config:
-          - { os: macos-14, xcode: 15.4 }
+          - { os: macos-15, xcode: 16.4 }
     runs-on: ${{ matrix.config.os }}
     needs: build-ios
     steps:
