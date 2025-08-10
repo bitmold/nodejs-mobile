@@ -20,9 +20,9 @@ jobs:
       fail-fast: false
       matrix:
         config:
-          - { os: macos-15, target_arch: arm64, xcode: 16.4 }
-          - { os: macos-15, target_arch: arm64-simulator, xcode: 16.4 }
-          - { os: macos-15, target_arch: x64-simulator, xcode: 16.4 }
+          - { os: macos-15-xlarge, target_arch: arm64, xcode: 16.4 }
+          - { os: macos-15-xlarge, target_arch: arm64-simulator, xcode: 16.4 }
+          - { os: macos-15-xlarge, target_arch: x64-simulator, xcode: 16.4 }
 
     runs-on: ${{ matrix.config.os }}
     env:
@@ -32,6 +32,9 @@ jobs:
     steps:
       - name: Free Disk Space
         run: |
+          echo "Before cleanup:"
+          df -h
+
           sudo rm -rf /Library/Frameworks/Mono.framework
           sudo rm -rf /Library/Frameworks/Xamarin.iOS.framework
           sudo rm -rf /Library/Frameworks/Xamarin.Android.framework
@@ -39,7 +42,6 @@ jobs:
           sudo rm -rf /usr/local/share/powershell
           sudo find /Applications -type d -name "Xcode_*.app" ! -name "Xcode_$XCODE_VERSION.app" -prune -exec rm -rf "{}" \;
 
-          df -h
           # Remove Android SDK & NDK
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /usr/local/Caskroom/android-sdk
@@ -89,7 +91,7 @@ jobs:
     strategy:
       matrix:
         config:
-          - { os: macos-15, xcode: 16.4 }
+          - { os: macos-15-xlarge, xcode: 16.4 }
     runs-on: ${{ matrix.config.os }}
     needs: build-ios
     steps:
