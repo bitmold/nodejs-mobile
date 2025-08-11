@@ -46,7 +46,7 @@ from utils import SearchFiles
 parser = argparse.ArgumentParser()
 
 valid_os = ('win', 'mac', 'solaris', 'freebsd', 'openbsd', 'linux',
-            'android', 'aix', 'cloudabi', 'os400', 'ios')
+            'android', 'aix', 'cloudabi', 'os400', 'ios', 'openharmony')
 valid_arch = ('arm', 'arm64', 'ia32', 'mips', 'mipsel', 'mips64el', 'ppc',
               'ppc64', 'x64', 'x86', 'x86_64', 's390x', 'riscv64', 'loong64')
 valid_arm_float_abi = ('soft', 'softfp', 'hard')
@@ -130,6 +130,12 @@ parser.add_argument('--use-prefix-to-find-headers',
     default=None,
     help='use the prefix to look for pre-installed headers')
 
+parser.add_argument('--use_clang',
+    action='store_true',
+    dest='use_clang',
+    default=None,
+    help='use clang instead of gcc')
+
 parser.add_argument('--dest-os',
     action='store',
     dest='dest_os',
@@ -141,6 +147,12 @@ parser.add_argument('--error-on-warn',
     dest='error_on_warn',
     default=None,
     help='Turn compiler warnings into errors for node core sources.')
+
+parser.add_argument('--suppress-all-error-on-warn',
+    action='store_true',
+    dest='suppress_all_error_on_warn',
+    default=False,
+    help='Suppress cases where compiler warnings are turned into errors by default.')
 
 parser.add_argument('--gdb',
     action='store_true',
@@ -561,6 +573,29 @@ shared_optgroup.add_argument('--shared-sqlite-libpath',
     dest='shared_sqlite_libpath',
     help='a directory to search for the shared sqlite DLL')
 
+shared_optgroup.add_argument('--shared-zstd',
+    action='store_true',
+    dest='shared_zstd',
+    default=None,
+    help='link to a shared zstd DLL instead of static linking')
+
+shared_optgroup.add_argument('--shared-zstd-includes',
+    action='store',
+    dest='shared_zstd_includes',
+    help='directory containing zstd header files')
+
+shared_optgroup.add_argument('--shared-zstd-libname',
+    action='store',
+    dest='shared_zstd_libname',
+    default='zstd',
+    help='alternative lib name to link to [default: %(default)s]')
+
+shared_optgroup.add_argument('--shared-zstd-libpath',
+    action='store',
+    dest='shared_zstd_libpath',
+    help='a directory to search for the shared zstd DLL')
+
+parser.add_argument_group(shared_optgroup)
 
 for builtin in shareable_builtins:
   builtin_id = 'shared_builtin_' + builtin + '_path'
@@ -784,6 +819,12 @@ parser.add_argument('--without-corepack',
     default=None,
     help='do not install the bundled Corepack')
 
+parser.add_argument('--control-flow-guard',
+    action='store_true',
+    dest='enable_cfg',
+    default=None,
+    help='enable Control Flow Guard (CFG)')
+
 # Dummy option for backwards compatibility
 parser.add_argument('--without-report',
     action='store_true',
@@ -822,6 +863,12 @@ parser.add_argument('--without-node-options',
     dest='without_node_options',
     default=None,
     help='build without NODE_OPTIONS support')
+
+parser.add_argument('--without-sqlite',
+    action='store_true',
+    dest='without_sqlite',
+    default=None,
+    help='build without SQLite (disables SQLite and Web Storage API)')
 
 parser.add_argument('--ninja',
     action='store_true',
@@ -985,6 +1032,12 @@ parser.add_argument('--ios-simulator',
     action='store_true',
     dest='ios_simulator',
     help=argparse.SUPPRESS)
+    
+parser.add_argument('--use-ccache-win',
+    action='store_true',
+    dest='use_ccache_win',
+    default=None,
+    help='Use ccache for compiling on Windows. ')
 
 (options, args) = parser.parse_known_args()
 
@@ -1161,6 +1214,8 @@ def get_gas_version(cc):
 # check involves checking the build number against an allowlist.  I'm not
 # quite prepared to go that far yet.
 def check_compiler(o):
+  o['variables']['use_ccache_win'] = 0
+
   if sys.platform == 'win32':
     if options.clang_cl:
       o['variables']['clang'] = 1
@@ -1168,6 +1223,9 @@ def check_compiler(o):
     else:
       o['variables']['clang'] = 0
       o['variables']['llvm_version'] = '0.0'
+
+    if options.use_ccache_win:
+      o['variables']['use_ccache_win'] = 1
 
     if not options.openssl_no_asm and options.dest_cpu in ('x86', 'x64'):
       nasm_version = get_nasm_version('nasm')
@@ -1359,7 +1417,7 @@ def configure_zos(o):
   o['variables']['node_static_zoslib'] = b(True)
   if options.static_zoslib_gyp:
     # Apply to all Node.js components for now
-    o['variables']['zoslib_include_dir'] = Path(options.static_zoslib_gyp).parent + '/include'
+    o['variables']['zoslib_include_dir'] = Path(options.static_zoslib_gyp).parent / 'include'
     o['include_dirs'] += [o['variables']['zoslib_include_dir']]
   else:
     raise Exception('--static-zoslib-gyp=<path to zoslib.gyp file> is required.')
@@ -1389,15 +1447,26 @@ def configure_node(o):
   if options.dest_os == 'ios':
     o['variables']['OS'] = 'ios'
     o['variables']['iossim'] = b(options.ios_simulator)
+
+def configure_node_cctest_sources(o):
+  o['variables']['node_cctest_sources'] = [ 'src/node_snapshot_stub.cc' ] + \
+    SearchFiles('test/cctest', 'cc') + \
+    SearchFiles('test/cctest', 'h')
+
+def configure_node(o):
   if options.dest_os == 'android':
     o['variables']['OS'] = 'android'
   o['variables']['node_prefix'] = options.prefix
   o['variables']['node_install_npm'] = b(not options.without_npm)
   o['variables']['node_install_corepack'] = b(not options.without_corepack)
+  o['variables']['control_flow_guard'] = b(options.enable_cfg)
   o['variables']['node_use_amaro'] = b(not options.without_amaro)
   o['variables']['debug_node'] = b(options.debug_node)
   o['default_configuration'] = 'Debug' if options.debug else 'Release'
+  if options.error_on_warn and options.suppress_all_error_on_warn:
+    raise Exception('--error_on_warn is incompatible with --suppress_all_error_on_warn.')
   o['variables']['error_on_warn'] = b(options.error_on_warn)
+  o['variables']['suppress_all_error_on_warn'] = b(options.suppress_all_error_on_warn)
   o['variables']['use_prefix_to_find_headers'] = b(options.use_prefix_to_find_headers)
 
   host_arch = host_arch_win() if os.name == 'nt' else host_arch_cc()
@@ -1412,6 +1481,10 @@ def configure_node(o):
   o['variables']['host_arch'] = host_arch
   o['variables']['target_arch'] = target_arch
   o['variables']['node_byteorder'] = sys.byteorder
+
+  # Allow overriding the compiler - needed by embedders.
+  if options.use_clang:
+    o['variables']['clang'] = 1
 
   cross_compiling = (options.cross_compiling
                      if options.cross_compiling is not None
@@ -1654,7 +1727,15 @@ def configure_v8(o, configs):
   o['variables']['v8_use_siphash'] = 0 if options.without_siphash else 1
   o['variables']['v8_enable_maglev'] = 1 if options.v8_enable_maglev else 0
   o['variables']['v8_enable_pointer_compression'] = 1 if options.enable_pointer_compression else 0
-  o['variables']['v8_enable_sandbox'] = 1 if options.enable_pointer_compression else 0
+  # Using the sandbox requires always allocating array buffer backing stores in the sandbox.
+  # We currently have many backing stores tied to pointers from C++ land that are not
+  # even necessarily dynamic (e.g. in static storage) for fast communication between JS and C++.
+  # Until we manage to get rid of all those, v8_enable_sandbox cannot be used.
+  # Note that enabling pointer compression without enabling sandbox is unsupported by V8,
+  # so this can be broken at any time.
+  o['variables']['v8_enable_sandbox'] = 0
+  o['variables']['v8_enable_pointer_compression_shared_cage'] = 1 if options.enable_pointer_compression else 0
+  o['variables']['v8_enable_external_code_space'] = 1 if options.enable_pointer_compression else 0
   o['variables']['v8_enable_31bit_smis_on_64bit_arch'] = 1 if options.enable_pointer_compression else 0
   o['variables']['v8_enable_shared_ro_heap'] = 0 if options.enable_pointer_compression or options.disable_shared_ro_heap else 1
   o['variables']['v8_enable_extensible_ro_snapshot'] = 0
@@ -1680,6 +1761,9 @@ def configure_v8(o, configs):
     raise Exception(
         'Only one of the --v8-enable-object-print or --v8-disable-object-print options '
         'can be specified at a time.')
+  if sys.platform != 'darwin':
+    if o['variables']['v8_enable_webassembly'] and o['variables']['target_arch'] == 'x64':
+      o['variables']['v8_enable_wasm_simd256_revec'] = 1
 
 def configure_openssl(o):
   variables = o['variables']
@@ -1760,6 +1844,16 @@ def configure_openssl(o):
 
   configure_library('openssl', o)
 
+def configure_sqlite(o):
+  o['variables']['node_use_sqlite'] = b(not options.without_sqlite)
+  if options.without_sqlite:
+    def without_sqlite_error(option):
+      error(f'--without-sqlite is incompatible with {option}')
+    if options.shared_sqlite:
+      without_sqlite_error('--shared-sqlite')
+    return
+
+  configure_library('sqlite', o, pkgname='sqlite3')
 
 def configure_static(o):
   if options.fully_static or options.partly_static:
@@ -1884,7 +1978,7 @@ def configure_intl(o):
   elif with_intl == 'system-icu':
     # ICU from pkg-config.
     o['variables']['v8_enable_i18n_support'] = 1
-    pkgicu = pkg_config('icu-i18n')
+    pkgicu = pkg_config(['icu-i18n', 'icu-uc'])
     if not pkgicu[0]:
       error('''Could not load pkg-config data for "icu-i18n".
        See above errors or the README.md.''')
@@ -2190,6 +2284,7 @@ flavor = GetFlavor(flavor_params)
 
 configure_node(output)
 configure_node_lib_files(output)
+configure_node_cctest_sources(output)
 configure_napi(output)
 configure_library('zlib', output)
 configure_library('http_parser', output)
@@ -2202,8 +2297,9 @@ configure_library('cares', output, pkgname='libcares')
 configure_library('nghttp2', output, pkgname='libnghttp2')
 configure_library('nghttp3', output, pkgname='libnghttp3')
 configure_library('ngtcp2', output, pkgname='libngtcp2')
-configure_library('sqlite', output, pkgname='sqlite3')
-configure_library('uvwasi', output, pkgname='libuvwasi')
+configure_sqlite(output);
+configure_library('uvwasi', output)
+configure_library('zstd', output, pkgname='libzstd')
 configure_v8(output, configurations)
 configure_openssl(output)
 configure_intl(output)
@@ -2315,8 +2411,9 @@ else:
 
 if options.compile_commands_json:
   gyp_args += ['-f', 'compile_commands_json']
-  os.path.islink('./compile_commands.json') and os.unlink('./compile_commands.json')
-  os.symlink('./out/' + config['BUILDTYPE'] + '/compile_commands.json', './compile_commands.json')
+  if sys.platform != 'win32':
+    os.path.lexists('./compile_commands.json') and os.unlink('./compile_commands.json')
+    os.symlink('./out/' + config['BUILDTYPE'] + '/compile_commands.json', './compile_commands.json')
 
 # pass the leftover non-whitespace positional arguments to GYP
 gyp_args += [arg for arg in args if not str.isspace(arg)]
@@ -2326,4 +2423,7 @@ if warn.warned and not options.verbose:
 
 print_verbose("running: \n    " + " ".join(['python', 'tools/gyp_node.py'] + gyp_args))
 run_gyp(gyp_args)
+if options.compile_commands_json and sys.platform == 'win32':
+  os.path.isfile('./compile_commands.json') and os.unlink('./compile_commands.json')
+  shutil.copy2('./out/' + config['BUILDTYPE'] + '/compile_commands.json', './compile_commands.json')
 info('configure completed successfully')

@@ -83,11 +83,13 @@ assert.ok(hostname.length > 0);
 
 // IBMi process priority is different.
 if (!common.isIBMi) {
-  const DUMMY_PRIORITY = 10;
-  os.setPriority(DUMMY_PRIORITY);
+  const { PRIORITY_BELOW_NORMAL, PRIORITY_LOW } = os.constants.priority;
+  // Priority means niceness: higher numeric value <=> lower priority
+  const LOWER_PRIORITY = os.getPriority() < PRIORITY_BELOW_NORMAL ? PRIORITY_BELOW_NORMAL : PRIORITY_LOW;
+  os.setPriority(LOWER_PRIORITY);
   const priority = os.getPriority();
   is.number(priority);
-  assert.strictEqual(priority, DUMMY_PRIORITY);
+  assert.strictEqual(priority, LOWER_PRIORITY);
 }
 
 // On IBMi, os.uptime() returns 'undefined'
@@ -97,20 +99,17 @@ if (!common.isIBMi) {
   assert.ok(uptime > 0);
 }
 
-if (!common.isAndroid && !common.isIOS) {
-  // API is inconsistent on mobile.
-  const cpus = os.cpus();
-  is.array(cpus);
-  assert.ok(cpus.length > 0);
-  for (const cpu of cpus) {
-    assert.strictEqual(typeof cpu.model, 'string');
-    assert.strictEqual(typeof cpu.speed, 'number');
-    assert.strictEqual(typeof cpu.times.user, 'number');
-    assert.strictEqual(typeof cpu.times.nice, 'number');
-    assert.strictEqual(typeof cpu.times.sys, 'number');
-    assert.strictEqual(typeof cpu.times.idle, 'number');
-    assert.strictEqual(typeof cpu.times.irq, 'number');
-  }
+const cpus = os.cpus();
+is.array(cpus);
+assert.ok(cpus.length > 0);
+for (const cpu of cpus) {
+  assert.strictEqual(typeof cpu.model, 'string');
+  assert.strictEqual(typeof cpu.speed, 'number');
+  assert.strictEqual(typeof cpu.times.user, 'number');
+  assert.strictEqual(typeof cpu.times.nice, 'number');
+  assert.strictEqual(typeof cpu.times.sys, 'number');
+  assert.strictEqual(typeof cpu.times.idle, 'number');
+  assert.strictEqual(typeof cpu.times.irq, 'number');
 }
 
 const type = os.type();

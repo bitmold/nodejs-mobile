@@ -101,7 +101,7 @@ benchmarks. This increases the likelihood of each benchmark achieving peak perfo
 according to the hardware. Therefore, run:
 
 ```console
-$ ./benchmarks/cpu.sh fast
+$ ./benchmark/cpu.sh fast
 ```
 
 ### Running individual benchmarks
@@ -173,6 +173,16 @@ It is possible to execute more groups by adding extra process arguments.
 ```bash
 node benchmark/run.js assert async_hooks
 ```
+
+It's also possible to execute the benchmark more than once using the
+`--runs` flag.
+
+```bash
+node benchmark/run.js --runs 10 assert async_hooks
+```
+
+This command will run the benchmark files in `benchmark/assert` and `benchmark/async_hooks`
+10 times each.
 
 #### Specifying CPU Cores for Benchmarks with run.js
 
@@ -528,7 +538,7 @@ The arguments of `createBenchmark` are:
         source: ['buffer', 'string'],
         len: [2048],
         n: [50, 2048],
-      }
+      },
     }, { byGroups: true });
     ```
 

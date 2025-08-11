@@ -108,10 +108,7 @@ const setup = dgram.createSocket.bind(dgram, { type: 'udp4', reuseAddr: true });
   const socket = setup();
   assert.throws(() => {
     socket.addSourceSpecificMembership(multicastAddress, '0');
-  }, common.isAndroid ? {
-    code: 'ENOSYS',
-    message: 'addSourceSpecificMembership ENOSYS'
-  } : {
+  }, {
     code: 'EINVAL',
     message: 'addSourceSpecificMembership EINVAL'
   });
@@ -149,10 +146,7 @@ const setup = dgram.createSocket.bind(dgram, { type: 'udp4', reuseAddr: true });
   const socket = setup();
   assert.throws(() => {
     socket.dropSourceSpecificMembership(multicastAddress, '0');
-  }, common.isAndroid ? {
-    code: 'ENOSYS',
-    message: 'dropSourceSpecificMembership ENOSYS'
-  } : {
+  }, {
     code: 'EINVAL',
     message: 'dropSourceSpecificMembership EINVAL'
   });

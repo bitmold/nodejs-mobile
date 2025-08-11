@@ -29,12 +29,15 @@ const repl = require('repl');
 const cp = require('child_process');
 
 assert.strictEqual(repl.repl, undefined);
+
 repl._builtinLibs; // eslint-disable-line no-unused-expressions
+repl.builtinModules; // eslint-disable-line no-unused-expressions
 
 common.expectWarning({
   DeprecationWarning: {
     DEP0142:
       'repl._builtinLibs is deprecated. Check module.builtinModules instead',
+    DEP0191: 'repl.builtinModules is deprecated. Check module.builtinModules instead',
     DEP0141: 'repl.inputStream and repl.outputStream are deprecated. ' +
              'Use repl.input and repl.output instead',
   }
@@ -108,11 +111,7 @@ assert.strictEqual(r4.getPrompt(), '> ');
 assert.strictEqual(r4.input, process.stdin);
 assert.strictEqual(r4.output, process.stdout);
 assert.strictEqual(r4.terminal, !!r4.output.isTTY);
-if (common.isIOS) {
-  assert.strictEqual(r4.useColors, r4.output.hasColors());
-} else {
-  assert.strictEqual(r4.useColors, r4.terminal);
-}
+assert.strictEqual(r4.useColors, r4.terminal);
 assert.strictEqual(r4.useGlobal, false);
 assert.strictEqual(r4.ignoreUndefined, false);
 assert.strictEqual(r4.replMode, repl.REPL_MODE_SLOPPY);
@@ -137,6 +136,5 @@ r4.close();
   child.stdin.write(
     'assert.ok(util.inspect(repl.repl, {depth: -1}).includes("REPLServer"));\n'
   );
-  child.stdin.write('.exit');
-  child.stdin.end();
+  child.stdin.write('.exit\n');
 }

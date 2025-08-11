@@ -23,9 +23,11 @@
 const common = require('../common');
 const fixtures = require('../common/fixtures');
 const tmpdir = require('../common/tmpdir');
+const { isMainThread } = require('worker_threads');
 
-if (!common.isMainThread)
+if (!isMainThread) {
   common.skip('process.chdir is not available in Workers');
+}
 
 const assert = require('assert');
 const fs = require('fs');
@@ -256,13 +258,7 @@ function test_cyclic_link_overprotection(realpath, realpathSync, callback) {
   const folder = `${cycles}/folder`;
   const link = `${folder}/cycles`;
   let testPath = cycles;
-  if (common.isAndroid) {
-    // MAXSYMLINKS is defined as 8 in the NDK, so we can only test up to that
-    // value for Android.
-    testPath += '/folder/cycles'.repeat(8);
-  } else {
-    testPath += '/folder/cycles'.repeat(10);
-  }
+  testPath += '/folder/cycles'.repeat(10);
   try { fs.unlinkSync(link); } catch {
     // Continue regardless of error.
   }

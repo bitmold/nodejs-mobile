@@ -1042,13 +1042,13 @@ changes:
   * `contextExtensions` {Object\[]} An array containing a collection of context
     extensions (objects wrapping the current scope) to be applied while
     compiling. **Default:** `[]`.
-* `importModuleDynamically`
-  {Function|vm.constants.USE\_MAIN\_CONTEXT\_DEFAULT\_LOADER}
-  Used to specify the how the modules should be loaded during the evaluation of
-  this function when `import()` is called. This option is part of the
-  experimental modules API. We do not recommend using it in a production
-  environment. For detailed information, see
-  [Support of dynamic `import()` in compilation APIs][].
+  * `importModuleDynamically`
+    {Function|vm.constants.USE\_MAIN\_CONTEXT\_DEFAULT\_LOADER}
+    Used to specify the how the modules should be loaded during the evaluation of
+    this function when `import()` is called. This option is part of the
+    experimental modules API. We do not recommend using it in a production
+    environment. For detailed information, see
+    [Support of dynamic `import()` in compilation APIs][].
 * Returns: {Function}
 
 Compiles the given code into the provided context (if no context is
@@ -1555,8 +1555,8 @@ console.log(`evalResult: '${evalResult}', localVar: '${localVar}'`);
 ```
 
 Because `vm.runInThisContext()` does not have access to the local scope,
-`localVar` is unchanged. In contrast, [`eval()`][] _does_ have access to the
-local scope, so the value `localVar` is changed. In this way
+`localVar` is unchanged. In contrast, a direct `eval()` call _does_ have access
+to the local scope, so the value `localVar` is changed. In this way
 `vm.runInThisContext()` is much like an [indirect `eval()` call][], e.g.
 `(0,eval)('code')`.
 
@@ -1618,12 +1618,12 @@ in the outer context.
 const vm = require('node:vm');
 
 // An undefined `contextObject` option makes the global object contextified.
-let context = vm.createContext();
+const context = vm.createContext();
 console.log(vm.runInContext('globalThis', context) === context);  // false
 // A contextified global object cannot be frozen.
 try {
   vm.runInContext('Object.freeze(globalThis);', context);
-} catch(e) {
+} catch (e) {
   console.log(e); // TypeError: Cannot freeze
 }
 console.log(vm.runInContext('globalThis.foo = 1; foo;', context));  // 1
@@ -1648,7 +1648,7 @@ const context = vm.createContext(vm.constants.DONT_CONTEXTIFY);
 vm.runInContext('Object.freeze(globalThis);', context);
 try {
   vm.runInContext('bar = 1; bar;', context);
-} catch(e) {
+} catch (e) {
   console.log(e); // Uncaught ReferenceError: bar is not defined
 }
 ```
@@ -1677,7 +1677,7 @@ console.log(vm.runInContext('bar;', context));  // 1
 Object.freeze(context);
 try {
   vm.runInContext('baz = 1; baz;', context);
-} catch(e) {
+} catch (e) {
   console.log(e); // Uncaught ReferenceError: baz is not defined
 }
 ```
@@ -1954,10 +1954,10 @@ const { Script, SyntheticModule } = require('node:vm');
 [GetModuleNamespace]: https://tc39.es/ecma262/#sec-getmodulenamespace
 [HostResolveImportedModule]: https://tc39.es/ecma262/#sec-hostresolveimportedmodule
 [Link() concrete method]: https://tc39.es/ecma262/#sec-moduledeclarationlinking
-[Module Record]: https://262.ecma-international.org/14.0/#sec-abstract-module-records
+[Module Record]: https://tc39.es/ecma262/#sec-abstract-module-records
 [Source Text Module Record]: https://tc39.es/ecma262/#sec-source-text-module-records
 [Support of dynamic `import()` in compilation APIs]: #support-of-dynamic-import-in-compilation-apis
-[Synthetic Module Record]: https://heycam.github.io/webidl/#synthetic-module-records
+[Synthetic Module Record]: https://tc39.es/ecma262/#sec-synthetic-module-records
 [V8 Embedder's Guide]: https://v8.dev/docs/embed#contexts
 [`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING_FLAG`]: errors.md#err_vm_dynamic_import_callback_missing_flag
 [`ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`]: errors.md#err_vm_dynamic_import_callback_missing
@@ -1975,6 +1975,6 @@ const { Script, SyntheticModule } = require('node:vm');
 [`vm.runInContext()`]: #vmrunincontextcode-contextifiedobject-options
 [`vm.runInThisContext()`]: #vmruninthiscontextcode-options
 [contextified]: #what-does-it-mean-to-contextify-an-object
-[global object]: https://es5.github.io/#x15.1
-[indirect `eval()` call]: https://es5.github.io/#x10.4.2
+[global object]: https://tc39.es/ecma262/#sec-global-object
+[indirect `eval()` call]: https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/eval#direct_and_indirect_eval
 [origin]: https://developer.mozilla.org/en-US/docs/Glossary/Origin

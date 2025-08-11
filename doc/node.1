@@ -160,10 +160,19 @@ Requires Node.js to be built with
 .It Fl -enable-source-maps
 Enable Source Map V3 support for stack traces.
 .
+.It Fl -entry-url
+Interpret the entry point as a URL.
+.
 .It Fl -experimental-default-type Ns = Ns Ar type
 Interpret as either ES modules or CommonJS modules input via --eval or STDIN, when --input-type is unspecified;
 .js or extensionless files with no sibling or parent package.json;
 .js or extensionless files whose nearest parent package.json lacks a "type" field, unless under node_modules.
+.
+.It Fl -experimental-config-file
+Specifies the configuration file to load.
+.
+.It Fl -experimental-default-config-file
+Enable support for automatically loading node.config.json.
 .
 .It Fl -experimental-import-meta-resolve
 Enable experimental ES modules support for import.meta.resolve().
@@ -173,14 +182,11 @@ Specify the
 .Ar module
 to use as a custom module loader.
 .
-.It Fl -experimental-permission
-Enable the experimental permission model.
+.It Fl -permission
+Enable the permission model.
 .
 .It Fl -experimental-shadow-realm
 Use this flag to enable ShadowRealm support.
-.
-.It Fl -experimental-sqlite
-Enable the experimental node:sqlite module.
 .
 .It Fl -experimental-test-coverage
 Enable code coverage in the test runner.
@@ -190,12 +196,6 @@ Configures the type of test isolation used in the test runner.
 .
 .It Fl -experimental-test-module-mocks
 Enable module mocking in the test runner.
-.
-.It Fl -experimental-test-snapshots
-Enable snapshot testing in the test runner.
-.
-.It Fl -experimental-strip-types
-Enable experimental type-stripping for TypeScript files.
 .
 .It Fl -experimental-transform-types
 Enable transformation of TypeScript-only syntax into JavaScript code.
@@ -220,6 +220,12 @@ Disable exposition of the Web Crypto API on the global scope.
 .
 .It Fl -no-experimental-repl-await
 Disable top-level await keyword support in REPL.
+.
+.It Fl -no-experimental-sqlite
+Disable the experimental node:sqlite module.
+.
+.It Fl -no-experimental-strip-types
+Disable experimental type-stripping for TypeScript files.
 .
 .It Fl -experimental-vm-modules
 Enable experimental ES module support in VM module.
@@ -621,6 +627,19 @@ Print V8 command-line options.
 Set V8's thread pool size which will be used to allocate background jobs.
 If set to 0 then V8 will choose an appropriate size of the thread pool based on the number of online processors.
 If the value provided is larger than V8's maximum, then the largest value will be chosen.
+.
+.It Fl -watch
+Starts Node.js in watch mode. When in watch mode, changes in the watched files cause the Node.js process to restart.
+
+By default, watch mode will watch the entry point and any required or imported module. Use --watch-path to specify what paths to watch.
+.
+.It Fl -watch-path
+Starts Node.js in watch mode and specifies what paths to watch. When in watch mode, changes in the watched paths cause the Node.js process to restart.
+
+This will turn off watching of required or imported modules, even when used in combination with --watch.
+.
+.It Fl -watch-kill-signal
+Customizes the signal sent to the process on watch mode restarts.
 .
 .It Fl -zero-fill-buffers
 Automatically zero-fills all newly allocated Buffer and SlowBuffer instances.

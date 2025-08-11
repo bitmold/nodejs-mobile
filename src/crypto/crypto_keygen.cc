@@ -12,6 +12,7 @@
 
 namespace node {
 
+using ncrypto::EVPKeyCtxPointer;
 using v8::FunctionCallbackInfo;
 using v8::Int32;
 using v8::JustVoid;
@@ -48,8 +49,7 @@ Maybe<void> NidKeyPairGenTraits::AdditionalConfig(
 EVPKeyCtxPointer NidKeyPairGenTraits::Setup(NidKeyPairGenConfig* params) {
   EVPKeyCtxPointer ctx =
       EVPKeyCtxPointer(EVP_PKEY_CTX_new_id(params->params.id, nullptr));
-  if (!ctx || EVP_PKEY_keygen_init(ctx.get()) <= 0)
-    return EVPKeyCtxPointer();
+  if (!ctx || EVP_PKEY_keygen_init(ctx.get()) <= 0) return {};
 
   return ctx;
 }

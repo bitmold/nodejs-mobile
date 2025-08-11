@@ -84,8 +84,7 @@ watcher.on('stop', common.mustCall());
 
 // Watch events should callback with a filename on supported systems.
 // Omitting AIX. It works but not reliably.
-// nodejs-mobile patch: add isIOS and isAndroid
-if (common.isLinux || common.isMacOS || common.isWindows || common.isAndroid) {
+if (common.isLinux || common.isMacOS || common.isWindows) {
   const dir = tmpdir.resolve('watch');
   function doWatch() {
     const handle = fs.watch(dir, common.mustCall(function(eventType, filename) {

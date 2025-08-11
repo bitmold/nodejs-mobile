@@ -24,13 +24,6 @@ const common = require('../common');
 
 const assert = require('assert');
 const fs = require('fs');
-const path = require('path');
-
-if (common.isIOS || common.isAndroid) {
-  // Change the working dir for what would be expected of the test framework
-  // running in a Desktop environment.
-  process.chdir(path.join(__dirname, '..', '..'));
-}
 
 fs.stat('.', common.mustSucceed(function(stats) {
   assert.ok(stats.mtime instanceof Date);
@@ -218,4 +211,18 @@ fs.lstat(__filename, undefined, common.mustCall());
     assert.strictEqual(s.ctime, 4);
     assert.strictEqual(s.birthtime, 5);
   }));
+}
+
+{
+  assert.throws(
+    () => fs.fstat(Symbol('test'), () => {}),
+    {
+      code: 'ERR_INVALID_ARG_TYPE',
+    },
+  );
+}
+
+{
+  // Test that the throwIfNoEntry option works and returns undefined
+  assert.ok(!(fs.statSync('./wont_exists', { throwIfNoEntry: false })));
 }

@@ -1,5 +1,4 @@
-import { mustCall, mustNotMutateObjectDeep, isIOS, isAndroid } from '../common/index.mjs';
-import { path as fixturesPath } from '../common/fixtures.mjs'; // nodejs-mobile patch
+import { mustCall, mustNotMutateObjectDeep, isInsideDirWithUnusualChars } from '../common/index.mjs';
 
 import assert from 'assert';
 import fs from 'fs';
@@ -25,15 +24,23 @@ import tmpdir from '../common/tmpdir.js';
 tmpdir.refresh();
 
 let dirc = 0;
-function nextdir() {
-  return tmpdir.resolve(`copy_${++dirc}`);
+function nextdir(dirname) {
+  return tmpdir.resolve(dirname || `copy_%${++dirc}`);
 }
 
 // Synchronous implementation of copy.
 
+// It copies a nested folder containing UTF characters.
+{
+  const src = './test/fixtures/copy/utf/新建文件夹';
+  const dest = nextdir();
+  cpSync(src, dest, mustNotMutateObjectDeep({ recursive: true }));
+  assertDirEquivalent(src, dest);
+}
+
 // It copies a nested folder structure with files and folders.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cpSync(src, dest, mustNotMutateObjectDeep({ recursive: true }));
   assertDirEquivalent(src, dest);
@@ -42,7 +49,7 @@ function nextdir() {
 // It copies a nested folder structure with mode flags.
 // This test is based on fs.promises.copyFile() with `COPYFILE_FICLONE_FORCE`.
 (() => {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   try {
     cpSync(src, dest, mustNotMutateObjectDeep({
@@ -80,7 +87,7 @@ function nextdir() {
 
 // It overwrites existing files if force is true.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   mkdirSync(dest, mustNotMutateObjectDeep({ recursive: true }));
   writeFileSync(join(dest, 'README.md'), '# Goodbye', 'utf8');
@@ -93,7 +100,7 @@ function nextdir() {
 // It does not fail if the same directory is copied to dest twice,
 // when dereference is true, and force is false (fails silently).
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   const destFile = join(dest, 'a/b/README2.md');
   cpSync(src, dest, mustNotMutateObjectDeep({ dereference: true, recursive: true }));
@@ -119,6 +126,7 @@ function nextdir() {
   assert(stat.isFile());
 }
 
+
 // It overrides target directory with what symlink points to, when dereference is true.
 {
   const src = nextdir();
@@ -138,7 +146,7 @@ function nextdir() {
 
 // It throws error when verbatimSymlinks is not a boolean.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   [1, [], {}, null, 1n, undefined, null, Symbol(), '', () => {}]
     .forEach((verbatimSymlinks) => {
       assert.throws(
@@ -159,7 +167,7 @@ function nextdir() {
 
 // It throws an error when both dereference and verbatimSymlinks are enabled.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   assert.throws(
     () => cpSync(src, src, mustNotMutateObjectDeep({ dereference: true, verbatimSymlinks: true })),
     { code: 'ERR_INCOMPATIBLE_OPTION_PAIR' }
@@ -217,7 +225,7 @@ function nextdir() {
 
 // It throws error when src and dest are identical.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   assert.throws(
     () => cpSync(src, src),
     { code: 'ERR_FS_CP_EINVAL' }
@@ -256,7 +264,7 @@ function nextdir() {
 }
 
 // It throws error if parent directory of symlink in dest points to src.
-{
+if (!isInsideDirWithUnusualChars) {
   const src = nextdir();
   mkdirSync(join(src, 'a'), mustNotMutateObjectDeep({ recursive: true }));
   const dest = nextdir();
@@ -271,10 +279,10 @@ function nextdir() {
 }
 
 // It throws error if attempt is made to copy directory to file.
-{
+if (!isInsideDirWithUnusualChars) {
   const src = nextdir();
   mkdirSync(src, mustNotMutateObjectDeep({ recursive: true }));
-  const dest = fixturesPath('copy/kitchen-sink/README.md'); // nodejs-mobile patch
+  const dest = './test/fixtures/copy/kitchen-sink/README.md';
   assert.throws(
     () => cpSync(src, dest),
     { code: 'ERR_FS_CP_DIR_TO_NON_DIR' }
@@ -283,7 +291,7 @@ function nextdir() {
 
 // It allows file to be copied to a file path.
 {
-  const srcFile = fixturesPath('copy/kitchen-sink/index.js'); // nodejs-mobile patch
+  const srcFile = './test/fixtures/copy/kitchen-sink/index.js';
   const destFile = join(nextdir(), 'index.js');
   cpSync(srcFile, destFile, mustNotMutateObjectDeep({ dereference: true }));
   const stat = lstatSync(destFile);
@@ -292,7 +300,7 @@ function nextdir() {
 
 // It throws error if directory copied without recursive flag.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   assert.throws(
     () => cpSync(src, dest),
@@ -302,8 +310,8 @@ function nextdir() {
 
 
 // It throws error if attempt is made to copy file to directory.
-{
-  const src = fixturesPath('copy/kitchen-sink/README.md'); // nodejs-mobile patch
+if (!isInsideDirWithUnusualChars) {
+  const src = './test/fixtures/copy/kitchen-sink/README.md';
   const dest = nextdir();
   mkdirSync(dest, mustNotMutateObjectDeep({ recursive: true }));
   assert.throws(
@@ -312,10 +320,49 @@ function nextdir() {
   );
 }
 
+// It must not throw error if attempt is made to copy to dest
+// directory with same prefix as src directory
+// regression test for https://github.com/nodejs/node/issues/54285
+{
+  const src = nextdir('prefix');
+  const dest = nextdir('prefix-a');
+  mkdirSync(src);
+  mkdirSync(dest);
+  cpSync(src, dest, mustNotMutateObjectDeep({ recursive: true }));
+}
+
+// It must not throw error if attempt is made to copy to dest
+// directory if the parent of dest has same prefix as src directory
+// regression test for https://github.com/nodejs/node/issues/54285
+{
+  const src = nextdir('aa');
+  const destParent = nextdir('aaa');
+  const dest = nextdir('aaa/aabb');
+  mkdirSync(src);
+  mkdirSync(destParent);
+  mkdirSync(dest);
+  cpSync(src, dest, mustNotMutateObjectDeep({ recursive: true }));
+}
+
+// It throws error if attempt is made to copy src to dest
+// when src is parent directory of the parent of dest
+if (!isInsideDirWithUnusualChars) {
+  const src = nextdir('a');
+  const destParent = nextdir('a/b');
+  const dest = nextdir('a/b/c');
+  mkdirSync(src);
+  mkdirSync(destParent);
+  mkdirSync(dest);
+  assert.throws(
+    () => cpSync(src, dest, mustNotMutateObjectDeep({ recursive: true })),
+    { code: 'ERR_FS_CP_EINVAL' },
+  );
+}
+
 // It throws error if attempt is made to copy to subdirectory of self.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
-  const dest = fixturesPath('copy/kitchen-sink/a'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
+  const dest = './test/fixtures/copy/kitchen-sink/a';
   assert.throws(
     () => cpSync(src, dest),
     { code: 'ERR_FS_CP_EINVAL' }
@@ -323,7 +370,7 @@ function nextdir() {
 }
 
 // It throws an error if attempt is made to copy socket.
-if (!isWindows && !isIOS && !isAndroid) {
+if (!isWindows && !isInsideDirWithUnusualChars) {
   const src = nextdir();
   mkdirSync(src);
   const dest = nextdir();
@@ -339,7 +386,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It copies timestamps from src to dest if preserveTimestamps is true.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cpSync(src, dest, mustNotMutateObjectDeep({ preserveTimestamps: true, recursive: true }));
   assertDirEquivalent(src, dest);
@@ -350,7 +397,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It applies filter function.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cpSync(src, dest, {
     filter: (path) => {
@@ -372,7 +419,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It throws error if filter function is asynchronous.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   assert.throws(() => {
     cpSync(src, dest, {
@@ -390,7 +437,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 // It throws error if errorOnExist is true, force is false, and file or folder
 // copied over.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cpSync(src, dest, mustNotMutateObjectDeep({ recursive: true }));
   assert.throws(
@@ -446,6 +493,9 @@ if (!isWindows && !isIOS && !isAndroid) {
   const dest = nextdir();
   mkdirSync(dest, mustNotMutateObjectDeep({ recursive: true }));
   writeFileSync(join(src, 'foo.txt'), 'foo', mustNotMutateObjectDeep({ mode: 0o444 }));
+  // Small wait to make sure that destStat.mtime.getTime() would produce a time
+  // different from srcStat.mtime.getTime() if preserveTimestamps wasn't set to true
+  await setTimeout(5);
   cpSync(src, dest, mustNotMutateObjectDeep({ preserveTimestamps: true, recursive: true }));
   assertDirEquivalent(src, dest);
   const srcStat = lstatSync(join(src, 'foo.txt'));
@@ -468,7 +518,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It accepts file URL as src and dest.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cpSync(pathToFileURL(src), pathToFileURL(dest), mustNotMutateObjectDeep({ recursive: true }));
   assertDirEquivalent(src, dest);
@@ -486,7 +536,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It copies a nested folder structure with files and folders.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cp(src, dest, mustNotMutateObjectDeep({ recursive: true }), mustCall((err) => {
     assert.strictEqual(err, null);
@@ -497,7 +547,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 // It copies a nested folder structure with mode flags.
 // This test is based on fs.promises.copyFile() with `COPYFILE_FICLONE_FORCE`.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cp(src, dest, mustNotMutateObjectDeep({
     recursive: true,
@@ -542,7 +592,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It overwrites existing files if force is true.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   mkdirSync(dest, mustNotMutateObjectDeep({ recursive: true }));
   writeFileSync(join(dest, 'README.md'), '# Goodbye', 'utf8');
@@ -558,7 +608,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 // It does not fail if the same directory is copied to dest twice,
 // when dereference is true, and force is false (fails silently).
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   const destFile = join(dest, 'a/b/README2.md');
   cpSync(src, dest, mustNotMutateObjectDeep({ dereference: true, recursive: true }));
@@ -594,7 +644,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It returns error when src and dest are identical.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   cp(src, src, mustCall((err) => {
     assert.strictEqual(err.code, 'ERR_FS_CP_EINVAL');
   }));
@@ -645,7 +695,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 {
   const src = nextdir();
   mkdirSync(src, mustNotMutateObjectDeep({ recursive: true }));
-  const dest = fixturesPath('copy/kitchen-sink/README.md'); // nodejs-mobile patch
+  const dest = './test/fixtures/copy/kitchen-sink/README.md';
   cp(src, dest, mustCall((err) => {
     assert.strictEqual(err.code, 'ERR_FS_CP_DIR_TO_NON_DIR');
   }));
@@ -653,7 +703,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It allows file to be copied to a file path.
 {
-  const srcFile = fixturesPath('copy/kitchen-sink/README.md'); // nodejs-mobile patch
+  const srcFile = './test/fixtures/copy/kitchen-sink/README.md';
   const destFile = join(nextdir(), 'index.js');
   cp(srcFile, destFile, mustNotMutateObjectDeep({ dereference: true }), mustCall((err) => {
     assert.strictEqual(err, null);
@@ -664,7 +714,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It returns error if directory copied without recursive flag.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cp(src, dest, mustCall((err) => {
     assert.strictEqual(err.code, 'ERR_FS_EISDIR');
@@ -673,7 +723,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It returns error if attempt is made to copy file to directory.
 {
-  const src = fixturesPath('copy/kitchen-sink/README.md'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink/README.md';
   const dest = nextdir();
   mkdirSync(dest, mustNotMutateObjectDeep({ recursive: true }));
   cp(src, dest, mustCall((err) => {
@@ -683,15 +733,15 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It returns error if attempt is made to copy to subdirectory of self.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
-  const dest = fixturesPath('copy/kitchen-sink/a'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
+  const dest = './test/fixtures/copy/kitchen-sink/a';
   cp(src, dest, mustCall((err) => {
     assert.strictEqual(err.code, 'ERR_FS_CP_EINVAL');
   }));
 }
 
 // It returns an error if attempt is made to copy socket.
-if (!isWindows && !isIOS && !isAndroid) {
+if (!isWindows && !isInsideDirWithUnusualChars) {
   const src = nextdir();
   mkdirSync(src);
   const dest = nextdir();
@@ -706,7 +756,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It copies timestamps from src to dest if preserveTimestamps is true.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cp(src, dest, {
     preserveTimestamps: true,
@@ -722,7 +772,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It applies filter function.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cp(src, dest, {
     filter: (path) => {
@@ -746,7 +796,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It supports async filter function.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cp(src, dest, {
     filter: async (path) => {
@@ -772,7 +822,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 // It returns error if errorOnExist is true, force is false, and file or folder
 // copied over.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cpSync(src, dest, mustNotMutateObjectDeep({ recursive: true }));
   cp(src, dest, {
@@ -835,7 +885,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It accepts file URL as src and dest.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   cp(pathToFileURL(src), pathToFileURL(dest), mustNotMutateObjectDeep({ recursive: true }),
      mustCall((err) => {
@@ -905,7 +955,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It copies a nested folder structure with files and folders.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   const p = await fs.promises.cp(src, dest, mustNotMutateObjectDeep({ recursive: true }));
   assert.strictEqual(p, undefined);
@@ -915,7 +965,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 // It copies a nested folder structure with mode flags.
 // This test is based on fs.promises.copyFile() with `COPYFILE_FICLONE_FORCE`.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   let p = null;
   let successFiClone = false;
@@ -943,7 +993,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It accepts file URL as src and dest.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   const p = await fs.promises.cp(
     pathToFileURL(src),
@@ -956,7 +1006,7 @@ if (!isWindows && !isIOS && !isAndroid) {
 
 // It allows async error to be caught.
 {
-  const src = fixturesPath('copy/kitchen-sink'); // nodejs-mobile patch
+  const src = './test/fixtures/copy/kitchen-sink';
   const dest = nextdir();
   await fs.promises.cp(src, dest, mustNotMutateObjectDeep({ recursive: true }));
   await assert.rejects(

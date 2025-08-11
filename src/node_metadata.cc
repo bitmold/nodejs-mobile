@@ -11,12 +11,15 @@
 #include "node.h"
 #include "simdjson.h"
 #include "simdutf.h"
+#if HAVE_SQLITE
 #include "sqlite3.h"
+#endif  // HAVE_SQLITE
 #include "undici_version.h"
 #include "util.h"
 #include "uv.h"
 #include "uvwasi.h"
 #include "v8.h"
+#include "zstd.h"
 
 #ifdef NODE_BUNDLED_ZLIB
 #include "zlib_version.h"
@@ -43,10 +46,6 @@
 #include <unicode/uvernum.h>
 #include <unicode/uversion.h>
 #endif  // NODE_HAVE_I18N_SUPPORT
-
-#ifdef NODE_MOBILE
-#include "node_mobile_version.h"
-#endif  // NODE_MOBILE
 
 namespace node {
 
@@ -116,9 +115,6 @@ Metadata::Versions::Versions() {
       NODE_STRINGIFY(LLHTTP_VERSION_MINOR)
       "."
       NODE_STRINGIFY(LLHTTP_VERSION_PATCH);
-#ifdef NODE_MOBILE
-  mobile = NODE_MOBILE_VERSION_STRING;
-#endif  // NODE_MOBILE
 
   brotli =
     std::to_string(BrotliEncoderVersion() >> 24) +
@@ -133,6 +129,7 @@ Metadata::Versions::Versions() {
   acorn = ACORN_VERSION;
   cjs_module_lexer = CJS_MODULE_LEXER_VERSION;
   uvwasi = UVWASI_VERSION_STRING;
+  zstd = ZSTD_VERSION_STRING;
 
 #ifndef NODE_SHARED_BUILTIN_AMARO_DIST_INDEX_PATH
 #if HAVE_AMARO
@@ -157,7 +154,9 @@ Metadata::Versions::Versions() {
 
   simdjson = SIMDJSON_VERSION;
   simdutf = SIMDUTF_VERSION;
+#if HAVE_SQLITE
   sqlite = SQLITE_VERSION;
+#endif  // HAVE_SQLITE
   ada = ADA_VERSION;
   nbytes = NBYTES_VERSION;
 }

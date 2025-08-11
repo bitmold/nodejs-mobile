@@ -21,19 +21,17 @@ class WatchTestCase {
   get filePath() { return join(this.dirPath, this.fileName); }
 }
 
-// nodejs-mobile patch: add isIOS and isAndroid and this destructuring
-const { isLinux, isMacOS, isWindows, isAIX, isAndroid, isIOS } = common;
 const cases = [
   // Watch on a file should callback with a filename on supported systems
   new WatchTestCase(
-    isLinux || isMacOS || isWindows || isAIX || isAndroid || isIOS,
+    common.isLinux || common.isMacOS || common.isWindows || common.isAIX,
     'watch1',
     'foo',
     'filePath'
   ),
   // Watch on a directory should callback with a filename on supported systems
   new WatchTestCase(
-    isLinux || isMacOS || isWindows || isAndroid,
+    common.isLinux || common.isMacOS || common.isWindows,
     'watch2',
     'bar',
     'dirPath'
@@ -62,8 +60,7 @@ function doWatchTest(testCase) {
       clearInterval(interval);
       interval = null;
     }
-    // nodejs-mobile patch: add isIOS
-    if (common.isMacOS || common.isIOS)
+    if (common.isMacOS)
       assert.strictEqual(['rename', 'change'].includes(eventType), true);
     else
       assert.strictEqual(eventType, 'change');

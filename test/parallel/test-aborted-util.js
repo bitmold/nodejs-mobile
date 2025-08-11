@@ -25,13 +25,14 @@ test('Aborted works when provided a resource', async () => {
 });
 
 test('Aborted with gc cleanup', async () => {
+  // Test aborted with gc cleanup
   const ac = new AbortController();
 
-  const abortedPromise = aborted
+  const abortedPromise = aborted(ac.signal, {});
   const { promise, resolve } = Promise.withResolvers();
 
   setImmediate(() => {
-    global.gc();
+    globalThis.gc();
     ac.abort();
     strictEqual(ac.signal.aborted, true);
     strictEqual(getEventListeners(ac.signal, 'abort').length, 0);

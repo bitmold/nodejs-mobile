@@ -29,16 +29,15 @@ const fs = require('fs');
 const path = require('path');
 
 const tmpdir = require('../common/tmpdir');
+const { isMainThread } = require('worker_threads');
 
-if (!common.isMainThread)
+if (!isMainThread) {
   common.skip('process.chdir is not available in Workers');
+}
 
-// nodejs-moile patch: add isIOS and isAndroid
 const expectFilePath = common.isWindows ||
                        common.isLinux ||
                        common.isMacOS ||
-                       common.isIOS ||
-                       common.isAndroid ||
                        common.isAIX;
 
 const testDir = tmpdir.path;

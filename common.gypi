@@ -27,6 +27,8 @@
 
     'clang%': 0,
     'error_on_warn%': 'false',
+    'suppress_all_error_on_warn%': 'false',
+    'control_flow_guard%': 'false',
 
     'openssl_product': '<(STATIC_LIB_PREFIX)openssl<(STATIC_LIB_SUFFIX)',
     'openssl_no_asm%': 0,
@@ -36,7 +38,7 @@
 
     # Reset this number to 0 on major V8 upgrades.
     # Increment by one for each non-official patch applied to deps/v8.
-    'v8_embedder_string': '-node.19',
+    'v8_embedder_string': '-node.27',
 
     ##### V8 defaults for Node.js #####
 
@@ -80,6 +82,7 @@
     'v8_enable_direct_local%': 0,
     'v8_enable_map_packing%': 0,
     'v8_enable_pointer_compression_shared_cage%': 0,
+    'v8_enable_external_code_space%': 0,
     'v8_enable_sandbox%': 0,
     'v8_enable_v8_checks%': 0,
     'v8_enable_zone_compression%': 0,
@@ -113,13 +116,15 @@
       # V8 pointer compression only supports 64bit architectures.
       ['target_arch in "arm ia32 mips mipsel ppc"', {
         'v8_enable_pointer_compression': 0,
+        'v8_enable_pointer_compression_shared_cage': 0,
         'v8_enable_31bit_smis_on_64bit_arch': 0,
+        'v8_enable_external_code_space': 0,
         'v8_enable_sandbox': 0
       }],
       ['target_arch in "ppc64 s390x"', {
         'v8_enable_backtrace': 1,
       }],
-      ['OS=="linux"', {
+      ['OS=="linux" or OS=="openharmony"', {
         'node_section_ordering_info%': ''
       }],
       ['OS == "zos"', {
@@ -201,7 +206,7 @@
               'LLVM_LTO': 'YES',
             },
           }],
-          ['OS=="linux"', {
+          ['OS=="linux" or OS=="openharmony"', {
             'conditions': [
               ['node_section_ordering_info!=""', {
                 'cflags': [
@@ -229,7 +234,7 @@
             # frames otherwise, even with --call-graph dwarf.
             'cflags': [ '-fno-omit-frame-pointer' ],
           }],
-          ['OS=="linux"', {
+          ['OS=="linux" or OS=="openharmony"', {
             'conditions': [
               ['enable_pgo_generate=="true"', {
                 'cflags': ['<(pgo_generate)'],
@@ -275,6 +280,9 @@
     # Defines these mostly for node-gyp to pickup.
     'defines': [
       '_GLIBCXX_USE_CXX11_ABI=1',
+      # This help forks when building Node.js on a 32-bit arch as
+      # libuv is always compiled with _FILE_OFFSET_BITS=64
+      '_FILE_OFFSET_BITS=64'
     ],
 
     # Forcibly disable -Werror.  We support a wide range of compilers, it's
@@ -310,6 +318,11 @@
               '/Zm2000',
             ],
           }],
+          ['control_flow_guard=="true"', {
+            'AdditionalOptions': [
+              '/guard:cf',                        # Control Flow Guard
+            ],
+          }],
         ],
         'BufferSecurityCheck': 'true',
         'DebugInformationFormat': 1,          # /Z7 embed info in .obj files
@@ -335,6 +348,11 @@
           }],
           ['target_arch=="arm64"', {
             'TargetMachine' : 0,              # NotSet. MACHINE:ARM64 is inferred from the input files.
+          }],
+          ['control_flow_guard=="true"', {
+            'AdditionalOptions': [
+              '/guard:cf',                        # Control Flow Guard
+            ],
           }],
         ],
         'GenerateDebugInformation': 'true',
@@ -444,6 +462,9 @@
       ['v8_enable_sandbox == 1', {
         'defines': ['V8_ENABLE_SANDBOX',],
       }],
+      ['v8_enable_external_code_space == 1', {
+        'defines': ['V8_EXTERNAL_CODE_SPACE',],
+      }],
       ['v8_deprecation_warnings == 1', {
         'defines': ['V8_DEPRECATION_WARNINGS',],
       }],
@@ -484,12 +505,12 @@
           'NOMINMAX',
         ],
       }],
-      [ 'OS in "linux freebsd openbsd solaris aix os400"', {
+      [ 'OS in "linux freebsd openbsd solaris aix os400 openharmony"', {
         'cflags': [ '-pthread' ],
         'ldflags': [ '-pthread' ],
       }],
-      [ 'OS in "linux freebsd openbsd solaris android aix os400 cloudabi"', {
-        'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', '-Wno-enum-constexpr-conversion' ],
+      [ 'OS in "linux freebsd openbsd solaris android aix os400 cloudabi openharmony"', {
+        'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
         'cflags_cc': [
           '-fno-rtti',
           '-fno-exceptions',
@@ -630,6 +651,9 @@
                 'libraries': ['>(node_root_dir)/bin/x86_64/libnode.so'],
               }],
             ],
+          ['_toolset=="host"', {
+            'cflags': [ '-pthread' ],
+            'ldflags': [ '-pthread' ],
           }],
         ],
       }],
@@ -681,7 +705,7 @@
           ['clang==1', {
             'xcode_settings': {
               'GCC_VERSION': 'com.apple.compilers.llvm.clang.1_0',
-              'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++20',  # -std=gnu++20
+              'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++17',  # -std=gnu++17
               'CLANG_CXX_LIBRARY': 'libc++',
             },
           }],

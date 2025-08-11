@@ -1,8 +1,9 @@
 // Flags: --experimental-test-module-mocks --experimental-require-module
 'use strict';
 const common = require('../common');
+const { isMainThread } = require('worker_threads');
 
-if (!common.isMainThread) {
+if (!isMainThread) {
   common.skip('registering customization hooks in Workers does not work');
 }
 
@@ -364,6 +365,34 @@ test('ESM mocking with namedExports option', async (t) => {
   });
 });
 
+test('JSON mocking', async (t) => {
+  await t.test('with defaultExport', async (t) => {
+    const fixturePath = fixtures.path('module-mocking', 'basic.json');
+    const fixture = pathToFileURL(fixturePath);
+    const { default: original } = await import(fixture, { with: { type: 'json' } });
+
+    assert.deepStrictEqual(original, { foo: 'bar' });
+
+    const defaultExport = { qux: 'zed' };
+
+    t.mock.module(fixture, { defaultExport });
+
+    const { default: mocked } = await import(fixture, { with: { type: 'json' } });
+
+    assert.deepStrictEqual(mocked, defaultExport);
+  });
+
+  await t.test('throws without appropriate import attributes', async (t) => {
+    const fixturePath = fixtures.path('module-mocking', 'basic.json');
+    const fixture = pathToFileURL(fixturePath);
+
+    const defaultExport = { qux: 'zed' };
+    t.mock.module(fixture, { defaultExport });
+
+    await assert.rejects(() => import(fixture), /import attribute/);
+  });
+});
+
 test('modules cannot be mocked multiple times at once', async (t) => {
   await t.test('CJS', async (t) => {
     const fixture = fixtures.path('module-mocking', 'basic-cjs.js');
@@ -412,6 +441,15 @@ test('modules cannot be mocked multiple times at once', async (t) => {
     const fixture = fixtures.path('module-mocking', 'wrong-path.js');
     t.mock.module(fixture, { namedExports: { fn() { return 42; } } });
     await assert.rejects(import(fixture), { code: 'ERR_UNSUPPORTED_ESM_URL_SCHEME' });
+  });
+
+  await t.test('Importing a module with a quote in its URL should work', async (t) => {
+    const fixture = fixtures.fileURL('module-mocking', 'don\'t-open.mjs');
+    t.mock.module(fixture, { namedExports: { fn() { return 42; } } });
+
+    const mocked = await import(fixture);
+
+    assert.strictEqual(mocked.fn(), 42);
   });
 });
 
@@ -641,4 +679,44 @@ test('wrong import syntax should throw error after module mocking.', async () =>
   assert.strictEqual(stdout, '');
   assert.match(stderr, /Error \[ERR_MODULE_NOT_FOUND\]: Cannot find module/);
   assert.strictEqual(code, 1);
+});
+
+test('should throw ERR_ACCESS_DENIED when permission model is enabled', async (t) => {
+  const cwd = fixtures.path('test-runner');
+  const fixture = fixtures.path('test-runner', 'mock-nm.js');
+  const args = [
+    '--permission',
+    '--allow-fs-read=*',
+    '--experimental-test-module-mocks',
+    fixture,
+  ];
+  const {
+    code,
+    stdout,
+  } = await common.spawnPromisified(process.execPath, args, { cwd });
+
+  assert.strictEqual(code, 1);
+  assert.match(stdout, /Access to this API has been restricted/);
+});
+
+test('should work when --allow-worker is passed and permission model is enabled', async (t) => {
+  const cwd = fixtures.path('test-runner');
+  const fixture = fixtures.path('test-runner', 'mock-nm.js');
+  const args = [
+    '--permission',
+    '--allow-fs-read=*',
+    '--allow-worker',
+    '--experimental-test-module-mocks',
+    fixture,
+  ];
+  const {
+    code,
+    stdout,
+    stderr,
+    signal,
+  } = await common.spawnPromisified(process.execPath, args, { cwd });
+
+  assert.strictEqual(code, 0, stderr);
+  assert.strictEqual(signal, null);
+  assert.match(stdout, /pass 1/, stderr);
 });

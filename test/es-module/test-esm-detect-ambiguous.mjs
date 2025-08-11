@@ -252,6 +252,18 @@ describe('Module syntax detection', { concurrency: !process.env.TEST_PARALLEL },
       strictEqual(signal, null);
     });
 
+    it('reports unfinished top-level `await`', async () => {
+      const { stdout, stderr, code, signal } = await spawnPromisified(process.execPath, [
+        '--no-warnings',
+        fixtures.path('es-modules/tla/unresolved.js'),
+      ]);
+
+      strictEqual(stderr, '');
+      strictEqual(stdout, '');
+      strictEqual(code, 13);
+      strictEqual(signal, null);
+    });
+
     it('permits top-level `await` above import/export syntax', async () => {
       const { stdout, stderr, code, signal } = await spawnPromisified(process.execPath, [
         '--eval',
@@ -282,7 +294,10 @@ describe('Module syntax detection', { concurrency: !process.env.TEST_PARALLEL },
         'const fs = require("node:fs"); await Promise.resolve();',
       ]);
 
-      match(stderr, /ReferenceError: require is not defined in ES module scope/);
+      match(
+        stderr,
+        /ReferenceError: Cannot determine intended module format because both require\(\) and top-level await are present\. If the code is intended to be CommonJS, wrap await in an async function\. If the code is intended to be an ES module, replace require\(\) with import\./
+      );
       strictEqual(stdout, '');
       strictEqual(code, 1);
       strictEqual(signal, null);
@@ -390,15 +405,16 @@ describe('Module syntax detection', { concurrency: !process.env.TEST_PARALLEL },
   });
 });
 
-// Validate temporarily disabling `--abort-on-uncaught-exception`
-// while running `containsModuleSyntax`.
+// Checks the error caught during module detection does not trigger abort when
+// `--abort-on-uncaught-exception` is passed in (as that's a caught internal error).
 // Ref: https://github.com/nodejs/node/issues/50878
 describe('Wrapping a `require` of an ES module while using `--abort-on-uncaught-exception`', () => {
   it('should work', async () => {
     const { code, signal, stdout, stderr } = await spawnPromisified(process.execPath, [
       '--abort-on-uncaught-exception',
+      '--no-warnings',
       '--eval',
-      'assert.throws(() => require("./package-type-module/esm.js"), { code: "ERR_REQUIRE_ESM" })',
+      'require("./package-type-module/esm.js")',
     ], {
       cwd: fixtures.path('es-modules'),
     });
@@ -420,6 +436,27 @@ describe('when working with Worker threads', () => {
     strictEqual(stderr, '');
     strictEqual(stdout, '');
     strictEqual(code, 0);
+    strictEqual(signal, null);
+  });
+});
+
+describe('cjs & esm ambiguous syntax case', () => {
+  it('should throw an ambiguous syntax error when using top-level await with require', async () => {
+    const { stderr, code, signal } = await spawnPromisified(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        `await 1;\nconst fs = require('fs');`,
+      ]
+    );
+
+    match(
+      stderr,
+      /ReferenceError: Cannot determine intended module format because both require\(\) and top-level await are present\. If the code is intended to be CommonJS, wrap await in an async function\. If the code is intended to be an ES module, replace require\(\) with import\./
+    );
+
+    strictEqual(code, 1);
     strictEqual(signal, null);
   });
 });

@@ -1,7 +1,7 @@
 'use strict';
 
 const common = require('../common');
-if (!(common.isLinux || common.isAndroid))
+if (!common.isLinux)
   common.skip('Test is linux specific.');
 
 const path = require('path');

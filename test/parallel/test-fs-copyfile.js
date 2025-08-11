@@ -68,8 +68,7 @@ try {
 } catch (err) {
   assert.strictEqual(err.syscall, 'copyfile');
   assert(err.code === 'ENOTSUP' || err.code === 'ENOTTY' ||
-    err.code === 'ENOSYS' || err.code === 'EXDEV' ||
-    (common.isAndroid && err.code === 'EACCES'));
+    err.code === 'ENOSYS' || err.code === 'EXDEV');
   assert.strictEqual(err.path, src);
   assert.strictEqual(err.dest, dest);
 }

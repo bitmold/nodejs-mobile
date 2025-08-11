@@ -675,8 +675,9 @@ void SetConstructorFunction(Local<Context> context,
                             Local<String> name,
                             Local<FunctionTemplate> tmpl,
                             SetConstructorFunctionFlag flag) {
-  if (LIKELY(flag == SetConstructorFunctionFlag::SET_CLASS_NAME))
+  if (flag == SetConstructorFunctionFlag::SET_CLASS_NAME) [[likely]] {
     tmpl->SetClassName(name);
+  }
   that->Set(context, name, tmpl->GetFunction(context).ToLocalChecked()).Check();
 }
 
@@ -694,8 +695,9 @@ void SetConstructorFunction(Isolate* isolate,
                             Local<String> name,
                             Local<FunctionTemplate> tmpl,
                             SetConstructorFunctionFlag flag) {
-  if (LIKELY(flag == SetConstructorFunctionFlag::SET_CLASS_NAME))
+  if (flag == SetConstructorFunctionFlag::SET_CLASS_NAME) [[likely]] {
     tmpl->SetClassName(name);
+  }
   that->Set(name, tmpl);
 }
 
@@ -758,6 +760,16 @@ std::string DetermineSpecificErrorType(Environment* env,
         input.As<v8::Object>()->GetConstructorName();
     Utf8Value name(env->isolate(), constructor_name);
     return SPrintF("an instance of %s", name.out());
+  } else if (input->IsSymbol()) {
+    v8::MaybeLocal<v8::String> str =
+        input.As<v8::Symbol>()->ToDetailString(env->context());
+    v8::Local<v8::String> js_str;
+    if (!str.ToLocal(&js_str)) {
+      return "Symbol";
+    }
+    Utf8Value name(env->isolate(), js_str);
+    // Symbol(xxx)
+    return name.out();
   }
 
   Utf8Value utf8_value(env->isolate(),
@@ -795,8 +807,11 @@ v8::Maybe<int32_t> GetValidatedFd(Environment* env,
   const bool is_out_of_range = fd < 0 || fd > INT32_MAX;
 
   if (is_out_of_range || !IsSafeJsInt(input)) {
-    Utf8Value utf8_value(
-        env->isolate(), input->ToDetailString(env->context()).ToLocalChecked());
+    Local<String> str;
+    if (!input->ToDetailString(env->context()).ToLocal(&str)) {
+      return v8::Nothing<int32_t>();
+    }
+    Utf8Value utf8_value(env->isolate(), str);
     if (is_out_of_range && !std::isinf(fd)) {
       THROW_ERR_OUT_OF_RANGE(env,
                              "The value of \"fd\" is out of range. "

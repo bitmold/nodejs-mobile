@@ -75,7 +75,7 @@
                 ['OS=="android"', {
                   'defines': [ 'ARMV8_OS_ANDROID' ],
                 }],
-                ['OS=="linux"', {
+                ['OS=="linux" or OS=="openharmony"', {
                   'defines': [ 'ARMV8_OS_LINUX' ],
                 }],
                 ['OS=="mac"', {
@@ -93,7 +93,7 @@
                   ['OS=="android"', {
                     'defines': [ 'ARMV8_OS_ANDROID' ],
                   }],
-                  ['OS=="linux"', {
+                  ['OS=="linux" or OS=="openharmony"', {
                     'defines': [ 'ARMV8_OS_LINUX' ],
                   }],
                   ['OS=="mac"', {
@@ -139,7 +139,7 @@
         #   ],
         # }, # zlib_crc32_simd
         {
-          'target_name': 'zlib_inflate_chunk_simd',
+          'target_name': 'zlib_data_chunk_simd',
           'type': 'static_library',
           'conditions': [
             ['target_arch in "ia32 x64" and OS!="ios"', {
@@ -172,27 +172,20 @@
             'include_dirs': [ '<(ZLIB_ROOT)' ],
           },
           'sources': [
-            '<!@pymod_do_main(GN-scraper "<(ZLIB_ROOT)/BUILD.gn" "\\"zlib_inflate_chunk_simd\\".*?sources = ")',
+            '<!@pymod_do_main(GN-scraper "<(ZLIB_ROOT)/BUILD.gn" "\\"zlib_data_chunk_simd\\".*?sources = ")',
           ],
-        }, # zlib_inflate_chunk_simd
+        }, # zlib_data_chunk_simd
         {
           'target_name': 'zlib',
           'type': 'static_library',
           'sources': [
             '<!@pymod_do_main(GN-scraper "<(ZLIB_ROOT)/BUILD.gn" "\\"zlib\\".*?sources = ")',
           ],
-          # nodejs-mobile patch: silenced this 'include_dirs', in favor of the next patch below.
-          # 'include_dirs': [ '<(ZLIB_ROOT)' ],
+          'include_dirs': [ '<(ZLIB_ROOT)' ],
           'direct_dependent_settings': {
             'include_dirs': [ '<(ZLIB_ROOT)' ],
           },
           'conditions': [
-            # nodejs-mobile patch: for Android, make available <cpu_features.h> from the NDK:
-            ['OS=="android"', {
-              'include_dirs': [ '<(ZLIB_ROOT)', '<(android_ndk_path)/sources/android/cpufeatures' ],
-            }, {
-              'include_dirs': [ '<(ZLIB_ROOT)' ],
-            }],
             ['OS!="win"', {
               'cflags!': [ '-ansi' ],
               'cflags': [ '-Wno-implicit-fallthrough' ],
@@ -210,7 +203,7 @@
             }],
             # Incorporate optimizations where possible.
             ['(target_arch in "ia32 x64" and OS!="ios") or arm_fpu=="neon"', {
-              'dependencies': [ 'zlib_inflate_chunk_simd' ],
+              'dependencies': [ 'zlib_data_chunk_simd' ],
               'sources': [ '<(ZLIB_ROOT)/slide_hash_simd.h' ]
             }, {
               'defines': [ 'CPU_NO_SIMD' ],

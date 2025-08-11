@@ -1,7 +1,8 @@
 'use strict';
 const common = require('../common');
-if (!common.hasCrypto)
+if (!common.hasCrypto) {
   common.skip('missing crypto');
+}
 
 const assert = require('assert');
 const crypto = require('crypto');
@@ -39,7 +40,7 @@ a8.write('');
 a8.end();
 a8 = a8.read();
 
-if (!common.hasFipsCrypto) {
+if (!crypto.getFips()) {
   cryptoType = 'md5';
   digest = 'latin1';
   const a0 = crypto.createHash(cryptoType).update('Test123').digest(digest);

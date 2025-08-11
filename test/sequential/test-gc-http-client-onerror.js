@@ -6,14 +6,7 @@
 const common = require('../common');
 const { onGC } = require('../common/gc');
 
-// nodejs-mobile patch
-let cpus;
-if (common.isAndroid) {
-  // Unable to get os.availableParallelism() on Android.
-  cpus = 2;
-} else {
-  cpus = require('os').availableParallelism();
-}
+const cpus = require('os').availableParallelism();
 
 function serverHandler(req, res) {
   req.resume();

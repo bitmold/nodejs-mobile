@@ -1,6 +1,6 @@
 #! /usr/bin/env perl
 # -*- mode: perl; -*-
-# Copyright 2016-2023 The OpenSSL Project Authors. All Rights Reserved.
+# Copyright 2016-2024 The OpenSSL Project Authors. All Rights Reserved.
 #
 # Licensed under the Apache License 2.0 (the "License").  You may not use
 # this file except in compliance with the License.  You can obtain a copy
@@ -178,7 +178,6 @@ my @gcc_devteam_warn = qw(
 #       -Wextended-offsetof -- no, needed in CMS ASN1 code
 my @clang_devteam_warn = qw(
     -Wno-unknown-warning-option
-    -Wswitch-default
     -Wno-parentheses-equality
     -Wno-language-extension-token
     -Wno-extended-offsetof
@@ -405,6 +404,7 @@ my @disablables = (
     "asan",
     "asm",
     "async",
+    "atexit",
     "autoalginit",
     "autoerrinit",
     "autoload-config",
@@ -467,7 +467,6 @@ my @disablables = (
     "poly1305",
     "posix-io",
     "psk",
-    "quic",
     "rc2",
     "rc4",
     "rc5",
@@ -578,7 +577,6 @@ my @disable_cascades = (
                              "sm3", "sm4", "srp",
                              "srtp", "ssl3-method", "ssl-trace",
                              "ts", "ui-console", "whirlpool",
-                             "quic",
                              "fips-securitychecks" ],
     sub { $config{processor} eq "386" }
                         => [ "sse2" ],
@@ -586,7 +584,7 @@ my @disable_cascades = (
     "ssl3-method"       => [ "ssl3" ],
     "zlib"              => [ "zlib-dynamic" ],
     "des"               => [ "mdc2" ],
-    "ec"                => [ "ec2m", "ecdsa", "ecdh", "sm2", "gost", "quic" ],
+    "ec"                => [ "ec2m", "ecdsa", "ecdh", "sm2", "gost" ],
     "dgram"             => [ "dtls", "sctp" ],
     "sock"              => [ "dgram" ],
     "dtls"              => [ @dtls ],
@@ -637,7 +635,6 @@ my @disable_cascades = (
     "legacy"            => [ "md2" ],
 
     "cmp"               => [ "crmf" ],
-    "tls1_3"            => [ "quic" ],
 
     "fips"              => [ "fips-securitychecks", "acvp-tests" ],
 
@@ -1585,7 +1582,7 @@ if (!$disabled{makedepend}) {
     disable('unavailable', 'makedepend') unless $config{makedep_scheme};
 }
 
-if (!$disabled{asm} && !$predefined_C{__MACH__} && $^O ne 'VMS') {
+if (!$disabled{asm} && !$predefined_C{__MACH__} && $^O ne 'VMS' && !$predefined_C{_AIX}) {
     # probe for -Wa,--noexecstack option...
     if ($predefined_C{__clang__}) {
         # clang has builtin assembler, which doesn't recognize --help,
@@ -3406,6 +3403,13 @@ sub absolutedir {
     # it will return an incorrect directory spec if the argument is a
     # directory that doesn't exist.
     if ($^O eq "VMS") {
+        return rel2abs($dir);
+    }
+
+    # realpath() on Windows seems to check if the directory actually exists,
+    # which isn't what is wanted here.  All we want to know is if a directory
+    # spec is absolute, not if it exists.
+    if ($^O eq "MSWin32") {
         return rel2abs($dir);
     }
 

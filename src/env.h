@@ -333,7 +333,7 @@ class AsyncHooks : public MemoryRetainer {
                          v8::Local<v8::Function> resolve);
   // Used for testing since V8 doesn't provide API for retrieving configured
   // JS promise hooks.
-  v8::Local<v8::Array> GetPromiseHooks(v8::Isolate* isolate);
+  v8::Local<v8::Array> GetPromiseHooks(v8::Isolate* isolate) const;
   inline v8::Local<v8::String> provider_string(int idx);
 
   inline void no_force_checks();
@@ -405,7 +405,16 @@ class AsyncHooks : public MemoryRetainer {
   void grow_async_ids_stack();
 
   v8::Global<v8::Array> js_execution_async_resources_;
-  std::vector<v8::Local<v8::Object>> native_execution_async_resources_;
+
+  // TODO(@jasnell): Note that this is technically illegal use of
+  // v8::Locals which should be kept on the stack. Here, the entries
+  // in this object grows and shrinks with the C stack, and entries
+  // will be in the right handle scopes, but v8::Locals are supposed
+  // to remain on the stack and not the heap. For general purposes
+  // this *should* be ok but may need to be looked at further should
+  // v8 become stricter in the future about v8::Locals being held in
+  // the stack.
+  v8::LocalVector<v8::Object> native_execution_async_resources_;
 
   // Non-empty during deserialization
   const SerializeInfo* info_ = nullptr;
@@ -682,24 +691,10 @@ class Environment final : public MemoryRetainer {
   inline const std::vector<std::string>& argv();
   const std::string& exec_path() const;
 
-  typedef void (*HandleCleanupCb)(Environment* env,
-                                  uv_handle_t* handle,
-                                  void* arg);
-  struct HandleCleanup {
-    uv_handle_t* handle_;
-    HandleCleanupCb cb_;
-    void* arg_;
-  };
-
-  void RegisterHandleCleanups();
   void CleanupHandles();
   void Exit(ExitCode code);
   void ExitEnv(StopFlags::Flags flags);
-
-  // Register clean-up cb to be called on environment destruction.
-  inline void RegisterHandleCleanup(uv_handle_t* handle,
-                                    HandleCleanupCb cb,
-                                    void* arg);
+  void ClosePerEnvHandles();
 
   template <typename T, typename OnCloseCallback>
   inline void CloseHandle(T* handle, OnCloseCallback callback);
@@ -761,6 +756,8 @@ class Environment final : public MemoryRetainer {
   bool exiting() const;
   inline ExitCode exit_code(const ExitCode default_code) const;
 
+  inline void set_exit_code(const ExitCode code);
+
   // This stores whether the --abort-on-uncaught-exception flag was passed
   // to Node.
   inline bool abort_on_uncaught_exception() const;
@@ -789,12 +786,12 @@ class Environment final : public MemoryRetainer {
 
   inline performance::PerformanceState* performance_state();
 
-  void CollectUVExceptionInfo(v8::Local<v8::Value> context,
-                              int errorno,
-                              const char* syscall = nullptr,
-                              const char* message = nullptr,
-                              const char* path = nullptr,
-                              const char* dest = nullptr);
+  v8::Maybe<void> CollectUVExceptionInfo(v8::Local<v8::Value> context,
+                                         int errorno,
+                                         const char* syscall = nullptr,
+                                         const char* message = nullptr,
+                                         const char* path = nullptr,
+                                         const char* dest = nullptr);
 
   // If this flag is set, calls into JS (if they would be observable
   // from userland) must be avoided.  This flag does not indicate whether
@@ -853,6 +850,9 @@ class Environment final : public MemoryRetainer {
   inline void ThrowError(const char* errmsg);
   inline void ThrowTypeError(const char* errmsg);
   inline void ThrowRangeError(const char* errmsg);
+  inline void ThrowStdErrException(std::error_code error_code,
+                                   const char* syscall,
+                                   const char* path = nullptr);
   inline void ThrowErrnoException(int errorno,
                                   const char* syscall = nullptr,
                                   const char* message = nullptr,
@@ -866,7 +866,7 @@ class Environment final : public MemoryRetainer {
   void AtExit(void (*cb)(void* arg), void* arg);
   void RunAtExitCallbacks();
 
-  v8::Maybe<bool> CheckUnsettledTopLevelAwait();
+  v8::Maybe<bool> CheckUnsettledTopLevelAwait() const;
   void RunWeakRefCleanup();
 
   v8::MaybeLocal<v8::Value> RunSnapshotSerializeCallback() const;
@@ -995,7 +995,7 @@ class Environment final : public MemoryRetainer {
   inline std::shared_ptr<EnvironmentOptions> options();
   inline std::shared_ptr<ExclusiveAccess<HostPort>> inspector_host_port();
 
-  inline int32_t stack_trace_limit() const { return 10; }
+  inline int64_t stack_trace_limit() const;
 
 #if HAVE_INSPECTOR
   void set_coverage_connection(
@@ -1045,6 +1045,7 @@ class Environment final : public MemoryRetainer {
   // Enable built-in compile cache if it has not yet been enabled.
   // The cache will be persisted to disk on exit.
   CompileCacheEnableResult EnableCompileCache(const std::string& cache_dir);
+  void FlushCompileCache();
 
   void RunAndClearNativeImmediates(bool only_refed = false);
   void RunAndClearInterrupts();
@@ -1060,6 +1061,8 @@ class Environment final : public MemoryRetainer {
 
   inline void set_heap_snapshot_near_heap_limit(uint32_t limit);
   inline bool is_in_heapsnapshot_heap_limit_callback() const;
+
+  inline bool report_exclude_env() const;
 
   inline void AddHeapSnapshotNearHeapLimitCallback();
 
@@ -1103,6 +1106,8 @@ class Environment final : public MemoryRetainer {
   std::list<binding::DLib> loaded_addons_;
   v8::Isolate* const isolate_;
   IsolateData* const isolate_data_;
+
+  bool env_handle_initialized_ = false;
   uv_timer_t timer_handle_;
   uv_check_t immediate_check_handle_;
   uv_idle_t immediate_idle_handle_;
@@ -1215,7 +1220,6 @@ class Environment final : public MemoryRetainer {
   CleanableQueue cleanable_queue_;
   HandleWrapQueue handle_wrap_queue_;
   ReqWrapQueue req_wrap_queue_;
-  std::list<HandleCleanup> handle_cleanup_queue_;
   int handle_cleanup_waiting_ = 0;
   int request_waiting_ = 0;
 

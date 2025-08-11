@@ -62,12 +62,12 @@ Maybe<void> ScryptTraits::AdditionalConfig(
   ArrayBufferOrViewContents<char> pass(args[offset]);
   ArrayBufferOrViewContents<char> salt(args[offset + 1]);
 
-  if (UNLIKELY(!pass.CheckSizeInt32())) {
+  if (!pass.CheckSizeInt32()) [[unlikely]] {
     THROW_ERR_OUT_OF_RANGE(env, "pass is too large");
     return Nothing<void>();
   }
 
-  if (UNLIKELY(!salt.CheckSizeInt32())) {
+  if (!salt.CheckSizeInt32()) [[unlikely]] {
     THROW_ERR_OUT_OF_RANGE(env, "salt is too large");
     return Nothing<void>();
   }
@@ -113,10 +113,10 @@ Maybe<void> ScryptTraits::AdditionalConfig(
   return JustVoid();
 }
 
-bool ScryptTraits::DeriveBits(
-    Environment* env,
-    const ScryptConfig& params,
-    ByteSource* out) {
+bool ScryptTraits::DeriveBits(Environment* env,
+                              const ScryptConfig& params,
+                              ByteSource* out,
+                              CryptoJobMode mode) {
   // If the params.length is zero-length, just return an empty buffer.
   // It's useless, yes, but allowed via the API.
   if (params.length == 0) {

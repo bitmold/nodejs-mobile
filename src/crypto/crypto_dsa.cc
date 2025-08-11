@@ -25,6 +25,9 @@
 
 namespace node {
 
+using ncrypto::BignumPointer;
+using ncrypto::EVPKeyCtxPointer;
+using ncrypto::EVPKeyPointer;
 using v8::FunctionCallbackInfo;
 using v8::Int32;
 using v8::JustVoid;
@@ -60,7 +63,7 @@ EVPKeyCtxPointer DsaKeyGenTraits::Setup(DsaKeyPairGenConfig* params) {
     return EVPKeyCtxPointer();
 
   EVPKeyPointer key_params(raw_params);
-  EVPKeyCtxPointer key_ctx(EVP_PKEY_CTX_new(key_params.get(), nullptr));
+  EVPKeyCtxPointer key_ctx = key_params.newCtx();
 
   if (!key_ctx || EVP_PKEY_keygen_init(key_ctx.get()) <= 0)
     return EVPKeyCtxPointer();
@@ -134,7 +137,7 @@ Maybe<void> GetDsaKeyDetail(Environment* env,
 
   Mutex::ScopedLock lock(key.mutex());
   const auto& m_pkey = key.GetAsymmetricKey();
-  int type = EVP_PKEY_id(m_pkey.get());
+  int type = m_pkey.id();
   CHECK(type == EVP_PKEY_DSA);
 
   const DSA* dsa = EVP_PKEY_get0_DSA(m_pkey.get());

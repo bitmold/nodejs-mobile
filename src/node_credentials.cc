@@ -26,7 +26,6 @@ using v8::Context;
 using v8::FunctionCallbackInfo;
 using v8::Isolate;
 using v8::Local;
-using v8::MaybeLocal;
 using v8::Object;
 using v8::Uint32;
 using v8::Value;
@@ -72,9 +71,7 @@ static bool HasOnly(int capability) {
 // process only has the capability CAP_NET_BIND_SERVICE set. If the current
 // process does not have any capabilities set and the process is running as
 // setuid root then lookup will not be allowed.
-bool SafeGetenv(const char* key,
-                std::string* text,
-                std::shared_ptr<KVStore> env_vars) {
+bool SafeGetenv(const char* key, std::string* text, Environment* env) {
 #if !defined(__CloudABI__) && !defined(_WIN32)
 #if defined(__linux__)
   if ((!HasOnly(CAP_NET_BIND_SERVICE) && linux_at_secure()) ||
@@ -87,14 +84,23 @@ bool SafeGetenv(const char* key,
 
   // Fallback to system environment which reads the real environment variable
   // through uv_os_getenv.
-  if (env_vars == nullptr) {
+  std::shared_ptr<KVStore> env_vars;
+  if (env == nullptr) {
     env_vars = per_process::system_environment;
+  } else {
+    env_vars = env->env_vars();
   }
 
   std::optional<std::string> value = env_vars->Get(key);
-  if (!value.has_value()) return false;
-  *text = value.value();
-  return true;
+
+  bool has_env = value.has_value();
+  if (has_env) {
+    *text = value.value();
+  }
+
+  TraceEnvVar(env, "get", key);
+
+  return has_env;
 }
 
 static void SafeGetenv(const FunctionCallbackInfo<Value>& args) {
@@ -103,10 +109,11 @@ static void SafeGetenv(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = env->isolate();
   Utf8Value strenvtag(isolate, args[0]);
   std::string text;
-  if (!SafeGetenv(*strenvtag, &text, env->env_vars())) return;
-  Local<Value> result =
-      ToV8Value(isolate->GetCurrentContext(), text).ToLocalChecked();
-  args.GetReturnValue().Set(result);
+  if (!SafeGetenv(*strenvtag, &text, env)) return;
+  Local<Value> result;
+  if (ToV8Value(isolate->GetCurrentContext(), text).ToLocal(&result)) {
+    args.GetReturnValue().Set(result);
+  }
 }
 
 static void GetTempDir(const FunctionCallbackInfo<Value>& args) {
@@ -117,7 +124,7 @@ static void GetTempDir(const FunctionCallbackInfo<Value>& args) {
 
   // Let's wrap SafeGetEnv since it returns true for empty string.
   auto get_env = [&dir, &env](std::string_view key) {
-    USE(SafeGetenv(key.data(), &dir, env->env_vars()));
+    USE(SafeGetenv(key.data(), &dir, env));
     return !dir.empty();
   };
 
@@ -130,8 +137,10 @@ static void GetTempDir(const FunctionCallbackInfo<Value>& args) {
     dir.pop_back();
   }
 
-  args.GetReturnValue().Set(
-      ToV8Value(isolate->GetCurrentContext(), dir).ToLocalChecked());
+  Local<Value> result;
+  if (ToV8Value(isolate->GetCurrentContext(), dir).ToLocal(&result)) {
+    args.GetReturnValue().Set(result);
+  }
 }
 
 #ifdef NODE_IMPLEMENTS_POSIX_CREDENTIALS
@@ -172,19 +181,6 @@ static char* name_by_uid(uid_t uid) {
   return nullptr;
 }
 
-#ifdef __ANDROID__
-// Android has getgrnam instead of getgrnam_r.
-static gid_t gid_by_name(const char* name) {
-  struct group* pp = getgrnam(name);  // NOLINT(runtime/threadsafe_fn)
-
-  errno = 0;
-
-  if (pp != nullptr)
-    return pp->gr_gid;
-
-  return gid_not_found;
-}
-#else  // __ANDROID__
 static gid_t gid_by_name(const char* name) {
   struct group pwd;
   struct group* pp;
@@ -198,7 +194,6 @@ static gid_t gid_by_name(const char* name) {
 
   return gid_not_found;
 }
-#endif  // __ANDROID__
 
 #if 0  // For future use.
 static const char* name_by_gid(gid_t gid) {
@@ -242,31 +237,13 @@ static gid_t gid_by_name(Isolate* isolate, Local<Value> value) {
   }
 }
 
-#ifdef __linux__
-extern "C" {
-int uv__node_patch_is_using_io_uring(void);
-
-int uv__node_patch_is_using_io_uring(void) __attribute__((weak));
-
-typedef int (*is_using_io_uring_fn)(void);
-}
-#endif  // __linux__
-
 static bool UvMightBeUsingIoUring() {
 #ifdef __linux__
-  // Support for io_uring is only included in libuv 1.45.0 and later, and only
-  // on Linux (and Android, but there it is always disabled). The patch that we
-  // apply to libuv to work around the io_uring security issue adds a function
-  // that tells us whether io_uring is being used. If that function is not
-  // present, we assume that we are dynamically linking against an unpatched
-  // version.
-  static std::atomic<is_using_io_uring_fn> check =
-      uv__node_patch_is_using_io_uring;
-  if (check == nullptr) {
-    check = reinterpret_cast<is_using_io_uring_fn>(
-        dlsym(RTLD_DEFAULT, "uv__node_patch_is_using_io_uring"));
-  }
-  return uv_version() >= 0x012d00u && (check == nullptr || (*check)());
+  // Support for io_uring is only included in libuv 1.45.0 and later. Starting
+  // with 1.49.0 is disabled by default. Check the version in case Node.js is
+  // dynamically to an io_uring-enabled version of libuv.
+  unsigned int version = uv_version();
+  return version >= 0x012d00u && version < 0x013100u;
 #else
   return false;
 #endif
@@ -309,8 +286,6 @@ static void GetEGid(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(static_cast<uint32_t>(getegid()));
 }
 
-#ifndef __ANDROID__
-// Android blocks setting Uid and Gid.
 static void SetGid(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   CHECK(env->owns_process_state());
@@ -394,7 +369,6 @@ static void SetEUid(const FunctionCallbackInfo<Value>& args) {
     args.GetReturnValue().Set(0);
   }
 }
-#endif  // ifndef __ANDROID__
 
 static void GetGroups(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -413,13 +387,12 @@ static void GetGroups(const FunctionCallbackInfo<Value>& args) {
   gid_t egid = getegid();
   if (std::find(groups.begin(), groups.end(), egid) == groups.end())
     groups.push_back(egid);
-  MaybeLocal<Value> array = ToV8Value(env->context(), groups);
-  if (!array.IsEmpty())
-    args.GetReturnValue().Set(array.ToLocalChecked());
+  Local<Value> result;
+  if (ToV8Value(env->context(), groups).ToLocal(&result)) {
+    args.GetReturnValue().Set(result);
+  }
 }
 
-#ifndef __ANDROID__
-// Android blocks setting groups
 static void SetGroups(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
@@ -433,8 +406,12 @@ static void SetGroups(const FunctionCallbackInfo<Value>& args) {
   MaybeStackBuffer<gid_t, 64> groups(size);
 
   for (size_t i = 0; i < size; i++) {
-    gid_t gid = gid_by_name(
-        env->isolate(), groups_list->Get(env->context(), i).ToLocalChecked());
+    Local<Value> val;
+    if (!groups_list->Get(env->context(), i).ToLocal(&val)) {
+      // V8 will have scheduled an error to be thrown.
+      return;
+    }
+    gid_t gid = gid_by_name(env->isolate(), val);
 
     if (gid == gid_not_found) {
       // Tells JS to throw ERR_INVALID_CREDENTIAL
@@ -451,7 +428,6 @@ static void SetGroups(const FunctionCallbackInfo<Value>& args) {
 
   args.GetReturnValue().Set(0);
 }
-#endif  // ifndef __ANDROID__
 
 static void InitGroups(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -511,13 +487,11 @@ void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
   registry->Register(GetGroups);
 
   registry->Register(InitGroups);
-  #ifndef __ANDROID__
   registry->Register(SetEGid);
   registry->Register(SetEUid);
   registry->Register(SetGid);
   registry->Register(SetUid);
   registry->Register(SetGroups);
-  #endif
 #endif  // NODE_IMPLEMENTS_POSIX_CREDENTIALS
 }
 
@@ -541,13 +515,11 @@ static void Initialize(Local<Object> target,
 
   if (env->owns_process_state()) {
     SetMethod(context, target, "initgroups", InitGroups);
-    #ifndef __ANDROID__ // nodejs-mobile patch
     SetMethod(context, target, "setegid", SetEGid);
     SetMethod(context, target, "seteuid", SetEUid);
     SetMethod(context, target, "setgid", SetGid);
     SetMethod(context, target, "setuid", SetUid);
     SetMethod(context, target, "setgroups", SetGroups);
-    #endif
   }
 #endif  // NODE_IMPLEMENTS_POSIX_CREDENTIALS
 }

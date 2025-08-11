@@ -4,9 +4,14 @@ import argparse
 import ast
 import errno
 import os
+import platform
 import shutil
 import sys
 import re
+
+current_system = platform.system()
+
+SYSTEM_AIX = "AIX"
 
 def abspath(*args):
   path = os.path.join(*args)
@@ -44,6 +49,7 @@ def try_rmdir_r(options, path):
     except OSError as e:
       if e.errno == errno.ENOTEMPTY: return
       if e.errno == errno.ENOENT: return
+      if e.errno == errno.EEXIST and current_system == SYSTEM_AIX: return
       raise
     path = abspath(path, '..')
 
@@ -175,9 +181,19 @@ def files(options, action):
       link_path = abspath(options.install_path, 'lib/libnode.so')
       try_symlink(options, so_name, link_path)
     else:
-      output_lib = 'libnode.' + options.variables.get('shlib_suffix')
-      action(options, [os.path.join(options.build_dir, output_lib)],
-             os.path.join(options.variables.get('libdir'), output_lib))
+      # Ninja and Makefile generators output the library in different directories;
+      # find out which one we have, and install first found
+      output_lib_name = 'libnode.' + options.variables.get('shlib_suffix')
+      output_lib_candidate_paths = [
+        os.path.join(options.build_dir, output_lib_name),
+        os.path.join(options.build_dir, "lib", output_lib_name),
+      ]
+      try:
+        output_lib = next(filter(os.path.exists, output_lib_candidate_paths))
+      except StopIteration as not_found:
+        raise RuntimeError("No libnode.so to install!") from not_found
+      action(options, [output_lib],
+             os.path.join(options.variables.get('libdir'), output_lib_name))
 
   action(options, [os.path.join(options.v8_dir, 'tools/gdbinit')], 'share/doc/node/')
   action(options, [os.path.join(options.v8_dir, 'tools/lldb_commands.py')], 'share/doc/node/')

@@ -3289,9 +3289,7 @@ added:
 -->
 
 * `headers` {Headers|Map}
-* Returns: {http.ServerResponse}
-
-Returns the response object.
+* Returns: {this}
 
 Sets multiple header values for implicit headers.
 `headers` must be an instance of [`Headers`][] or `Map`,
@@ -3300,14 +3298,14 @@ its value will be replaced.
 
 ```js
 const headers = new Headers({ foo: 'bar' });
-response.setHeaders(headers);
+outgoingMessage.setHeaders(headers);
 ```
 
 or
 
 ```js
 const headers = new Map([['foo', 'bar']]);
-res.setHeaders(headers);
+outgoingMessage.setHeaders(headers);
 ```
 
 When headers have been set with [`outgoingMessage.setHeaders()`][],
@@ -3324,13 +3322,13 @@ const server = http.createServer((req, res) => {
 });
 ```
 
-### `outgoingMessage.setTimeout(msesc[, callback])`
+### `outgoingMessage.setTimeout(msecs[, callback])`
 
 <!-- YAML
 added: v0.9.12
 -->
 
-* `msesc` {number}
+* `msecs` {number}
 * `callback` {Function} Optional function to be called when a timeout
   occurs. Same as binding to the `timeout` event.
 * Returns: {this}
@@ -3820,7 +3818,8 @@ changes:
   * `family` {number} IP address family to use when resolving `host` or
     `hostname`. Valid values are `4` or `6`. When unspecified, both IP v4 and
     v6 will be used.
-  * `headers` {Object} An object containing request headers.
+  * `headers` {Object|Array} An object or an array of strings containing request
+    headers. The array is in the same format as [`message.rawHeaders`][].
   * `hints` {number} Optional [`dns.lookup()` hints][].
   * `host` {string} A domain name or IP address of the server to issue the
     request to. **Default:** `'localhost'`.
@@ -3850,8 +3849,13 @@ changes:
   * `port` {number} Port of remote server. **Default:** `defaultPort` if set,
     else `80`.
   * `protocol` {string} Protocol to use. **Default:** `'http:'`.
+  * `setDefaultHeaders` {boolean}: Specifies whether or not to automatically add
+    default headers such as `Connection`, `Content-Length`, `Transfer-Encoding`,
+    and `Host`. If set to `false` then all necessary headers must be added
+    manually. Defaults to `true`.
   * `setHost` {boolean}: Specifies whether or not to automatically add the
-    `Host` header. Defaults to `true`.
+    `Host` header. If provided, this overrides `setDefaultHeaders`. Defaults to
+    `true`.
   * `signal` {AbortSignal}: An AbortSignal that may be used to abort an ongoing
     request.
   * `socketPath` {string} Unix domain socket. Cannot be used if one of `host`
@@ -4228,14 +4232,14 @@ added:
 
 Set the maximum number of idle HTTP parsers.
 
-## `WebSocket`
+## Class: `WebSocket`
 
 <!-- YAML
 added:
   - v22.5.0
 -->
 
-A browser-compatible implementation of [`WebSocket`][].
+A browser-compatible implementation of {WebSocket}.
 
 [RFC 8187]: https://www.rfc-editor.org/rfc/rfc8187.txt
 [`'ERR_HTTP_CONTENT_LENGTH_MISMATCH'`]: errors.md#err_http_content_length_mismatch
@@ -4253,7 +4257,6 @@ A browser-compatible implementation of [`WebSocket`][].
 [`Headers`]: globals.md#class-headers
 [`TypeError`]: errors.md#class-typeerror
 [`URL`]: url.md#the-whatwg-url-api
-[`WebSocket`]: #websocket
 [`agent.createConnection()`]: #agentcreateconnectionoptions-callback
 [`agent.getName()`]: #agentgetnameoptions
 [`destroy()`]: #agentdestroy
@@ -4270,6 +4273,7 @@ A browser-compatible implementation of [`WebSocket`][].
 [`http.globalAgent`]: #httpglobalagent
 [`http.request()`]: #httprequestoptions-callback
 [`message.headers`]: #messageheaders
+[`message.rawHeaders`]: #messagerawheaders
 [`message.socket`]: #messagesocket
 [`message.trailers`]: #messagetrailers
 [`net.Server.close()`]: net.md#serverclosecallback

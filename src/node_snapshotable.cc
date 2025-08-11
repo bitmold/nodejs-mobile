@@ -41,8 +41,12 @@ using v8::FunctionCallbackInfo;
 using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
+using v8::LocalVector;
+using v8::MaybeLocal;
 using v8::Object;
 using v8::ObjectTemplate;
+using v8::ScriptCompiler;
+using v8::ScriptOrigin;
 using v8::SnapshotCreator;
 using v8::StartupData;
 using v8::String;
@@ -962,6 +966,8 @@ ExitCode BuildSnapshotWithoutCodeCache(
   }
 
   Isolate* isolate = setup->isolate();
+  v8::Locker locker(isolate);
+
   {
     HandleScope scope(isolate);
     TryCatch bootstrapCatch(isolate);
@@ -973,25 +979,29 @@ ExitCode BuildSnapshotWithoutCodeCache(
       }
     });
 
+    Context::Scope context_scope(setup->context());
+    Environment* env = setup->env();
+
     // Run the custom main script for fully customized snapshots.
     if (snapshot_type == SnapshotMetadata::Type::kFullyCustomized) {
-      Context::Scope context_scope(setup->context());
-      Environment* env = setup->env();
 #if HAVE_INSPECTOR
         env->InitializeInspector({});
 #endif
         if (LoadEnvironment(env, builder_script_content.value()).IsEmpty()) {
           return ExitCode::kGenericUserError;
         }
+    }
 
-        // FIXME(joyeecheung): right now running the loop in the snapshot
-        // builder might introduce inconsistencies in JS land that need to
-        // be synchronized again after snapshot restoration.
-        ExitCode exit_code =
-            SpinEventLoopInternal(env).FromMaybe(ExitCode::kGenericUserError);
-        if (exit_code != ExitCode::kNoFailure) {
-          return exit_code;
-        }
+    // Drain the loop and platform tasks before creating a snapshot. This is
+    // necessary to ensure that the no roots are held by the the platform
+    // tasks, which may reference objects associated with a context. For
+    // example, a WeakRef may schedule an per-isolate platform task as a GC
+    // root, and referencing an object in a context, causing an assertion in
+    // the snapshot creator.
+    ExitCode exit_code =
+        SpinEventLoopInternal(env).FromMaybe(ExitCode::kGenericUserError);
+    if (exit_code != ExitCode::kNoFailure) {
+      return exit_code;
     }
   }
 
@@ -1473,14 +1483,25 @@ void CompileSerializeMain(const FunctionCallbackInfo<Value>& args) {
   Local<Context> context = isolate->GetCurrentContext();
   // TODO(joyeecheung): do we need all of these? Maybe we would want a less
   // internal version of them.
-  std::vector<Local<String>> parameters = {
-      FIXED_ONE_BYTE_STRING(isolate, "require"),
-      FIXED_ONE_BYTE_STRING(isolate, "__filename"),
-      FIXED_ONE_BYTE_STRING(isolate, "__dirname"),
-  };
+  LocalVector<String> parameters(
+      isolate,
+      {
+          FIXED_ONE_BYTE_STRING(isolate, "require"),
+          FIXED_ONE_BYTE_STRING(isolate, "__filename"),
+          FIXED_ONE_BYTE_STRING(isolate, "__dirname"),
+      });
+
+  ScriptOrigin script_origin(filename, 0, 0, true);
+  ScriptCompiler::Source script_source(source, script_origin);
+  MaybeLocal<Function> maybe_fn =
+      ScriptCompiler::CompileFunction(context,
+                                      &script_source,
+                                      parameters.size(),
+                                      parameters.data(),
+                                      0,
+                                      nullptr);
   Local<Function> fn;
-  if (contextify::CompileFunction(context, filename, source, &parameters)
-          .ToLocal(&fn)) {
+  if (maybe_fn.ToLocal(&fn)) {
     args.GetReturnValue().Set(fn);
   }
 }
