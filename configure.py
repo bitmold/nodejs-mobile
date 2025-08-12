@@ -1443,17 +1443,15 @@ def gcc_version_ge(version_checked):
 def configure_node_lib_files(o):
   o['variables']['node_library_files'] = SearchFiles('lib', 'js')
 
-def configure_node(o):
-  if options.dest_os == 'ios':
-    o['variables']['OS'] = 'ios'
-    o['variables']['iossim'] = b(options.ios_simulator)
-
 def configure_node_cctest_sources(o):
   o['variables']['node_cctest_sources'] = [ 'src/node_snapshot_stub.cc' ] + \
     SearchFiles('test/cctest', 'cc') + \
     SearchFiles('test/cctest', 'h')
 
 def configure_node(o):
+  if options.dest_os == 'ios':
+    o['variables']['OS'] = 'ios'
+    o['variables']['iossim'] = b(options.ios_simulator)
   if options.dest_os == 'android':
     o['variables']['OS'] = 'android'
   o['variables']['node_prefix'] = options.prefix
@@ -1837,7 +1835,9 @@ def configure_openssl(o):
     has_quic = getsharedopensslhasquic.get_has_quic(options.__dict__['shared_openssl_includes'])
   else:
     has_quic = getsharedopensslhasquic.get_has_quic('deps/openssl/openssl/include')
-
+    
+  #nodejs-mobile patch: disable QUIC support
+  has_quic = False
   variables['openssl_quic'] = b(has_quic)
   if has_quic:
     o['defines'] += ['NODE_OPENSSL_HAS_QUIC']

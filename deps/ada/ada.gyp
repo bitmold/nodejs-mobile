@@ -11,6 +11,8 @@
       'direct_dependent_settings': {
         'include_dirs': ['.'],
       },
+      # nodejs-mobile patch: add C++17 standard
+      "cflags_cc": ["-std=c++17"],  
       'sources': [ '<@(ada_sources)' ]
     },
   ]

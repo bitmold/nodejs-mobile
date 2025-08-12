@@ -55,6 +55,8 @@
         'GTEST_HAS_POSIX_RE=0',
         'GTEST_LANG_CXX11=1',
       ],
+      # nodejs-mobile patch: add C++17 standard
+      "cflags_cc": ["-std=c++17"],  
       'all_dependent_settings': {
         'defines': [
           'GTEST_HAS_POSIX_RE=0',
@@ -91,6 +93,8 @@
       'sources': [
         'src/gtest_main.cc',
       ],
+      # nodejs-mobile patch: add C++17 standard
+      "cflags_cc": ["-std=c++17"],  
     },
     {
       'target_name': 'gtest_prod',
@@ -98,6 +102,8 @@
       'sources': [
         'include/gtest/gtest_prod.h',
       ],
+      # nodejs-mobile patch: add C++17 standard
+      "cflags_cc": ["-std=c++17"],  
       'direct_dependent_settings': {
         'include_dirs': [
           'include',

@@ -36,6 +36,8 @@
   },
   'includes': ['toolchain.gypi', 'features.gypi'],
   'target_defaults': {
+    # nodejs-mobile patch: add C++17 standard
+    "cflags_cc": ["-std=c++17"],  
     'include_dirs': [
       '<(V8_ROOT)',
       '<(V8_ROOT)/include',

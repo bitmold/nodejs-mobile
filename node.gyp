@@ -544,6 +544,9 @@
         'deps/postject'
       ],
 
+      # nodejs-mobile patch: add C++20 support
+      "cflags_cc": ["-std=c++20"],
+
       'sources': [
         'src/node_main.cc'
       ],
@@ -573,6 +576,13 @@
       'msvs_disabled_warnings!': [4244],
 
       'conditions': [
+        #nodejs-mobile patch: add macOS specific flags
+        ['OS in "mac ios"', {
+          'ldflags': [
+            '-framework CoreFoundation',
+            '-framework Security',
+          ],
+        }],
         [ 'error_on_warn=="true"', {
           'cflags': ['-Werror'],
           'xcode_settings': {
@@ -854,6 +864,9 @@
         'node_js2c#host',
       ],
 
+      # nodejs-mobile patch: add C++20 support
+      "cflags_cc": ["-std=c++20"],
+
       'sources': [
         '<@(node_sources)',
         # Dependency headers
@@ -914,6 +927,7 @@
           'sources': [
             'src/node_snapshot_stub.cc',
           ]
+        }],
         [ 'node_use_sqlite=="true"', {
           'sources': [
             '<@(node_sqlite_sources)',
@@ -1213,9 +1227,19 @@
         'NODE_WANT_INTERNALS=1',
       ],
 
+    # nodejs-mobile patch: add C++20 support
+      "cflags_cc": ["-std=c++20"],
+
       'sources': [ '<@(node_cctest_sources)' ],
 
       'conditions': [
+        #nodejs-mobile patch: add macOS specific flags
+        ['OS in "mac ios"', {
+          'ldflags': [
+            '-framework CoreFoundation',
+            '-framework Security',
+          ],
+        }],
         [ 'node_use_openssl=="true"', {
           'defines': [
             'HAVE_OPENSSL=1',
@@ -1294,12 +1318,22 @@
         'test/embedding',
       ],
 
+      # nodejs-mobile patch: add C++20 support
+      "cflags_cc": ["-std=c++20"],
+
       'sources': [
         'src/node_snapshot_stub.cc',
         'test/embedding/embedtest.cc',
       ],
 
       'conditions': [
+        #nodejs-mobile patch: add macOS specific flags
+        ['OS in "mac ios"', {
+          'ldflags': [
+            '-framework CoreFoundation',
+            '-framework Security',
+          ],
+        }],
         ['OS=="solaris"', {
           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
         }],
@@ -1361,6 +1395,8 @@
         'src/embedded_data.h',
         'src/embedded_data.cc',
       ],
+      # nodejs-mobile patch: add C++20 support
+      "cflags_cc": ["-std=c++20"],
       'conditions': [
         [ 'node_shared_simdutf=="false"', {
           'dependencies': [ 'deps/simdutf/simdutf.gyp:simdutf#host' ],
@@ -1407,12 +1443,22 @@
 
       'defines': [ 'NODE_WANT_INTERNALS=1' ],
 
+      # nodejs-mobile patch: add C++20 support
+      "cflags_cc": ["-std=c++20"],
+
       'sources': [
         # nodejs-mobile patch: moved `node_snapshot_stub.cc` to the `not` below
         'tools/snapshot/node_mksnapshot.cc',
       ],
 
       'conditions': [
+        #nodejs-mobile patch: add macOS specific flags
+        ['OS in "mac ios"', {
+          'ldflags': [
+            '-framework CoreFoundation',
+            '-framework Security',
+          ],
+        }],
         # nodejs-mobile patch: added this whole `not` block
         [ 'not (node_target_type=="static_library" and OS=="ios")', {
           'sources': [

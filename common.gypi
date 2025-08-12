@@ -650,7 +650,8 @@
               [ 'target_arch=="x86_64"', {
                 'libraries': ['>(node_root_dir)/bin/x86_64/libnode.so'],
               }],
-            ],
+            ]
+          }],
           ['_toolset=="host"', {
             'cflags': [ '-pthread' ],
             'ldflags': [ '-pthread' ],
@@ -849,7 +850,7 @@
           '-qASM',
         ],
         'cflags_cc': [
-          '-qxclang=-std=c++14',
+          '-qxclang=-std=c++17',
         ],
         'ldflags': [
           '-q64',

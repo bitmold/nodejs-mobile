@@ -15,6 +15,8 @@
       'direct_dependent_settings': {
         'include_dirs': ['.'],
       },
+      # nodejs-mobile patch: add C++20 standard
+      "cflags_cc": ["-std=c++20"],  
       'sources': [ '<@(ncrypto_sources)' ],
       'conditions': [
         ['node_shared_openssl=="false"', {
