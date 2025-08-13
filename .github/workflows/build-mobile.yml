@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: "Branch to build (e.g. update22-9-0)"
+        description: "Branch to build (e.g. update22-18-0)"
         required: true
-        default: update22-9-0
+        default: update22-18-0
         
 env:
   SCCACHE_GHA_ENABLED: 'true'
