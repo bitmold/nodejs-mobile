@@ -27,8 +27,6 @@ declare -a outputs_common=(
     "libnbytes.a"
     "libncrypto.a"
     "libnghttp2.a"
-    "libnghttp3.a"
-    "libngtcp2.a"
     "libnode.a"
     "libopenssl.a"
     "libsimdjson.a"
@@ -37,7 +35,7 @@ declare -a outputs_common=(
     "libtorque_base.a"
     "libuv.a"
     "libuvwasi.a"
-    "libv8_abseil.a"
+    "libabseil.a"
     "libv8_base_without_compiler.a"
     "libv8_compiler.a"
     "libv8_init.a"
@@ -52,7 +50,6 @@ declare -a outputs_common=(
 declare -a outputs_x64_only=(
 )
 declare -a outputs_arm64_only=(
-    "libzlib_inflate_chunk_simd.a"
 )
 
 declare -a outputs_x64=("${outputs_common[@]}" "${outputs_x64_only[@]}")
@@ -77,7 +74,16 @@ build_for_arm64_device() {
   # Move compilation outputs
   mkdir -p $TARGET_LIBRARY_PATH/arm64-device
   for output_file in "${outputs_arm64[@]}"; do
-    cp $LIBRARY_PATH/$output_file $TARGET_LIBRARY_PATH/arm64-device/
+
+    found_path=$(find "$LIBRARY_PATH/obj.target" -type f -name "$output_file" -print -quit)
+    
+    if [[ -n "$found_path" ]]; then
+        cp "$found_path" "$TARGET_LIBRARY_PATH/arm64-device/"
+        echo "Copied: $output_file"
+    else
+        echo "Warning: $output_file not found in $LIBRARY_PATH/obj.target/"
+
+    fi  
   done
 }
 
@@ -260,6 +266,7 @@ else
   build_framework_for_arm64_simulator
   set_framework_target_dir "x64-simulator"
   build_framework_for_x64_simulator
+
   set_framework_target_dir
   combine_frameworks
 

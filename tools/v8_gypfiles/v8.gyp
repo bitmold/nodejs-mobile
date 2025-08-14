@@ -2027,7 +2027,7 @@
             ],
           }, { # 'OS!="win"'
             'conditions': [
-              ['_toolset == "host" and host_arch == "x64" or _toolset == "target" and target_arch=="x64"', {
+              ['target_arch=="x64"', {
                 'sources': [
                   '<(V8_ROOT)/src/heap/base/asm/x64/push_registers_asm.cc',
                 ],
@@ -2037,12 +2037,12 @@
                   '<(V8_ROOT)/src/heap/base/asm/ia32/push_registers_asm.cc',
                 ],
               }],
-              ['_toolset == "host" and host_arch == "arm" or _toolset == "target" and target_arch=="arm"', {
+              ['target_arch=="arm"', {
                 'sources': [
                   '<(V8_ROOT)/src/heap/base/asm/arm/push_registers_asm.cc',
                 ],
               }],
-              ['_toolset == "host" and host_arch == "arm64" or _toolset == "target" and target_arch=="arm64"', {
+              ['target_arch=="arm64"', {
                 'sources': [
                   '<(V8_ROOT)/src/heap/base/asm/arm64/push_registers_asm.cc',
                 ],
