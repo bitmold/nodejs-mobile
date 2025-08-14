@@ -23,8 +23,8 @@ jobs:
       matrix:
         config:
           - { os: ubuntu-22.04, target_arch: arm }
-          - { os: ubuntu-22.04, target_arch: arm64 }
-          - { os: ubuntu-22.04, target_arch: x86_64 }
+          # - { os: ubuntu-22.04, target_arch: arm64 }
+          # - { os: ubuntu-22.04, target_arch: x86_64 }
           
     runs-on: ${{ matrix.config.os }}
     env:
@@ -55,7 +55,7 @@ jobs:
           MY_ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           LDFLAGS: "-Wl,-z,max-page-size=16384"
         run: |
-          ./tools/android_build.sh $MY_ANDROID_NDK_HOME $ANDROID_TARGET_SDK_VERSION $TARGET_ARCH
+          ./tools/build_android.sh $MY_ANDROID_NDK_HOME $ANDROID_TARGET_SDK_VERSION $TARGET_ARCH
           rm -rf ./out_android/libnode
 
       - uses: actions/upload-artifact@v4
