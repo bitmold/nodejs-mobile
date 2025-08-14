@@ -614,8 +614,8 @@
                     'cflags': [ '-m31' ],
                     'ldflags': [ '-m31' ]
                   },{
-                   'cflags': [ '-m32' ],
-                   'ldflags': [ '-m32' ]
+                   'cflags!': [ '-m32' ],
+                   'ldflags!': [ '-m32' ]
                   }],
                 ],
               }],
