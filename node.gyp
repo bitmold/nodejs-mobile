@@ -578,10 +578,12 @@
       'conditions': [
         #nodejs-mobile patch: add macOS specific flags
         ['OS in "mac ios"', {
-          'ldflags': [
-            '-framework CoreFoundation',
-            '-framework Security',
-          ],
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [
+              '-framework CoreFoundation',
+              '-framework Security',
+            ],
+          },
         }],
         [ 'error_on_warn=="true"', {
           'cflags': ['-Werror'],
@@ -1235,10 +1237,12 @@
       'conditions': [
         #nodejs-mobile patch: add macOS specific flags
         ['OS in "mac ios"', {
-          'ldflags': [
-            '-framework CoreFoundation',
-            '-framework Security',
-          ],
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [
+              '-framework CoreFoundation',
+              '-framework Security',
+            ],
+          },
         }],
         [ 'node_use_openssl=="true"', {
           'defines': [
@@ -1329,10 +1333,12 @@
       'conditions': [
         #nodejs-mobile patch: add macOS specific flags
         ['OS in "mac ios"', {
-          'ldflags': [
-            '-framework CoreFoundation',
-            '-framework Security',
-          ],
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [
+              '-framework CoreFoundation',
+              '-framework Security',
+            ],
+          },
         }],
         ['OS=="solaris"', {
           'ldflags': [ '-I<(SHARED_INTERMEDIATE_DIR)' ]
@@ -1417,6 +1423,33 @@
             ],
           },
         }],
+        # nodejs-mobile patch: build this on MacOS.sdk
+        [ 'OS=="ios"', {
+          'target_conditions': [
+            ['_toolset=="host"', {
+              'xcode_settings': {
+                'SDKROOT': 'macosx',
+                'MACOSX_DEPLOYMENT_TARGET': '10.15',
+                'IPHONEOS_DEPLOYMENT_TARGET': '',
+                'ENABLE_BITCODE': 'NO',
+              },
+              'cflags!': [
+                '-miphoneos-version-min=14.0',
+                '-fembed-bitcode',
+              ],
+              'cflags': [
+                '-mmacosx-version-min=10.15',
+              ],
+              'ldflags!': [
+                '-miphoneos-version-min=14.0',
+                '-fembed-bitcode',
+              ],
+              'ldflags': [
+                '-mmacosx-version-min=10.15',
+              ],
+            }],
+          ],
+        }],
       ]
     },
     {
@@ -1454,10 +1487,12 @@
       'conditions': [
         #nodejs-mobile patch: add macOS specific flags
         ['OS in "mac ios"', {
-          'ldflags': [
-            '-framework CoreFoundation',
-            '-framework Security',
-          ],
+          'xcode_settings': {
+            'OTHER_LDFLAGS': [
+              '-framework CoreFoundation',
+              '-framework Security',
+            ],
+          },
         }],
         # nodejs-mobile patch: added this whole `not` block
         [ 'not (node_target_type=="static_library" and OS=="ios")', {

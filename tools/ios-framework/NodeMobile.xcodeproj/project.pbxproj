@@ -8,37 +8,37 @@
 
 /* Begin PBXBuildFile section */
 		3C02AFD41FA919C30053C191 /* NodeMobile.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 3C02AFD31FA919C30053C191 /* NodeMobile.cpp */; };
-		B52825E12E43C6EA0081569B /* libada.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C72E43C6BA0081569B /* libada.a */; };
-		B52825E22E43C7020081569B /* libbrotli.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D32E43C6BA0081569B /* libbrotli.a */; };
-		B52825E32E43C7020081569B /* libcares.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CB2E43C6BA0081569B /* libcares.a */; };
-		B52825E42E43C7020081569B /* libgtest_main.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DE2E43C6BA0081569B /* libgtest_main.a */; };
-		B52825E52E43C7020081569B /* libgtest.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D22E43C6BA0081569B /* libgtest.a */; };
-		B52825E62E43C7020081569B /* libhistogram.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C42E43C6BA0081569B /* libhistogram.a */; };
-		B52825E72E43C7020081569B /* libllhttp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D42E43C6BA0081569B /* libllhttp.a */; };
-		B52825E82E43C7020081569B /* libnbytes.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825E02E43C6BA0081569B /* libnbytes.a */; };
-		B52825E92E43C7020081569B /* libncrypto.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D92E43C6BA0081569B /* libncrypto.a */; };
-		B52825EA2E43C7020081569B /* libnghttp2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CE2E43C6BA0081569B /* libnghttp2.a */; };
-		B52825EB2E43C7020081569B /* libnghttp3.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C92E43C6BA0081569B /* libnghttp3.a */; };
-		B52825EC2E43C7020081569B /* libngtcp2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C52E43C6BA0081569B /* libngtcp2.a */; };
-		B52825ED2E43C7020081569B /* libnode.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D52E43C6BA0081569B /* libnode.a */; };
-		B52825EE2E43C7020081569B /* libopenssl.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D82E43C6BA0081569B /* libopenssl.a */; };
-		B52825EF2E43C7020081569B /* libsimdjson.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CD2E43C6BA0081569B /* libsimdjson.a */; };
-		B52825F02E43C7020081569B /* libsimdutf.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CC2E43C6BA0081569B /* libsimdutf.a */; };
-		B52825F12E43C7020081569B /* libsqlite.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C22E43C6BA0081569B /* libsqlite.a */; };
-		B52825F22E43C7020081569B /* libtorque_base.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D12E43C6BA0081569B /* libtorque_base.a */; };
-		B52825F32E43C7020081569B /* libuv.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CA2E43C6BA0081569B /* libuv.a */; };
-		B52825F42E43C7020081569B /* libuvwasi.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DB2E43C6BA0081569B /* libuvwasi.a */; };
-		B52825F52E43C7020081569B /* libv8_abseil.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CF2E43C6BA0081569B /* libv8_abseil.a */; };
-		B52825F62E43C7020081569B /* libv8_base_without_compiler.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C82E43C6BA0081569B /* libv8_base_without_compiler.a */; };
-		B52825F72E43C7020081569B /* libv8_compiler.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D02E43C6BA0081569B /* libv8_compiler.a */; };
-		B52825F92E43C7020081569B /* libv8_initializers.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C32E43C6BA0081569B /* libv8_initializers.a */; };
-		B52825FA2E43C7020081569B /* libv8_libbase.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D72E43C6BA0081569B /* libv8_libbase.a */; };
-		B52825FB2E43C7020081569B /* libv8_libplatform.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DA2E43C6BA0081569B /* libv8_libplatform.a */; };
-		B52825FC2E43C7020081569B /* libv8_snapshot.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C62E43C6BA0081569B /* libv8_snapshot.a */; };
-		B52825FD2E43C7020081569B /* libv8_turboshaft.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DF2E43C6BA0081569B /* libv8_turboshaft.a */; };
-		B52825FE2E43C7020081569B /* libv8_zlib.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DC2E43C6BA0081569B /* libv8_zlib.a */; };
-		B52825FF2E43C7020081569B /* libzlib_inflate_chunk_simd.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DD2E43C6BA0081569B /* libzlib_inflate_chunk_simd.a */; };
-		B52826002E43C7020081569B /* libzlib.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D62E43C6BA0081569B /* libzlib.a */; };
+		B5EF687B2E50856400DA5502 /* libabseil.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B5EF68772E507F8C00DA5502 /* libabseil.a */; };
+		B5EF687C2E50856400DA5502 /* libada.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C72E43C6BA0081569B /* libada.a */; };
+		B5EF687D2E50856400DA5502 /* libbrotli.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D32E43C6BA0081569B /* libbrotli.a */; };
+		B5EF687E2E50856400DA5502 /* libcares.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CB2E43C6BA0081569B /* libcares.a */; };
+		B5EF687F2E50856400DA5502 /* libcrdtp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B5EF68782E507F8C00DA5502 /* libcrdtp.a */; };
+		B5EF68802E50856400DA5502 /* libgtest_main.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DE2E43C6BA0081569B /* libgtest_main.a */; };
+		B5EF68812E50856400DA5502 /* libgtest.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D22E43C6BA0081569B /* libgtest.a */; };
+		B5EF68822E50856400DA5502 /* libhistogram.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C42E43C6BA0081569B /* libhistogram.a */; };
+		B5EF68832E50856400DA5502 /* libllhttp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D42E43C6BA0081569B /* libllhttp.a */; };
+		B5EF68842E50856400DA5502 /* libnbytes.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825E02E43C6BA0081569B /* libnbytes.a */; };
+		B5EF68852E50856400DA5502 /* libncrypto.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D92E43C6BA0081569B /* libncrypto.a */; };
+		B5EF68862E50856400DA5502 /* libnghttp2.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CE2E43C6BA0081569B /* libnghttp2.a */; };
+		B5EF68872E50856400DA5502 /* libnode.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D52E43C6BA0081569B /* libnode.a */; };
+		B5EF68882E50856400DA5502 /* libopenssl.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D82E43C6BA0081569B /* libopenssl.a */; };
+		B5EF68892E50856400DA5502 /* libsimdjson.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CD2E43C6BA0081569B /* libsimdjson.a */; };
+		B5EF688A2E50856400DA5502 /* libsimdutf.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CC2E43C6BA0081569B /* libsimdutf.a */; };
+		B5EF688B2E50856400DA5502 /* libsqlite.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C22E43C6BA0081569B /* libsqlite.a */; };
+		B5EF688C2E50856400DA5502 /* libtorque_base.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D12E43C6BA0081569B /* libtorque_base.a */; };
+		B5EF688D2E50856400DA5502 /* libuv.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825CA2E43C6BA0081569B /* libuv.a */; };
+		B5EF688E2E50856400DA5502 /* libuvwasi.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DB2E43C6BA0081569B /* libuvwasi.a */; };
+		B5EF688F2E50856400DA5502 /* libv8_base_without_compiler.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C82E43C6BA0081569B /* libv8_base_without_compiler.a */; };
+		B5EF68902E50856400DA5502 /* libv8_compiler.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D02E43C6BA0081569B /* libv8_compiler.a */; };
+		B5EF68922E50856400DA5502 /* libv8_initializers.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C32E43C6BA0081569B /* libv8_initializers.a */; };
+		B5EF68932E50856400DA5502 /* libv8_libbase.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D72E43C6BA0081569B /* libv8_libbase.a */; };
+		B5EF68942E50856400DA5502 /* libv8_libplatform.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DA2E43C6BA0081569B /* libv8_libplatform.a */; };
+		B5EF68952E50856400DA5502 /* libv8_snapshot.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825C62E43C6BA0081569B /* libv8_snapshot.a */; };
+		B5EF68962E50856400DA5502 /* libv8_turboshaft.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DF2E43C6BA0081569B /* libv8_turboshaft.a */; };
+		B5EF68972E50856400DA5502 /* libv8_zlib.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825DC2E43C6BA0081569B /* libv8_zlib.a */; };
+		B5EF68982E50856400DA5502 /* libzlib_data_chunk_simd.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B5EF687A2E507F8C00DA5502 /* libzlib_data_chunk_simd.a */; };
+		B5EF68992E50856400DA5502 /* libzlib.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B52825D62E43C6BA0081569B /* libzlib.a */; };
+		B5EF689A2E50856400DA5502 /* libzstd.a in Frameworks */ = {isa = PBXBuildFile; fileRef = B5EF68792E507F8C00DA5502 /* libzstd.a */; };
 		D9A7619D1F7C63A8006AFE86 /* CoreFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 331917C21EC4702A00F93D52 /* CoreFoundation.framework */; };
 		D9A762281F7C675E006097B1 /* NodeMobile.h in Headers */ = {isa = PBXBuildFile; fileRef = D9A762261F7C674F006097B1 /* NodeMobile.h */; settings = {ATTRIBUTES = (Public, ); }; };
 /* End PBXBuildFile section */
@@ -94,6 +94,32 @@
 		B52825DE2E43C6BA0081569B /* libgtest_main.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libgtest_main.a; path = ../../out/Release/libgtest_main.a; sourceTree = "<group>"; };
 		B52825DF2E43C6BA0081569B /* libv8_turboshaft.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_turboshaft.a; path = ../../out/Release/libv8_turboshaft.a; sourceTree = "<group>"; };
 		B52825E02E43C6BA0081569B /* libnbytes.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libnbytes.a; path = ../../out/Release/libnbytes.a; sourceTree = "<group>"; };
+		B563A2142E4F68F6008D48E6 /* libncrypto.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libncrypto.a; path = bin/libncrypto.a; sourceTree = "<group>"; };
+		B563A2152E4F68F6008D48E6 /* libgtest_main.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libgtest_main.a; path = bin/libgtest_main.a; sourceTree = "<group>"; };
+		B563A2162E4F68F6008D48E6 /* libsqlite.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libsqlite.a; path = bin/libsqlite.a; sourceTree = "<group>"; };
+		B563A2172E4F68F6008D48E6 /* libsimdjson.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libsimdjson.a; path = bin/libsimdjson.a; sourceTree = "<group>"; };
+		B563A2182E4F68F6008D48E6 /* libtorque_base.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libtorque_base.a; path = bin/libtorque_base.a; sourceTree = "<group>"; };
+		B563A2192E4F68F6008D48E6 /* libv8_init.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_init.a; path = bin/libv8_init.a; sourceTree = "<group>"; };
+		B563A21A2E4F68F6008D48E6 /* libabseil.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libabseil.a; path = bin/libabseil.a; sourceTree = "<group>"; };
+		B563A21B2E4F68F6008D48E6 /* libnbytes.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libnbytes.a; path = bin/libnbytes.a; sourceTree = "<group>"; };
+		B563A21C2E4F68F6008D48E6 /* libgtest.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libgtest.a; path = bin/libgtest.a; sourceTree = "<group>"; };
+		B563A21D2E4F68F6008D48E6 /* libv8_turboshaft.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_turboshaft.a; path = bin/libv8_turboshaft.a; sourceTree = "<group>"; };
+		B5EF68772E507F8C00DA5502 /* libabseil.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libabseil.a; path = ../../out/Release/libabseil.a; sourceTree = "<group>"; };
+		B5EF68782E507F8C00DA5502 /* libcrdtp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libcrdtp.a; path = ../../out/Release/libcrdtp.a; sourceTree = "<group>"; };
+		B5EF68792E507F8C00DA5502 /* libzstd.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libzstd.a; path = ../../out/Release/libzstd.a; sourceTree = "<group>"; };
+		B5EF687A2E507F8C00DA5502 /* libzlib_data_chunk_simd.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libzlib_data_chunk_simd.a; path = ../../out/Release/libzlib_data_chunk_simd.a; sourceTree = "<group>"; };
+		B5EF689B2E50856400DA5502 /* libtorque_base.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libtorque_base.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libtorque_base.a; sourceTree = "<group>"; };
+		B5EF689C2E50856400DA5502 /* libv8_init.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_init.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libv8_init.a; sourceTree = "<group>"; };
+		B5EF689D2E50856400DA5502 /* libv8_libplatform.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_libplatform.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libv8_libplatform.a; sourceTree = "<group>"; };
+		B5EF689E2E50856400DA5502 /* libuv.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libuv.a; path = ../../out/Release/obj.host/deps/uv/libuv.a; sourceTree = "<group>"; };
+		B5EF689F2E50856400DA5502 /* libv8_initializers.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_initializers.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libv8_initializers.a; sourceTree = "<group>"; };
+		B5EF68A02E50856400DA5502 /* libv8_turboshaft.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_turboshaft.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libv8_turboshaft.a; sourceTree = "<group>"; };
+		B5EF68A12E50856400DA5502 /* libsimdutf.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libsimdutf.a; path = ../../out/Release/obj.host/deps/simdutf/libsimdutf.a; sourceTree = "<group>"; };
+		B5EF68A22E50856400DA5502 /* libv8_libbase.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_libbase.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libv8_libbase.a; sourceTree = "<group>"; };
+		B5EF68A32E50856400DA5502 /* libv8_base_without_compiler.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_base_without_compiler.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libv8_base_without_compiler.a; sourceTree = "<group>"; };
+		B5EF68A42E50856400DA5502 /* libabseil.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libabseil.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libabseil.a; sourceTree = "<group>"; };
+		B5EF68A52E50856400DA5502 /* libv8_zlib.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_zlib.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libv8_zlib.a; sourceTree = "<group>"; };
+		B5EF68A62E50856400DA5502 /* libv8_compiler.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; name = libv8_compiler.a; path = ../../out/Release/obj.host/tools/v8_gypfiles/libv8_compiler.a; sourceTree = "<group>"; };
 		D9A761AE1F7C63A8006AFE86 /* NodeMobile.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = NodeMobile.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		D9A762251F7C674F006097B1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		D9A762261F7C674F006097B1 /* NodeMobile.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = NodeMobile.h; sourceTree = "<group>"; };
@@ -112,38 +138,38 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B52825EE2E43C7020081569B /* libopenssl.a in Frameworks */,
-				B52825E22E43C7020081569B /* libbrotli.a in Frameworks */,
-				B52825E72E43C7020081569B /* libllhttp.a in Frameworks */,
-				B52825E12E43C6EA0081569B /* libada.a in Frameworks */,
-				B52825E42E43C7020081569B /* libgtest_main.a in Frameworks */,
-				B52825EA2E43C7020081569B /* libnghttp2.a in Frameworks */,
-				B52825F22E43C7020081569B /* libtorque_base.a in Frameworks */,
-				B52825E32E43C7020081569B /* libcares.a in Frameworks */,
-				B52825F32E43C7020081569B /* libuv.a in Frameworks */,
-				B52825EB2E43C7020081569B /* libnghttp3.a in Frameworks */,
-				B52825E82E43C7020081569B /* libnbytes.a in Frameworks */,
-				B52825F52E43C7020081569B /* libv8_abseil.a in Frameworks */,
-				B52825F12E43C7020081569B /* libsqlite.a in Frameworks */,
-				B52825F42E43C7020081569B /* libuvwasi.a in Frameworks */,
+				B5EF68992E50856400DA5502 /* libzlib.a in Frameworks */,
+				B5EF68882E50856400DA5502 /* libopenssl.a in Frameworks */,
+				B5EF68842E50856400DA5502 /* libnbytes.a in Frameworks */,
+				B5EF68862E50856400DA5502 /* libnghttp2.a in Frameworks */,
+				B5EF68952E50856400DA5502 /* libv8_snapshot.a in Frameworks */,
+				B5EF68802E50856400DA5502 /* libgtest_main.a in Frameworks */,
 				D9A7619D1F7C63A8006AFE86 /* CoreFoundation.framework in Frameworks */,
-				B52825EF2E43C7020081569B /* libsimdjson.a in Frameworks */,
-				B52825FA2E43C7020081569B /* libv8_libbase.a in Frameworks */,
-				B52825F62E43C7020081569B /* libv8_base_without_compiler.a in Frameworks */,
-				B52825ED2E43C7020081569B /* libnode.a in Frameworks */,
-				B52826002E43C7020081569B /* libzlib.a in Frameworks */,
-				B52825EC2E43C7020081569B /* libngtcp2.a in Frameworks */,
-				B52825FE2E43C7020081569B /* libv8_zlib.a in Frameworks */,
-				B52825FD2E43C7020081569B /* libv8_turboshaft.a in Frameworks */,
-				B52825E52E43C7020081569B /* libgtest.a in Frameworks */,
-				B52825FB2E43C7020081569B /* libv8_libplatform.a in Frameworks */,
-				B52825FF2E43C7020081569B /* libzlib_inflate_chunk_simd.a in Frameworks */,
-				B52825E62E43C7020081569B /* libhistogram.a in Frameworks */,
-				B52825F92E43C7020081569B /* libv8_initializers.a in Frameworks */,
-				B52825E92E43C7020081569B /* libncrypto.a in Frameworks */,
-				B52825FC2E43C7020081569B /* libv8_snapshot.a in Frameworks */,
-				B52825F72E43C7020081569B /* libv8_compiler.a in Frameworks */,
-				B52825F02E43C7020081569B /* libsimdutf.a in Frameworks */,
+				B5EF68982E50856400DA5502 /* libzlib_data_chunk_simd.a in Frameworks */,
+				B5EF687E2E50856400DA5502 /* libcares.a in Frameworks */,
+				B5EF688F2E50856400DA5502 /* libv8_base_without_compiler.a in Frameworks */,
+				B5EF688C2E50856400DA5502 /* libtorque_base.a in Frameworks */,
+				B5EF68932E50856400DA5502 /* libv8_libbase.a in Frameworks */,
+				B5EF687D2E50856400DA5502 /* libbrotli.a in Frameworks */,
+				B5EF68942E50856400DA5502 /* libv8_libplatform.a in Frameworks */,
+				B5EF688D2E50856400DA5502 /* libuv.a in Frameworks */,
+				B5EF68852E50856400DA5502 /* libncrypto.a in Frameworks */,
+				B5EF687F2E50856400DA5502 /* libcrdtp.a in Frameworks */,
+				B5EF689A2E50856400DA5502 /* libzstd.a in Frameworks */,
+				B5EF688B2E50856400DA5502 /* libsqlite.a in Frameworks */,
+				B5EF688E2E50856400DA5502 /* libuvwasi.a in Frameworks */,
+				B5EF68832E50856400DA5502 /* libllhttp.a in Frameworks */,
+				B5EF68922E50856400DA5502 /* libv8_initializers.a in Frameworks */,
+				B5EF68892E50856400DA5502 /* libsimdjson.a in Frameworks */,
+				B5EF68962E50856400DA5502 /* libv8_turboshaft.a in Frameworks */,
+				B5EF68872E50856400DA5502 /* libnode.a in Frameworks */,
+				B5EF68972E50856400DA5502 /* libv8_zlib.a in Frameworks */,
+				B5EF687C2E50856400DA5502 /* libada.a in Frameworks */,
+				B5EF68822E50856400DA5502 /* libhistogram.a in Frameworks */,
+				B5EF687B2E50856400DA5502 /* libabseil.a in Frameworks */,
+				B5EF68902E50856400DA5502 /* libv8_compiler.a in Frameworks */,
+				B5EF68812E50856400DA5502 /* libgtest.a in Frameworks */,
+				B5EF688A2E50856400DA5502 /* libsimdutf.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -170,6 +196,32 @@
 		3376C9181EC3922E0007AD59 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				B563A21A2E4F68F6008D48E6 /* libabseil.a */,
+				B5EF68772E507F8C00DA5502 /* libabseil.a */,
+				B5EF68A42E50856400DA5502 /* libabseil.a */,
+				B5EF68A12E50856400DA5502 /* libsimdutf.a */,
+				B5EF689B2E50856400DA5502 /* libtorque_base.a */,
+				B5EF689E2E50856400DA5502 /* libuv.a */,
+				B5EF68A32E50856400DA5502 /* libv8_base_without_compiler.a */,
+				B5EF68A62E50856400DA5502 /* libv8_compiler.a */,
+				B5EF689C2E50856400DA5502 /* libv8_init.a */,
+				B5EF689F2E50856400DA5502 /* libv8_initializers.a */,
+				B5EF68A22E50856400DA5502 /* libv8_libbase.a */,
+				B5EF689D2E50856400DA5502 /* libv8_libplatform.a */,
+				B5EF68A02E50856400DA5502 /* libv8_turboshaft.a */,
+				B5EF68A52E50856400DA5502 /* libv8_zlib.a */,
+				B5EF68782E507F8C00DA5502 /* libcrdtp.a */,
+				B5EF687A2E507F8C00DA5502 /* libzlib_data_chunk_simd.a */,
+				B5EF68792E507F8C00DA5502 /* libzstd.a */,
+				B563A21C2E4F68F6008D48E6 /* libgtest.a */,
+				B563A2152E4F68F6008D48E6 /* libgtest_main.a */,
+				B563A21B2E4F68F6008D48E6 /* libnbytes.a */,
+				B563A2142E4F68F6008D48E6 /* libncrypto.a */,
+				B563A2172E4F68F6008D48E6 /* libsimdjson.a */,
+				B563A2162E4F68F6008D48E6 /* libsqlite.a */,
+				B563A2182E4F68F6008D48E6 /* libtorque_base.a */,
+				B563A2192E4F68F6008D48E6 /* libv8_init.a */,
+				B563A21D2E4F68F6008D48E6 /* libv8_turboshaft.a */,
 				F6860EE02ACD491900070ED3 /* libada.a */,
 				B52825C72E43C6BA0081569B /* libada.a */,
 				B52825D32E43C6BA0081569B /* libbrotli.a */,
@@ -455,7 +507,7 @@
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = NodeMobile/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
@@ -493,7 +545,7 @@
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = NodeMobile/Info.plist;
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
-				IPHONEOS_DEPLOYMENT_TARGET = 13.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks @loader_path/Frameworks";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",

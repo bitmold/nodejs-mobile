@@ -18,7 +18,13 @@
 #ifndef OPENSSL_NO_ENGINE
 #include <openssl/engine.h>
 #endif  // !OPENSSL_NO_ENGINE
-#ifdef __APPLE__
+
+// nodejs-mobile patch: disable Security/Security.h on IOS
+#if defined(__APPLE__) && !TARGET_OS_IOS
+#define MACOS_ONLY
+#endif
+
+#ifdef MACOS_ONLY
 #include <Security/Security.h>
 #endif
 
@@ -276,7 +282,8 @@ bool isSelfIssued(X509* cert) {
 // Licensed under a BSD-style license
 // See https://chromium.googlesource.com/chromium/src/+/HEAD/LICENSE for
 // details.
-#ifdef __APPLE__
+// nodejs-mobile patch: disable Security/Security.h on IOS
+#ifdef MACOS_ONLY
 TrustStatus IsTrustDictionaryTrustedForPolicy(CFDictionaryRef trust_dict,
                                               bool is_self_issued) {
   // Trust settings may be scoped to a single application
@@ -764,7 +771,8 @@ static std::vector<X509*>& GetBundledRootCertificates() {
 
 static std::vector<X509*> InitializeSystemStoreCertificates() {
   std::vector<X509*> system_store_certs;
-#ifdef __APPLE__
+// nodejs-mobile patch: disable Security/Security.h on IOS
+#ifdef MACOS_ONLY
   ReadMacOSKeychainCertificates(&system_store_certs);
 #endif
 #ifdef _WIN32
