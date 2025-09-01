@@ -6,11 +6,11 @@ on:
       tag:
         description: "Tag to build (e.g. v18.20.4)"
         required: true
-        default: v18.20.4.1
+        default: v18.20.4.2
         
 env:
   SCCACHE_GHA_ENABLED: 'true'
-  ANDROID_NDK_VERSION: r24
+  ANDROID_NDK_VERSION: r28
   ANDROID_TARGET_SDK_VERSION: 26
 
 permissions:
@@ -51,7 +51,7 @@ jobs:
       - name: Build
         env:
           MY_ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          LDFLAGS: "-Wl,-z,max-page-size=16384"
+          LDFLAGS: "-Wl,-z"
         run: |
           ./tools/android_build.sh $MY_ANDROID_NDK_HOME $ANDROID_TARGET_SDK_VERSION $TARGET_ARCH
           rm -rf ./out_android/libnode
