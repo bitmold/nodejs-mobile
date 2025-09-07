@@ -45,7 +45,6 @@ class Block {
     }
   }
 
-  std::vector<Instruction>& instructions() { return instructions_; }
   const std::vector<Instruction>& instructions() const { return instructions_; }
   bool IsComplete() const {
     return !instructions_.empty() && instructions_.back()->IsBlockTerminator();
@@ -53,42 +52,10 @@ class Block {
   size_t id() const { return id_; }
   bool IsDeferred() const { return is_deferred_; }
 
-  void MergeInputDefinitions(const Stack<DefinitionLocation>& input_definitions,
-                             Worklist<Block*>* worklist) {
-    if (!input_definitions_) {
-      input_definitions_ = input_definitions;
-      if (worklist) worklist->Enqueue(this);
-      return;
-    }
-
-    DCHECK_EQ(input_definitions_->Size(), input_definitions.Size());
-    bool changed = false;
-    for (BottomOffset i = {0}; i < input_definitions.AboveTop(); ++i) {
-      auto& current = input_definitions_->Peek(i);
-      auto& input = input_definitions.Peek(i);
-      if (current == input) continue;
-      if (current == DefinitionLocation::Phi(this, i.offset)) continue;
-      input_definitions_->Poke(i, DefinitionLocation::Phi(this, i.offset));
-      changed = true;
-    }
-
-    if (changed && worklist) worklist->Enqueue(this);
-  }
-  bool HasInputDefinitions() const {
-    return input_definitions_ != base::nullopt;
-  }
-  const Stack<DefinitionLocation>& InputDefinitions() const {
-    DCHECK(HasInputDefinitions());
-    return *input_definitions_;
-  }
-
-  bool IsDead() const { return !HasInputDefinitions(); }
-
  private:
   ControlFlowGraph* cfg_;
   std::vector<Instruction> instructions_;
   base::Optional<Stack<const Type*>> input_types_;
-  base::Optional<Stack<DefinitionLocation>> input_definitions_;
   const size_t id_;
   bool is_deferred_;
 };
@@ -107,41 +74,26 @@ class ControlFlowGraph {
     return &blocks_.back();
   }
   void PlaceBlock(Block* block) { placed_blocks_.push_back(block); }
-  template <typename UnaryPredicate>
-  void UnplaceBlockIf(UnaryPredicate&& predicate) {
-    auto newEnd = std::remove_if(placed_blocks_.begin(), placed_blocks_.end(),
-                                 std::forward<UnaryPredicate>(predicate));
-    placed_blocks_.erase(newEnd, placed_blocks_.end());
-  }
   Block* start() const { return start_; }
   base::Optional<Block*> end() const { return end_; }
   void set_end(Block* end) { end_ = end; }
-  void SetReturnType(TypeVector t) {
+  void SetReturnType(const Type* t) {
     if (!return_type_) {
       return_type_ = t;
       return;
     }
     if (t != *return_type_) {
-      std::stringstream message;
-      message << "expected return type ";
-      PrintCommaSeparatedList(message, *return_type_);
-      message << " instead of ";
-      PrintCommaSeparatedList(message, t);
-      ReportError(message.str());
+      ReportError("expected return type ", **return_type_, " instead of ", *t);
     }
   }
   const std::vector<Block*>& blocks() const { return placed_blocks_; }
-  size_t NumberOfBlockIds() const { return next_block_id_; }
-  std::size_t ParameterCount() const {
-    return start_ ? start_->InputTypes().Size() : 0;
-  }
 
  private:
   std::list<Block> blocks_;
   Block* start_;
   std::vector<Block*> placed_blocks_;
   base::Optional<Block*> end_;
-  base::Optional<TypeVector> return_type_;
+  base::Optional<const Type*> return_type_;
   size_t next_block_id_ = 0;
 };
 
@@ -154,9 +106,6 @@ class CfgAssembler {
     if (!CurrentBlockIsComplete()) {
       cfg_.set_end(current_block_);
     }
-    OptimizeCfg();
-    DCHECK(CfgIsComplete());
-    ComputeInputDefinitions();
     return cfg_;
   }
 
@@ -167,12 +116,6 @@ class CfgAssembler {
   }
 
   bool CurrentBlockIsComplete() const { return current_block_->IsComplete(); }
-  bool CfgIsComplete() const {
-    return std::all_of(
-        cfg_.blocks().begin(), cfg_.blocks().end(), [this](Block* block) {
-          return (cfg_.end() && *cfg_.end() == block) || block->IsComplete();
-        });
-  }
 
   void Emit(Instruction instruction) {
     instruction.TypeInstruction(&current_stack_, &cfg_);
@@ -207,8 +150,6 @@ class CfgAssembler {
   void DebugBreak();
 
   void PrintCurrentStack(std::ostream& s) { s << "stack: " << current_stack_; }
-  void OptimizeCfg();
-  void ComputeInputDefinitions();
 
  private:
   friend class CfgAssemblerScopedTemporaryBlock;
@@ -217,7 +158,7 @@ class CfgAssembler {
   Block* current_block_ = cfg_.start();
 };
 
-class V8_NODISCARD CfgAssemblerScopedTemporaryBlock {
+class CfgAssemblerScopedTemporaryBlock {
  public:
   CfgAssemblerScopedTemporaryBlock(CfgAssembler* assembler, Block* block)
       : assembler_(assembler), saved_block_(block) {

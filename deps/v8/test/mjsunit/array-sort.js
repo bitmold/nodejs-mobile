@@ -98,7 +98,7 @@ function TestArraySortingWithUndefined() {
 TestArraySortingWithUndefined();
 
 // Test that sorting using an unsound comparison function still gives a
-// sensible result, i.e. it terminates without error and retains the elements
+// sane result, i.e. it terminates without error and retains the elements
 // in the array.
 function TestArraySortingWithUnsoundComparisonFunction() {
   var a = [ 3, void 0, 2 ];
@@ -509,10 +509,6 @@ assertThrows(() => {
   Array.prototype.sort.call(undefined);
 }, TypeError);
 
-assertThrows(() => {
-  Array.prototype.sort.call(null);
-}, TypeError);
-
 // This test ensures that RemoveArrayHoles does not shadow indices in the
 // prototype chain. There are multiple code paths, we force both and check that
 // they have the same behavior.
@@ -563,23 +559,10 @@ function TestPrototypeHoles() {
     assertEquals(19, xs[9]);
   }
 
+  test(true);
   test(false);
-  // Expect a TypeError when trying to delete the accessor.
-  assertThrows(() => test(true), TypeError);
 }
 TestPrototypeHoles();
-
-// The following test ensures that [[Delete]] is called and it throws.
-function TestArrayWithAccessorThrowsOnDelete() {
-  let array = [5, 4, 1, /*hole*/, /*hole*/];
-
-  Object.defineProperty(array, '4', {
-    get: () => array.foo,
-    set: (val) => array.foo = val
-  });
-  assertThrows(() => array.sort((a, b) => a - b), TypeError);
-}
-TestArrayWithAccessorThrowsOnDelete();
 
 // The following test ensures that elements on the prototype are also copied
 // for JSArrays and not only JSObjects.
@@ -752,15 +735,3 @@ function TestSortCmpPackedSetLengthToZero() {
   xs.sort(create_cmpfn(() => xs.length = 0));
   assertTrue(HasPackedSmi(xs));
 }
-TestSortCmpPackedSetLengthToZero();
-
-(function TestSortingNonObjectConvertsToObject() {
-  const v1 = Array.prototype.sort.call(true);
-  assertEquals('object', typeof v1);
-
-  const v2 = Array.prototype.sort.call(false);
-  assertEquals('object', typeof v2);
-
-  const v3 = Array.prototype.sort.call(42);
-  assertEquals('object', typeof v3);
-})();

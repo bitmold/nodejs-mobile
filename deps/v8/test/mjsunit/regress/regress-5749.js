@@ -5,9 +5,8 @@
 // Flags: --allow-natives-syntax
 
 function f(x) {
-  x ** 1 === '';
-};
-%PrepareFunctionForOptimization(f);
+    (x ** 1) === '';
+}
 f();
 f();
 f();
@@ -15,9 +14,8 @@ f();
 f();
 
 function g(x) {
-  '' === x ** 1;
-};
-%PrepareFunctionForOptimization(g);
+    '' === (x ** 1);
+}
 g();
 g();
 g();

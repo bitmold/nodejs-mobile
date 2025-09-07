@@ -11,6 +11,4 @@ tmp[Symbol.toPrimitive] = function () {
   %ArrayBufferDetach(arr.buffer);
   return 50;
 }
-assertThrows(function() {
-  arr.copyWithin(tmp);
-}, TypeError);
+arr.copyWithin(tmp);

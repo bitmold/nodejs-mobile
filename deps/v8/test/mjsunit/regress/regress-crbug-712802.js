@@ -4,10 +4,8 @@
 
 // Flags: --allow-natives-syntax
 
-function foo(...args) {
-  return Array.isArray(args);
-};
-%PrepareFunctionForOptimization(foo);
+function foo(...args) { return Array.isArray(args); }
+
 assertTrue(foo());
 assertTrue(foo());
 %OptimizeFunctionOnNextCall(foo);

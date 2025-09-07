@@ -32,13 +32,10 @@ function f(o) {
     var y = o.y;
   }
 }
-f({y: 1.1});
-f({y: 1.1});
+f({y:1.1});
+f({y:1.1});
 
-function g(x) {
-  f({z: x});
-};
-%PrepareFunctionForOptimization(g);
+function g(x) { f({z:x}); }
 g(1);
 g(2);
 %OptimizeFunctionOnNextCall(g);

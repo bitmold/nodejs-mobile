@@ -7,13 +7,11 @@
     'openssl/crypto/modes/',
     'openssl/crypto/ec/curve448',
     'openssl/crypto/ec/curve448/arch_32',
-    'openssl/providers/common/include',
-    'openssl/providers/implementations/include',
     'config/',
   ],
   # build options specific to OS
   'conditions': [
-    [ 'OS in ("aix", "os400")', {
+    [ 'OS=="aix"', {
       # AIX is missing /usr/include/endian.h
       'defines': [
         '__LITTLE_ENDIAN=1234',
@@ -26,7 +24,7 @@
     }, 'OS=="win"', {
       'defines': [
         ## default of Win. See INSTALL in openssl repo.
-        'OPENSSLDIR="C:\\\\Program\\ Files\\\\Common\\ Files\\\\SSL"',
+        'OPENSSLDIR="C:\Program Files\Common Files\SSL"',
         'ENGINESDIR="NUL"',
         'OPENSSL_SYS_WIN32', 'WIN32_LEAN_AND_MEAN', 'L_ENDIAN',
         '_CRT_SECURE_NO_DEPRECATE', 'UNICODE', '_UNICODE',
@@ -34,7 +32,6 @@
       'cflags': [
         '-W3', '-wd4090', '-Gs0', '-GF', '-Gy', '-nologo','/O2',
       ],
-      'msvs_disabled_warnings': [4090],
       'link_settings': {
         'libraries': [
           '-lws2_32.lib',
@@ -67,7 +64,7 @@
         'TERMIOS',
       ],
       'conditions': [
-        [ 'llvm_version=="0.0"', {
+        [ 'llvm_version==0', {
           'cflags': ['-Wno-old-style-declaration',],
         }],
       ],

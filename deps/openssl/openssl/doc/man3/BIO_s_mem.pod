@@ -13,10 +13,10 @@ BIO_get_mem_ptr, BIO_new_mem_buf - memory BIO
  const BIO_METHOD *BIO_s_mem(void);
  const BIO_METHOD *BIO_s_secmem(void);
 
- BIO_set_mem_eof_return(BIO *b, int v);
- long BIO_get_mem_data(BIO *b, char **pp);
- BIO_set_mem_buf(BIO *b, BUF_MEM *bm, int c);
- BIO_get_mem_ptr(BIO *b, BUF_MEM **pp);
+ BIO_set_mem_eof_return(BIO *b, int v)
+ long BIO_get_mem_data(BIO *b, char **pp)
+ BIO_set_mem_buf(BIO *b, BUF_MEM *bm, int c)
+ BIO_get_mem_ptr(BIO *b, BUF_MEM **pp)
 
  BIO *BIO_new_mem_buf(const void *buf, int len);
 
@@ -41,10 +41,9 @@ If the BIO_CLOSE flag is set when a memory BIO is freed then the underlying
 BUF_MEM structure is also freed.
 
 Calling BIO_reset() on a read write memory BIO clears any data in it if the
-flag BIO_FLAGS_NONCLEAR_RST is not set, otherwise it just restores the read
-pointer to the state it was just after the last write was performed and the
-data can be read again. On a read only BIO it similarly restores the BIO to
-its original state and the read only data can be read again.
+flag BIO_FLAGS_NONCLEAR_RST is not set. On a read only BIO or if the flag
+BIO_FLAGS_NONCLEAR_RST is set it restores the BIO to its original state and
+the data can be read again.
 
 BIO_eof() is true if no data is in the BIO.
 
@@ -59,8 +58,6 @@ positive return value B<v> should be set to a negative value, typically -1.
 
 BIO_get_mem_data() sets *B<pp> to a pointer to the start of the memory BIOs data
 and returns the total amount of data available. It is implemented as a macro.
-Note the pointer returned by this call is informative, no transfer of ownership
-of this memory is implied.  See notes on BIO_set_close().
 
 BIO_set_mem_buf() sets the internal BUF_MEM structure to B<bm> and sets the
 close flag to B<c>, that is B<c> should be either BIO_CLOSE or BIO_NOCLOSE.
@@ -82,11 +79,11 @@ first, so the supplied area of memory must be unchanged until the BIO is freed.
 Writes to memory BIOs will always succeed if memory is available: that is
 their size can grow indefinitely.
 
-Every write after partial read (not all data in the memory buffer was read)
-to a read write memory BIO will have to move the unread data with an internal
-copy operation, if a BIO contains a lot of data and it is read in small
-chunks intertwined with writes the operation can be very slow. Adding
-a buffering BIO to the chain can speed up the process.
+Every read from a read write memory BIO will remove the data just read with
+an internal copy operation, if a BIO contains a lot of data and it is
+read in small chunks the operation can be very slow. The use of a read only
+memory BIO avoids this problem. If the BIO must be read write then adding
+a buffering BIO to the chain will speed up the process.
 
 Calling BIO_set_mem_buf() on a BIO created with BIO_new_secmem() will
 give undefined results, including perhaps a program crash.
@@ -107,36 +104,11 @@ BIO is set to BIO_NOCLOSE, before freeing the BUF_MEM the data pointer
 in it must be set to NULL as the data pointer does not point to an
 allocated memory.
 
-Calling BIO_reset() on a read write memory BIO with BIO_FLAGS_NONCLEAR_RST
-flag set can have unexpected outcome when the reads and writes to the
-BIO are intertwined. As documented above the BIO will be reset to the
-state after the last completed write operation. The effects of reads
-preceding that write operation cannot be undone.
-
-Calling BIO_get_mem_ptr() prior to a BIO_reset() call with
-BIO_FLAGS_NONCLEAR_RST set has the same effect as a write operation.
-
-Calling BIO_set_close() with BIO_NOCLOSE orphans the BUF_MEM internal to the
-BIO, _not_ its actual data buffer. See the examples section for the proper
-method for claiming ownership of the data pointer for a deferred free operation.
-
 =head1 BUGS
 
 There should be an option to set the maximum size of a memory BIO.
 
-=head1 RETURN VALUES
-
-BIO_s_mem() and BIO_s_secmem() return a valid memory B<BIO_METHOD> structure.
-
-BIO_set_mem_eof_return(), BIO_set_mem_buf() and BIO_get_mem_ptr()
-return 1 on success or a value which is less than or equal to 0 if an error occurred.
-
-BIO_get_mem_data() returns the total number of bytes available on success,
-0 if b is NULL, or a negative value in case of other errors.
-
-BIO_new_mem_buf() returns a valid B<BIO> structure on success or NULL on error.
-
-=head1 EXAMPLES
+=head1 EXAMPLE
 
 Create a memory BIO and write some data to it:
 
@@ -157,26 +129,20 @@ Extract the BUF_MEM structure from a memory BIO and then free up the BIO:
  BIO_set_close(mem, BIO_NOCLOSE); /* So BIO_free() leaves BUF_MEM alone */
  BIO_free(mem);
 
-Extract the BUF_MEM ptr, claim ownership of the internal data and free the BIO
-and BUF_MEM structure:
+=head1 RETURN VALUES
 
- BUF_MEM *bptr;
- char *data;
+BIO_s_mem() and BIO_s_secmem() return a valid memory B<BIO_METHOD> structure.
 
- BIO_get_mem_data(bio, &data);
- BIO_get_mem_ptr(bio, &bptr);
- BIO_set_close(mem, BIO_NOCLOSE); /* So BIO_free orphans BUF_MEM */
- BIO_free(bio);
- bptr->data = NULL; /* Tell BUF_MEM to orphan data */
- BUF_MEM_free(bptr);
- ...
- free(data);
+BIO_set_mem_eof_return(), BIO_get_mem_data(), BIO_set_mem_buf() and BIO_get_mem_ptr()
+return 1 on success or a value which is less than or equal to 0 if an error occurred.
+
+BIO_new_mem_buf() returns a valid B<BIO> structure on success or NULL on error.
 
 =head1 COPYRIGHT
 
-Copyright 2000-2023 The OpenSSL Project Authors. All Rights Reserved.
+Copyright 2000-2019 The OpenSSL Project Authors. All Rights Reserved.
 
-Licensed under the Apache License 2.0 (the "License").  You may not use
+Licensed under the OpenSSL license (the "License").  You may not use
 this file except in compliance with the License.  You can obtain a copy
 in the file LICENSE in the source distribution or at
 L<https://www.openssl.org/source/license.html>.

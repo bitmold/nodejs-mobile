@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+// Flags: --harmony-intl-numberformat-unified
 // Similar to constructor-order.js but also consider the new options
 // in https://tc39-transfer.github.io/proposal-unified-intl-numberformat/
 
@@ -33,26 +34,26 @@ new Intl.NumberFormat(['en-US'], {
   get unitDisplay() {
     assertEquals(6, getCount++);
   },
-  get notation() {
-    assertEquals(7, getCount++);
-  },
   // End of new options
   get minimumIntegerDigits() {
-    assertEquals(8, getCount++);
+    assertEquals(7, getCount++);
   },
   get minimumFractionDigits() {
-    assertEquals(9, getCount++);
+    assertEquals(8, getCount++);
   },
   get maximumFractionDigits() {
-    assertEquals(10, getCount++);
+    assertEquals(9, getCount++);
   },
   get minimumSignificantDigits() {
-    assertEquals(11, getCount++);
+    assertEquals(10, getCount++);
   },
   get maximumSignificantDigits() {
-    assertEquals(12, getCount++);
+    assertEquals(11, getCount++);
   },
   // Begin of new options
+  get notation() {
+    assertEquals(12, getCount++);
+  },
   get compactDisplay() {
     assertEquals(13, getCount++);
   },

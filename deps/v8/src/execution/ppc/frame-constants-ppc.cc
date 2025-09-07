@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#if V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64
+#if V8_TARGET_ARCH_PPC
 
 #include "src/execution/ppc/frame-constants-ppc.h"
 
@@ -20,7 +20,7 @@ Register JavaScriptFrame::constant_pool_pointer_register() {
   return kConstantPoolRegister;
 }
 
-int UnoptimizedFrameConstants::RegisterStackSlotCount(int register_count) {
+int InterpreterFrameConstants::RegisterStackSlotCount(int register_count) {
   return register_count;
 }
 
@@ -32,4 +32,4 @@ int BuiltinContinuationFrameConstants::PaddingSlotCount(int register_count) {
 }  // namespace internal
 }  // namespace v8
 
-#endif  // V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64
+#endif  // V8_TARGET_ARCH_PPC

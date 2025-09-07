@@ -25,9 +25,16 @@ class AllocationBuilder final {
         control_(control) {}
 
   // Primitive allocation of static size.
-  inline void Allocate(int size,
-                       AllocationType allocation = AllocationType::kYoung,
-                       Type type = Type::Any());
+  void Allocate(int size, AllocationType allocation = AllocationType::kYoung,
+                Type type = Type::Any()) {
+    DCHECK_LE(size, kMaxRegularHeapObjectSize);
+    effect_ = graph()->NewNode(
+        common()->BeginRegion(RegionObservability::kNotObservable), effect_);
+    allocation_ =
+        graph()->NewNode(simplified()->Allocate(type, allocation),
+                         jsgraph()->Constant(size), effect_, control_);
+    effect_ = allocation_;
+  }
 
   // Primitive store into a field.
   void Store(const FieldAccess& access, Node* value) {
@@ -42,23 +49,16 @@ class AllocationBuilder final {
   }
 
   // Compound allocation of a context.
-  inline void AllocateContext(int variadic_part_length, MapRef map);
+  inline void AllocateContext(int variadic_part_length, Handle<Map> map);
 
   // Compound allocation of a FixedArray.
-  inline bool CanAllocateArray(
-      int length, MapRef map,
-      AllocationType allocation = AllocationType::kYoung);
-  inline void AllocateArray(int length, MapRef map,
+  inline void AllocateArray(int length, Handle<Map> map,
                             AllocationType allocation = AllocationType::kYoung);
 
-  // Compound allocation of a SloppyArgumentsElements
-  inline bool CanAllocateSloppyArgumentElements(
-      int length, MapRef map,
-      AllocationType allocation = AllocationType::kYoung);
-  inline void AllocateSloppyArgumentElements(
-      int length, MapRef map,
-      AllocationType allocation = AllocationType::kYoung);
-
+  // Compound store of a constant into a field.
+  void Store(const FieldAccess& access, Handle<Object> value) {
+    Store(access, jsgraph()->Constant(value));
+  }
   // Compound store of a constant into a field.
   void Store(const FieldAccess& access, const ObjectRef& value) {
     Store(access, jsgraph()->Constant(value));

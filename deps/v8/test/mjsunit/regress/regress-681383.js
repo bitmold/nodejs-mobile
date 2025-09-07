@@ -13,7 +13,6 @@ function f(deopt) {
   }
 }
 
-%PrepareFunctionForOptimization(f);
 f(false);
 f(false);
 %OptimizeFunctionOnNextCall(f);

@@ -4,9 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-var g = function*() {};
-;
-%PrepareFunctionForOptimization(g);
+var g = (function*(){});
 var f = g();
 %OptimizeFunctionOnNextCall(g);
 f.next();

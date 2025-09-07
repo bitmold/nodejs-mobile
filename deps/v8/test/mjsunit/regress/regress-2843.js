@@ -37,9 +37,7 @@ function foo(x, fun) {
   fun();
   return a;
 }
-%PrepareFunctionForOptimization(foo);
 
-%PrepareFunctionForOptimization(foo);
 assertThrows("foo(1, bailout)");
 assertThrows("foo(1, bailout)");
 %OptimizeFunctionOnNextCall(foo);

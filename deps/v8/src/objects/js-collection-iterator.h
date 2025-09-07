@@ -16,15 +16,20 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/js-collection-iterator-tq.inc"
-
-class JSCollectionIterator
-    : public TorqueGeneratedJSCollectionIterator<JSCollectionIterator,
-                                                 JSObject> {
+class JSCollectionIterator : public JSObject {
  public:
+  // [table]: the backing hash table mapping keys to values.
+  DECL_ACCESSORS(table, Object)
+
+  // [index]: The index into the data table.
+  DECL_ACCESSORS(index, Object)
+
   void JSCollectionIteratorPrint(std::ostream& os, const char* name);
 
-  TQ_OBJECT_CONSTRUCTORS(JSCollectionIterator)
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                TORQUE_GENERATED_JSCOLLECTION_ITERATOR_FIELDS)
+
+  OBJECT_CONSTRUCTORS(JSCollectionIterator, JSObject);
 };
 
 // OrderedHashTableIterator is an iterator that iterates over the keys and

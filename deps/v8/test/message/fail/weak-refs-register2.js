@@ -2,6 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-let fg = new FinalizationRegistry(() => {});
+// Flags: --harmony-weak-refs
+
+let fg = new FinalizationGroup(() => {});
 let o = {};
 fg.register(o, o);

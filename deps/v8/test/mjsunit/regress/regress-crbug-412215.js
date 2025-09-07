@@ -15,7 +15,6 @@ function f(  )  {
   d = 357;
   return {foo: b};
 }
-%PrepareFunctionForOptimization(f);
 f();
 f();
 %OptimizeFunctionOnNextCall(f);
@@ -28,7 +27,6 @@ function g(obj) {
   return obj.foo.length;
 }
 
-%PrepareFunctionForOptimization(g);
 g(dummy);
 g(dummy);
 %OptimizeFunctionOnNextCall(g);

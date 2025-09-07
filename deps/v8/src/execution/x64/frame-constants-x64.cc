@@ -8,7 +8,6 @@
 
 #include "src/codegen/x64/assembler-x64-inl.h"
 #include "src/execution/frame-constants.h"
-#include "src/execution/frames.h"
 
 namespace v8 {
 namespace internal {
@@ -17,7 +16,7 @@ Register JavaScriptFrame::fp_register() { return rbp; }
 Register JavaScriptFrame::context_register() { return rsi; }
 Register JavaScriptFrame::constant_pool_pointer_register() { UNREACHABLE(); }
 
-int UnoptimizedFrameConstants::RegisterStackSlotCount(int register_count) {
+int InterpreterFrameConstants::RegisterStackSlotCount(int register_count) {
   return register_count;
 }
 

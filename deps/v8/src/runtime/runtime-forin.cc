@@ -33,10 +33,7 @@ MaybeHandle<HeapObject> Enumerate(Isolate* isolate,
   if (!accumulator.is_receiver_simple_enum()) {
     Handle<FixedArray> keys;
     ASSIGN_RETURN_ON_EXCEPTION(
-        isolate, keys,
-        accumulator.GetKeys(accumulator.may_have_elements()
-                                ? GetKeysConversion::kConvertToString
-                                : GetKeysConversion::kNoNumbers),
+        isolate, keys, accumulator.GetKeys(GetKeysConversion::kConvertToString),
         HeapObject);
     // Test again, since cache may have been built by GetKeys() calls above.
     if (!accumulator.is_receiver_simple_enum()) return keys;
@@ -45,16 +42,16 @@ MaybeHandle<HeapObject> Enumerate(Isolate* isolate,
   return handle(receiver->map(), isolate);
 }
 
-// This is a slight modification of JSReceiver::HasProperty, dealing with
+// This is a slight modifcation of JSReceiver::HasProperty, dealing with
 // the oddities of JSProxy and JSModuleNamespace in for-in filter.
 MaybeHandle<Object> HasEnumerableProperty(Isolate* isolate,
                                           Handle<JSReceiver> receiver,
                                           Handle<Object> key) {
   bool success = false;
   Maybe<PropertyAttributes> result = Just(ABSENT);
-  PropertyKey lookup_key(isolate, key, &success);
+  LookupIterator it =
+      LookupIterator::PropertyOrElement(isolate, receiver, key, &success);
   if (!success) return isolate->factory()->undefined_value();
-  LookupIterator it(isolate, receiver, lookup_key);
   for (; it.IsFound(); it.Next()) {
     switch (it.state()) {
       case LookupIterator::NOT_FOUND:
@@ -119,7 +116,7 @@ MaybeHandle<Object> HasEnumerableProperty(Isolate* isolate,
 RUNTIME_FUNCTION(Runtime_ForInEnumerate) {
   HandleScope scope(isolate);
   DCHECK_EQ(1, args.length());
-  Handle<JSReceiver> receiver = args.at<JSReceiver>(0);
+  CONVERT_ARG_HANDLE_CHECKED(JSReceiver, receiver, 0);
   RETURN_RESULT_OR_FAILURE(isolate, Enumerate(isolate, receiver));
 }
 
@@ -127,8 +124,8 @@ RUNTIME_FUNCTION(Runtime_ForInEnumerate) {
 RUNTIME_FUNCTION(Runtime_ForInHasProperty) {
   HandleScope scope(isolate);
   DCHECK_EQ(2, args.length());
-  Handle<JSReceiver> receiver = args.at<JSReceiver>(0);
-  Handle<Object> key = args.at(1);
+  CONVERT_ARG_HANDLE_CHECKED(JSReceiver, receiver, 0);
+  CONVERT_ARG_HANDLE_CHECKED(Object, key, 1);
   Handle<Object> result;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
       isolate, result, HasEnumerableProperty(isolate, receiver, key));

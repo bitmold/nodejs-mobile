@@ -44,7 +44,6 @@ C = Object.create(B);
 
 function bar(x) { return x.foo(); }
 
-%PrepareFunctionForOptimization(bar);
 assertEquals(111, bar(C));
 assertEquals(111, bar(C));
 ToDictionaryMode(B);
@@ -62,7 +61,6 @@ C = Object.create(B);
 
 function boo(x) { return x.baz; }
 
-%PrepareFunctionForOptimization(boo);
 assertEquals(111, boo(C));
 assertEquals(111, boo(C));
 ToDictionaryMode(B);
@@ -85,7 +83,6 @@ function fuu(x) {
   return setterValue;
 }
 
-%PrepareFunctionForOptimization(fuu);
 assertEquals(111, fuu(C));
 assertEquals(111, fuu(C));
 ToDictionaryMode(B);

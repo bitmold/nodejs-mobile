@@ -5,7 +5,6 @@
 // Flags: --allow-natives-syntax
 
 function test(func, expect) {
-    %PrepareFunctionForOptimization(func);
     assertTrue(func() == expect);
     %OptimizeFunctionOnNextCall(func);
     assertTrue(func() == expect);
@@ -51,7 +50,6 @@ test(check_v4, true);
   function testIn(index, array) {
     return index in array;
   }
-  %PrepareFunctionForOptimization(testIn);
 
   let a = [];
   a.__proto__ = [0,1,2];
@@ -67,7 +65,6 @@ test(check_v4, true);
 
   %ClearFunctionFeedback(testIn);
   %DeoptimizeFunction(testIn);
-  %PrepareFunctionForOptimization(testIn);
 
   // First load will set IC to Load handle with allow hole to undefined conversion false.
   assertTrue(testIn(0, a));
@@ -78,7 +75,6 @@ test(check_v4, true);
   // Repeat the same testing for access out-of-bounds of the array, but in bounds of it's prototype.
   %ClearFunctionFeedback(testIn);
   %DeoptimizeFunction(testIn);
-  %PrepareFunctionForOptimization(testIn);
 
   assertTrue(testIn(2, a));
   assertTrue(testIn(2, a));
@@ -87,7 +83,6 @@ test(check_v4, true);
 
   %ClearFunctionFeedback(testIn);
   %DeoptimizeFunction(testIn);
-  %PrepareFunctionForOptimization(testIn);
 
   assertTrue(testIn(2, a));
   %OptimizeFunctionOnNextCall(testIn);

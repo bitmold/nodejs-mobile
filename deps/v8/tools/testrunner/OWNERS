@@ -1,1 +1,3 @@
-file:../../INFRA_OWNERS
+set noparent
+
+file://INFRA_OWNERS

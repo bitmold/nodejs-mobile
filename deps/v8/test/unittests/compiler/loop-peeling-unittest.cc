@@ -66,7 +66,7 @@ class LoopPeelingTest : public GraphTest {
       StdoutStream{} << AsRPO(*graph());
     }
     Zone zone(isolate()->allocator(), ZONE_NAME);
-    return LoopFinder::BuildLoopTree(graph(), tick_counter(), &zone);
+    return LoopFinder::BuildLoopTree(graph(), &zone);
   }
 
 
@@ -144,9 +144,7 @@ class LoopPeelingTest : public GraphTest {
                              c.base, c.base, w->loop);
     c.add = graph()->NewNode(machine()->Int32Add(), c.phi, c.inc);
     c.phi->ReplaceInput(1, c.add);
-    c.exit_marker = graph()->NewNode(
-        common()->LoopExitValue(MachineRepresentation::kTagged), c.phi,
-        w->exit);
+    c.exit_marker = graph()->NewNode(common()->LoopExitValue(), c.phi, w->exit);
     return c;
   }
 };
@@ -374,8 +372,7 @@ TEST_F(LoopPeelingTest, TwoBackedgeLoopWithPhi) {
   loop->ReplaceInput(2, b2.if_false);
 
   Node* exit = graph()->NewNode(common()->LoopExit(), b1.if_false, loop);
-  Node* exit_marker = graph()->NewNode(
-      common()->LoopExitValue(MachineRepresentation::kTagged), phi, exit);
+  Node* exit_marker = graph()->NewNode(common()->LoopExitValue(), phi, exit);
   Node* r = InsertReturn(exit_marker, start(), exit);
 
   PeeledIteration* peeled = PeelOne();
@@ -429,8 +426,7 @@ TEST_F(LoopPeelingTest, TwoBackedgeLoopWithCounter) {
   loop->ReplaceInput(2, b2.if_false);
 
   Node* exit = graph()->NewNode(common()->LoopExit(), b1.if_false, loop);
-  Node* exit_marker = graph()->NewNode(
-      common()->LoopExitValue(MachineRepresentation::kTagged), phi, exit);
+  Node* exit_marker = graph()->NewNode(common()->LoopExitValue(), phi, exit);
   Node* r = InsertReturn(exit_marker, start(), exit);
 
   PeeledIteration* peeled = PeelOne();
@@ -523,10 +519,10 @@ TEST_F(LoopPeelingTest, SimpleLoopWithUnmarkedExit) {
 
   {
     LoopTree* loop_tree = GetLoopTree();
-    LoopTree::Loop* outer_loop = loop_tree->outer_loops()[0];
+    LoopTree::Loop* loop = loop_tree->outer_loops()[0];
     LoopPeeler peeler(graph(), common(), loop_tree, zone(), source_positions(),
                       node_origins());
-    EXPECT_FALSE(peeler.CanPeel(outer_loop));
+    EXPECT_FALSE(peeler.CanPeel(loop));
   }
 }
 

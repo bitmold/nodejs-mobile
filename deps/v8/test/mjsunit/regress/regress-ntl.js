@@ -20,7 +20,6 @@ function mod1() {
 }
 
 var f = mod1();
-%PrepareFunctionForOptimization(f);
 assertThrows(f);
 %OptimizeFunctionOnNextCall(f);
 assertThrows(f);
@@ -37,7 +36,6 @@ function bug2() {
   }
 }
 
-%PrepareFunctionForOptimization(bug2);
 assertThrows(bug2);
 %OptimizeFunctionOnNextCall(bug2);
 assertThrows(bug2);

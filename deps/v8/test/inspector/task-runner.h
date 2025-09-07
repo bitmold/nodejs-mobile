@@ -6,27 +6,15 @@
 #define V8_TEST_INSPECTOR_PROTOCOL_TASK_RUNNER_H_
 
 #include <map>
-#include <memory>
 
 #include "include/v8-inspector.h"
 #include "include/v8-platform.h"
+#include "include/v8.h"
 #include "src/base/macros.h"
 #include "src/base/platform/platform.h"
-#include "src/base/vector.h"
 #include "src/utils/locked-queue-inl.h"
+#include "src/utils/vector.h"
 #include "test/inspector/isolate-data.h"
-
-namespace v8 {
-
-class StartupData;
-
-namespace internal {
-
-enum CatchExceptions {
-  kFailOnUncaughtExceptions,
-  kStandardPropagateUncaughtExceptions,
-  kSuppressUncaughtExceptions
-};
 
 class TaskRunner : public v8::base::Thread {
  public:
@@ -34,17 +22,14 @@ class TaskRunner : public v8::base::Thread {
    public:
     virtual ~Task() = default;
     virtual bool is_priority_task() = 0;
-    virtual void Run(InspectorIsolateData* data) = 0;
+    virtual void Run(IsolateData* data) = 0;
   };
 
-  TaskRunner(InspectorIsolateData::SetupGlobalTasks setup_global_tasks,
-             CatchExceptions catch_exceptions,
-             v8::base::Semaphore* ready_semaphore,
-             v8::StartupData* startup_data, WithInspector with_inspector);
+  TaskRunner(IsolateData::SetupGlobalTasks setup_global_tasks,
+             bool catch_exceptions, v8::base::Semaphore* ready_semaphore,
+             v8::StartupData* startup_data, bool with_inspector);
   ~TaskRunner() override;
-  TaskRunner(const TaskRunner&) = delete;
-  TaskRunner& operator=(const TaskRunner&) = delete;
-  InspectorIsolateData* data() const { return data_.get(); }
+  IsolateData* data() const { return data_.get(); }
 
   // Thread implementation.
   void Run() override;
@@ -53,33 +38,34 @@ class TaskRunner : public v8::base::Thread {
   void RunMessageLoop(bool only_protocol);
   void QuitMessageLoop();
 
-  void Append(std::unique_ptr<Task>);
-  void InterruptForMessages();
+  // TaskRunner takes ownership.
+  void Append(Task* task);
+
   void Terminate();
 
  private:
-  std::unique_ptr<Task> GetNext(bool only_protocol);
+  Task* GetNext(bool only_protocol);
   v8::Isolate* isolate() const { return data_->isolate(); }
 
-  InspectorIsolateData::SetupGlobalTasks setup_global_tasks_;
+  IsolateData::SetupGlobalTasks setup_global_tasks_;
   v8::StartupData* startup_data_;
-  WithInspector with_inspector_;
-  CatchExceptions catch_exceptions_;
+  bool with_inspector_;
+  bool catch_exceptions_;
   v8::base::Semaphore* ready_semaphore_;
-  std::unique_ptr<InspectorIsolateData> data_;
+  std::unique_ptr<IsolateData> data_;
 
   // deferred_queue_ combined with queue_ (in this order) have all tasks in the
   // correct order. Sometimes we skip non-protocol tasks by moving them from
   // queue_ to deferred_queue_.
-  v8::internal::LockedQueue<std::unique_ptr<Task>> queue_;
-  v8::internal::LockedQueue<std::unique_ptr<Task>> deferred_queue_;
+  v8::internal::LockedQueue<Task*> queue_;
+  v8::internal::LockedQueue<Task*> deffered_queue_;
   v8::base::Semaphore process_queue_semaphore_;
 
   int nested_loop_count_;
-  std::atomic<int> is_terminated_;
-};
 
-}  // namespace internal
-}  // namespace v8
+  std::atomic<int> is_terminated_;
+
+  DISALLOW_COPY_AND_ASSIGN(TaskRunner);
+};
 
 #endif  //  V8_TEST_INSPECTOR_PROTOCOL_TASK_RUNNER_H_

@@ -4,20 +4,20 @@
 
 // Flags: --experimental-wasm-compilation-hints
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 (function testCompileWithBadLazyHint() {
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('id', kSig_i_i)
-         .addBody([kExprLocalGet, 0])
+         .addBody([kExprGetLocal, 0])
          .setCompilationHint(kCompilationHintStrategyLazy,
                              kCompilationHintTierOptimized,
                              kCompilationHintTierBaseline)
          .exportFunc();
   assertThrows(() => builder.toModule(),
     WebAssembly.CompileError,
-    "WebAssembly.Module(): Invalid compilation hint 0x19 " +
+    "WebAssembly.Module(): Invalid compilation hint 0x2d " +
     "(forbidden downgrade) @+49");
 })();
 
@@ -25,7 +25,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('id', kSig_i_l)
-         .addBody([kExprLocalGet, 0])
+         .addBody([kExprGetLocal, 0])
          .setCompilationHint(kCompilationHintStrategyLazy,
                              kCompilationHintTierDefault,
                              kCompilationHintTierDefault)
@@ -33,7 +33,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   assertThrows(() => builder.toModule(),
     WebAssembly.CompileError,
     "WebAssembly.Module(): Compiling function #0:\"id\" failed: type error " +
-    "in fallthru[0] (expected i32, got i64) @+56");
+    "in merge[0] (expected i32, got i64) @+56");
 })();
 
 (function testCompileEmptyModule() {
@@ -46,7 +46,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('id', kSig_i_i)
-         .addBody([kExprLocalGet, 0])
+         .addBody([kExprGetLocal, 0])
          .setCompilationHint(kCompilationHintStrategyLazy,
                              kCompilationHintTierDefault,
                              kCompilationHintTierDefault)
@@ -58,7 +58,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('id', kSig_i_i)
-         .addBody([kExprLocalGet, 0])
+         .addBody([kExprGetLocal, 0])
          .setCompilationHint(kCompilationHintStrategyLazyBaselineEagerTopTier,
                              kCompilationHintTierDefault,
                              kCompilationHintTierDefault)

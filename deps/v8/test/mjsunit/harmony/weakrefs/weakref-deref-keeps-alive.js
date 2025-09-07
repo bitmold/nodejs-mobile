@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --expose-gc --noincremental-marking
+// Flags: --harmony-weak-refs --expose-gc --noincremental-marking --allow-natives-syntax
 
 let wr;
 let wr_control; // control WeakRef for testing what happens without deref
@@ -17,29 +17,29 @@ let strong = {a: wr.deref(), b: wr_control.deref()};
 
 gc();
 
-// Next task.
-setTimeout(function() {
-  // Call deref inside a closure, trying to avoid accidentally storing a strong
-  // reference into the object in the stack frame.
-  (function() {
-    wr.deref();
-  })();
+%PerformMicrotaskCheckpoint();
+// Next turn.
 
-  strong = null;
+// Call deref inside a closure, trying to avoid accidentally storing a strong
+// reference into the object in the stack frame.
+(function() {
+  wr.deref();
+})();
 
-  // This GC will clear wr_control.
-  gc();
+strong = null;
 
-  (function() {
-    assertNotEquals(undefined, wr.deref());
-    // Now the control WeakRef got cleared, since nothing was keeping it alive.
-    assertEquals(undefined, wr_control.deref());
-  })();
+// This GC will clear wr_control.
+gc();
 
-  // Next task.
-  setTimeout(function() {
-    gc();
+(function() {
+  assertNotEquals(undefined, wr.deref());
+  // Now the control WeakRef got cleared, since nothing was keeping it alive.
+  assertEquals(undefined, wr_control.deref());
+})();
 
-    assertEquals(undefined, wr.deref());
-  }, 0);
-}, 0);
+%PerformMicrotaskCheckpoint();
+// Next turn.
+
+gc();
+
+assertEquals(undefined, wr.deref());

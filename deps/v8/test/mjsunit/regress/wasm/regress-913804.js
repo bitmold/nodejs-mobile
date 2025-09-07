@@ -2,13 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 const builder = new WasmModuleBuilder();
 builder.addFunction('main', kSig_v_v).addBody([
-  kExprLoop, kWasmVoid,        // loop
+  kExprLoop, kWasmStmt,        // loop
   /**/ kExprBr, 0x01,          //   br depth=1
-  /**/ kExprBlock, kWasmVoid,  //   block
+  /**/ kExprBlock, kWasmStmt,  //   block
   /**/ /**/ kExprBr, 0x02,     //     br depth=2
   /**/ /**/ kExprEnd,          //     end [block]
   /**/ kExprEnd                //   end [loop]

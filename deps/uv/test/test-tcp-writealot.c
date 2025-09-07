@@ -57,7 +57,7 @@ static void alloc_cb(uv_handle_t* handle, size_t size, uv_buf_t* buf) {
 
 
 static void close_cb(uv_handle_t* handle) {
-  ASSERT_NOT_NULL(handle);
+  ASSERT(handle != NULL);
   close_cb_called++;
 }
 
@@ -82,7 +82,7 @@ static void shutdown_cb(uv_shutdown_t* req, int status) {
 
 
 static void read_cb(uv_stream_t* tcp, ssize_t nread, const uv_buf_t* buf) {
-  ASSERT_NOT_NULL(tcp);
+  ASSERT(tcp != NULL);
 
   if (nread >= 0) {
     bytes_received_done += nread;
@@ -98,7 +98,7 @@ static void read_cb(uv_stream_t* tcp, ssize_t nread, const uv_buf_t* buf) {
 
 
 static void write_cb(uv_write_t* req, int status) {
-  ASSERT_NOT_NULL(req);
+  ASSERT(req != NULL);
 
   if (status) {
     fprintf(stderr, "uv_write error: %s\n", uv_strerror(status));
@@ -152,7 +152,7 @@ TEST_IMPL(tcp_writealot) {
   ASSERT(0 == uv_ip4_addr("127.0.0.1", TEST_PORT, &addr));
 
   send_buffer = calloc(1, TOTAL_BYTES);
-  ASSERT_NOT_NULL(send_buffer);
+  ASSERT(send_buffer != NULL);
 
   r = uv_tcp_init(uv_default_loop(), &client);
   ASSERT(r == 0);

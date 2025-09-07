@@ -2,7 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <algorithm>
 #include <climits>
 
 #include "src/base/utils/random-number-generator.h"
@@ -38,10 +37,10 @@ static void CheckSlowSample(const std::vector<uint64_t>& sample, uint64_t max,
   }
 }
 
-static void TestNextSample(RandomNumberGenerator* rng, uint64_t max,
+static void TestNextSample(RandomNumberGenerator& rng, uint64_t max,
                            size_t size, bool slow = false) {
   std::vector<uint64_t> sample =
-      slow ? rng->NextSampleSlow(max, size) : rng->NextSample(max, size);
+      slow ? rng.NextSampleSlow(max, size) : rng.NextSample(max, size);
 
   CheckSample(sample, max, size);
 }
@@ -74,49 +73,40 @@ TEST_P(RandomNumberGeneratorTest, NextDoubleReturnsValueBetween0And1) {
   }
 }
 
-#if !defined(DEBUG) && defined(OFFICIAL_BUILD)
-// Official release builds strip all fatal messages for saving binary size,
-// see src/base/logging.h.
-#define FATAL_MSG(msg) ""
-#else
-#define FATAL_MSG(msg) "Check failed: " msg
-#endif
-
+#if GTEST_HAS_DEATH_TEST
 TEST(RandomNumberGenerator, NextSampleInvalidParam) {
   RandomNumberGenerator rng(123);
   std::vector<uint64_t> sample;
-  ASSERT_DEATH_IF_SUPPORTED(sample = rng.NextSample(10, 11),
-                            FATAL_MSG("n <= max"));
+  EXPECT_DEATH(sample = rng.NextSample(10, 11), ".*Check failed: n <= max.*");
 }
 
 TEST(RandomNumberGenerator, NextSampleSlowInvalidParam1) {
   RandomNumberGenerator rng(123);
   std::vector<uint64_t> sample;
-  ASSERT_DEATH_IF_SUPPORTED(sample = rng.NextSampleSlow(10, 11),
-                            FATAL_MSG("max - excluded.size"));
+  EXPECT_DEATH(sample = rng.NextSampleSlow(10, 11),
+               ".*Check failed: max - excluded.size*");
 }
 
 TEST(RandomNumberGenerator, NextSampleSlowInvalidParam2) {
   RandomNumberGenerator rng(123);
   std::vector<uint64_t> sample;
-  ASSERT_DEATH_IF_SUPPORTED(sample = rng.NextSampleSlow(5, 3, {0, 2, 3}),
-                            FATAL_MSG("max - excluded.size"));
+  EXPECT_DEATH(sample = rng.NextSampleSlow(5, 3, {0, 2, 3}),
+               ".*Check failed: max - excluded.size*");
 }
-
-#undef FATAL_MSG
+#endif
 
 TEST_P(RandomNumberGeneratorTest, NextSample0) {
   size_t m = 1;
   RandomNumberGenerator rng(GetParam());
 
-  TestNextSample(&rng, m, 0);
+  TestNextSample(rng, m, 0);
 }
 
 TEST_P(RandomNumberGeneratorTest, NextSampleSlow0) {
   size_t m = 1;
   RandomNumberGenerator rng(GetParam());
 
-  TestNextSample(&rng, m, 0, true);
+  TestNextSample(rng, m, 0, true);
 }
 
 TEST_P(RandomNumberGeneratorTest, NextSample1) {
@@ -124,7 +114,7 @@ TEST_P(RandomNumberGeneratorTest, NextSample1) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, 1);
+    TestNextSample(rng, m, 1);
   }
 }
 
@@ -133,7 +123,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleSlow1) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, 1, true);
+    TestNextSample(rng, m, 1, true);
   }
 }
 
@@ -142,7 +132,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleMax) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, m);
+    TestNextSample(rng, m, m);
   }
 }
 
@@ -151,7 +141,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleSlowMax) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, m, true);
+    TestNextSample(rng, m, m, true);
   }
 }
 
@@ -161,7 +151,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleHalf) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, n);
+    TestNextSample(rng, m, n);
   }
 }
 
@@ -171,7 +161,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleSlowHalf) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, n, true);
+    TestNextSample(rng, m, n, true);
   }
 }
 
@@ -181,7 +171,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleMoreThanHalf) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, n);
+    TestNextSample(rng, m, n);
   }
 }
 
@@ -191,7 +181,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleSlowMoreThanHalf) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, n, true);
+    TestNextSample(rng, m, n, true);
   }
 }
 
@@ -201,7 +191,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleLessThanHalf) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, n);
+    TestNextSample(rng, m, n);
   }
 }
 
@@ -211,7 +201,7 @@ TEST_P(RandomNumberGeneratorTest, NextSampleSlowLessThanHalf) {
   RandomNumberGenerator rng(GetParam());
 
   for (int k = 0; k < kMaxRuns; ++k) {
-    TestNextSample(&rng, m, n, true);
+    TestNextSample(rng, m, n, true);
   }
 }
 

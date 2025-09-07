@@ -4,9 +4,10 @@
 
 #if V8_TARGET_ARCH_MIPS64
 
+#include "src/codegen/assembler.h"
 #include "src/codegen/mips64/assembler-mips64-inl.h"
+#include "src/codegen/mips64/assembler-mips64.h"
 #include "src/execution/frame-constants.h"
-#include "src/execution/frames.h"
 
 #include "src/execution/mips64/frame-constants-mips64.h"
 
@@ -17,7 +18,7 @@ Register JavaScriptFrame::fp_register() { return v8::internal::fp; }
 Register JavaScriptFrame::context_register() { return cp; }
 Register JavaScriptFrame::constant_pool_pointer_register() { UNREACHABLE(); }
 
-int UnoptimizedFrameConstants::RegisterStackSlotCount(int register_count) {
+int InterpreterFrameConstants::RegisterStackSlotCount(int register_count) {
   return register_count;
 }
 

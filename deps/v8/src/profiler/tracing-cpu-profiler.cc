@@ -4,7 +4,6 @@
 
 #include "src/profiler/tracing-cpu-profiler.h"
 
-#include "src/execution/isolate.h"
 #include "src/init/v8.h"
 #include "src/profiler/cpu-profiler.h"
 #include "src/tracing/trace-event.h"
@@ -50,7 +49,10 @@ void TracingCpuProfilerImpl::OnTraceDisabled() {
 void TracingCpuProfilerImpl::StartProfiling() {
   base::MutexGuard lock(&mutex_);
   if (!profiling_enabled_ || profiler_) return;
-  int sampling_interval_us = 100;
+  bool enabled;
+  TRACE_EVENT_CATEGORY_GROUP_ENABLED(
+      TRACE_DISABLED_BY_DEFAULT("v8.cpu_profiler.hires"), &enabled);
+  int sampling_interval_us = enabled ? 100 : 1000;
   profiler_.reset(new CpuProfiler(isolate_, kDebugNaming));
   profiler_->set_sampling_interval(
       base::TimeDelta::FromMicroseconds(sampling_interval_us));

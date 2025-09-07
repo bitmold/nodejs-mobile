@@ -5,8 +5,6 @@
 #ifndef V8_OBJECTS_FIELD_INDEX_H_
 #define V8_OBJECTS_FIELD_INDEX_H_
 
-// TODO(jkummerow): Consider forward-declaring instead.
-#include "src/objects/internal-index.h"
 #include "src/objects/property-details.h"
 #include "src/utils/utils.h"
 
@@ -26,13 +24,10 @@ class FieldIndex final {
   FieldIndex() : bit_field_(0) {}
 
   static inline FieldIndex ForPropertyIndex(
-      Map map, int index,
+      const Map map, int index,
       Representation representation = Representation::Tagged());
   static inline FieldIndex ForInObjectOffset(int offset, Encoding encoding);
-  static inline FieldIndex ForDescriptor(Map map,
-                                         InternalIndex descriptor_index);
-  static inline FieldIndex ForDescriptor(PtrComprCageBase cage_base, Map map,
-                                         InternalIndex descriptor_index);
+  static inline FieldIndex ForDescriptor(const Map map, int descriptor_index);
 
   inline int GetLoadByFieldIndex() const;
 
@@ -41,8 +36,6 @@ class FieldIndex final {
   bool is_double() const { return EncodingBits::decode(bit_field_) == kDouble; }
 
   int offset() const { return OffsetBits::decode(bit_field_); }
-
-  uint64_t bit_field() const { return bit_field_; }
 
   // Zero-indexed from beginning of the object.
   int index() const {
@@ -112,16 +105,18 @@ class FieldIndex final {
       (kDescriptorIndexBitCount + 1 + kTaggedSizeLog2);
 
   // Index from beginning of object.
-  using OffsetBits = base::BitField64<int, 0, kOffsetBitsSize>;
-  using IsInObjectBits = OffsetBits::Next<bool, 1>;
-  using EncodingBits = IsInObjectBits::Next<Encoding, 2>;
+  class OffsetBits : public BitField64<int, 0, kOffsetBitsSize> {};
+  class IsInObjectBits : public BitField64<bool, OffsetBits::kNext, 1> {};
+  class EncodingBits : public BitField64<Encoding, IsInObjectBits::kNext, 2> {};
   // Number of inobject properties.
-  using InObjectPropertyBits =
-      EncodingBits::Next<int, kDescriptorIndexBitCount>;
+  class InObjectPropertyBits
+      : public BitField64<int, EncodingBits::kNext, kDescriptorIndexBitCount> {
+  };
   // Offset of first inobject property from beginning of object.
-  using FirstInobjectPropertyOffsetBits =
-      InObjectPropertyBits::Next<int, kFirstInobjectPropertyOffsetBitCount>;
-  STATIC_ASSERT(FirstInobjectPropertyOffsetBits::kLastUsedBit < 64);
+  class FirstInobjectPropertyOffsetBits
+      : public BitField64<int, InObjectPropertyBits::kNext,
+                          kFirstInobjectPropertyOffsetBitCount> {};
+  STATIC_ASSERT(FirstInobjectPropertyOffsetBits::kNext <= 64);
 
   uint64_t bit_field_;
 };

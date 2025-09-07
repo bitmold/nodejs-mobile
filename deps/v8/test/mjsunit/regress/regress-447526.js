@@ -19,7 +19,6 @@ function foo() {
     bar();
   }
 }
-%PrepareFunctionForOptimization(foo);
 
 
 %OptimizeFunctionOnNextCall(foo);

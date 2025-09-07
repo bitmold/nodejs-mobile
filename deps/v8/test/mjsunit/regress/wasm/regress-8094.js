@@ -4,11 +4,11 @@
 
 // Flags: --expose-wasm --experimental-wasm-eh
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 // Instantiate a throwing module.
 var builder = new WasmModuleBuilder();
-builder.addTag(kSig_v_v);
+builder.addException(kSig_v_v);
 builder.addFunction("propel", kSig_v_v)
        .addBody([kExprThrow, 0])
        .exportFunc();
@@ -22,8 +22,8 @@ try {
   exception = e;
 }
 
-// Check that the exception is an instance of WebAssembly.Exception and
+// Check that the exception is an instance of the correct error function and
 // that no extraneous properties exist. Setting such properties could be
 // observable by JavaScript and could break compatibility.
-assertInstanceof(exception, WebAssembly.Exception);
+assertInstanceof(exception, WebAssembly.RuntimeError);
 assertArrayEquals(["stack", "message"], Object.getOwnPropertyNames(exception));

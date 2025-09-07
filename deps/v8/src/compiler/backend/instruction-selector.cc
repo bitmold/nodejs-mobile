@@ -6,48 +6,29 @@
 
 #include <limits>
 
-#include "src/base/iterator.h"
-#include "src/base/platform/wrappers.h"
+#include "src/base/adapters.h"
 #include "src/codegen/assembler-inl.h"
-#include "src/codegen/interface-descriptors-inl.h"
-#include "src/codegen/tick-counter.h"
-#include "src/common/globals.h"
 #include "src/compiler/backend/instruction-selector-impl.h"
 #include "src/compiler/compiler-source-position-table.h"
-#include "src/compiler/js-heap-broker.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/node-properties.h"
 #include "src/compiler/pipeline.h"
 #include "src/compiler/schedule.h"
 #include "src/compiler/state-values-utils.h"
 #include "src/deoptimizer/deoptimizer.h"
 
-#if V8_ENABLE_WEBASSEMBLY
-#include "src/wasm/simd-shuffle.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
-
 namespace v8 {
 namespace internal {
 namespace compiler {
-
-Smi NumberConstantToSmi(Node* node) {
-  DCHECK_EQ(node->opcode(), IrOpcode::kNumberConstant);
-  const double d = OpParameter<double>(node->op());
-  Smi smi = Smi::FromInt(static_cast<int32_t>(d));
-  CHECK_EQ(smi.value(), d);
-  return smi;
-}
 
 InstructionSelector::InstructionSelector(
     Zone* zone, size_t node_count, Linkage* linkage,
     InstructionSequence* sequence, Schedule* schedule,
     SourcePositionTable* source_positions, Frame* frame,
-    EnableSwitchJumpTable enable_switch_jump_table, TickCounter* tick_counter,
-    JSHeapBroker* broker, size_t* max_unoptimized_frame_height,
-    size_t* max_pushed_argument_count, SourcePositionMode source_position_mode,
-    Features features, EnableScheduling enable_scheduling,
+    EnableSwitchJumpTable enable_switch_jump_table,
+    SourcePositionMode source_position_mode, Features features,
+    EnableScheduling enable_scheduling,
     EnableRootsRelativeAddressing enable_roots_relative_addressing,
-    EnableTraceTurboJson trace_turbo)
+    PoisoningMitigationLevel poisoning_level, EnableTraceTurboJson trace_turbo)
     : zone_(zone),
       linkage_(linkage),
       sequence_(sequence),
@@ -59,7 +40,6 @@ InstructionSelector::InstructionSelector(
       instructions_(zone),
       continuation_inputs_(sequence->zone()),
       continuation_outputs_(sequence->zone()),
-      continuation_temps_(sequence->zone()),
       defined_(node_count, false, zone),
       used_(node_count, false, zone),
       effect_level_(node_count, 0, zone),
@@ -70,22 +50,11 @@ InstructionSelector::InstructionSelector(
       enable_scheduling_(enable_scheduling),
       enable_roots_relative_addressing_(enable_roots_relative_addressing),
       enable_switch_jump_table_(enable_switch_jump_table),
-      state_values_cache_(zone),
+      poisoning_level_(poisoning_level),
       frame_(frame),
       instruction_selection_failed_(false),
       instr_origins_(sequence->zone()),
-      trace_turbo_(trace_turbo),
-      tick_counter_(tick_counter),
-      broker_(broker),
-      max_unoptimized_frame_height_(max_unoptimized_frame_height),
-      max_pushed_argument_count_(max_pushed_argument_count)
-#if V8_TARGET_ARCH_64_BIT
-      ,
-      phi_states_(node_count, Upper32BitsState::kNotYetChecked, zone)
-#endif
-{
-  DCHECK_EQ(*max_unoptimized_frame_height, 0);  // Caller-initialized.
-
+      trace_turbo_(trace_turbo) {
   instructions_.reserve(node_count);
   continuation_inputs_.reserve(5);
   continuation_outputs_.reserve(2);
@@ -119,7 +88,7 @@ bool InstructionSelector::SelectInstructions() {
 
   // Schedule the selected instructions.
   if (UseInstructionScheduling()) {
-    scheduler_ = zone()->New<InstructionScheduler>(zone(), sequence());
+    scheduler_ = new (zone()) InstructionScheduler(zone(), sequence());
   }
 
   for (auto const block : *blocks) {
@@ -283,7 +252,7 @@ Instruction* InstructionSelector::Emit(Instruction* instr) {
 
 bool InstructionSelector::CanCover(Node* user, Node* node) const {
   // 1. Both {user} and {node} must be in the same basic block.
-  if (schedule()->block(node) != current_block_) {
+  if (schedule()->block(node) != schedule()->block(user)) {
     return false;
   }
   // 2. Pure {node}s must be owned by the {user}.
@@ -291,7 +260,7 @@ bool InstructionSelector::CanCover(Node* user, Node* node) const {
     return node->OwnedBy(user);
   }
   // 3. Impure {node}s must match the effect level of {user}.
-  if (GetEffectLevel(node) != current_effect_level_) {
+  if (GetEffectLevel(node) != GetEffectLevel(user)) {
     return false;
   }
   // 4. Only {node} must have value edges pointing to {user}.
@@ -301,6 +270,21 @@ bool InstructionSelector::CanCover(Node* user, Node* node) const {
     }
   }
   return true;
+}
+
+bool InstructionSelector::CanCoverTransitively(Node* user, Node* node,
+                                               Node* node_input) const {
+  if (CanCover(user, node) && CanCover(node, node_input)) {
+    // If {node} is pure, transitivity might not hold.
+    if (node->op()->HasProperty(Operator::kPure)) {
+      // If {node_input} is pure, the effect levels do not matter.
+      if (node_input->op()->HasProperty(Operator::kPure)) return true;
+      // Otherwise, {user} and {node_input} must have the same effect level.
+      return GetEffectLevel(user) == GetEffectLevel(node_input);
+    }
+    return true;
+  }
+  return false;
 }
 
 bool InstructionSelector::IsOnlyUserOfNodeInSameBlock(Node* user,
@@ -428,14 +412,6 @@ int InstructionSelector::GetEffectLevel(Node* node) const {
   return effect_level_[id];
 }
 
-int InstructionSelector::GetEffectLevel(Node* node,
-                                        FlagsContinuation* cont) const {
-  return cont->IsBranch()
-             ? GetEffectLevel(
-                   cont->true_block()->PredecessorAt(0)->control_input())
-             : GetEffectLevel(node);
-}
-
 void InstructionSelector::SetEffectLevel(Node* node, int effect_level) {
   DCHECK_NOT_NULL(node);
   size_t const id = node->id();
@@ -443,27 +419,9 @@ void InstructionSelector::SetEffectLevel(Node* node, int effect_level) {
   effect_level_[id] = effect_level;
 }
 
-bool InstructionSelector::CanAddressRelativeToRootsRegister(
-    const ExternalReference& reference) const {
-  // There are three things to consider here:
-  // 1. CanUseRootsRegister: Is kRootRegister initialized?
-  const bool root_register_is_available_and_initialized = CanUseRootsRegister();
-  if (!root_register_is_available_and_initialized) return false;
-
-  // 2. enable_roots_relative_addressing_: Can we address everything on the heap
-  //    through the root register, i.e. are root-relative addresses to arbitrary
-  //    addresses guaranteed not to change between code generation and
-  //    execution?
-  const bool all_root_relative_offsets_are_constant =
-      (enable_roots_relative_addressing_ == kEnableRootsRelativeAddressing);
-  if (all_root_relative_offsets_are_constant) return true;
-
-  // 3. IsAddressableThroughRootRegister: Is the target address guaranteed to
-  //    have a fixed root-relative offset? If so, we can ignore 2.
-  const bool this_root_relative_offset_is_constant =
-      TurboAssemblerBase::IsAddressableThroughRootRegister(isolate(),
-                                                           reference);
-  return this_root_relative_offset_is_constant;
+bool InstructionSelector::CanAddressRelativeToRootsRegister() const {
+  return enable_roots_relative_addressing_ == kEnableRootsRelativeAddressing &&
+         CanUseRootsRegister();
 }
 
 bool InstructionSelector::CanUseRootsRegister() const {
@@ -494,18 +452,11 @@ InstructionOperand OperandForDeopt(Isolate* isolate, OperandGenerator* g,
   switch (input->opcode()) {
     case IrOpcode::kInt32Constant:
     case IrOpcode::kInt64Constant:
+    case IrOpcode::kNumberConstant:
     case IrOpcode::kFloat32Constant:
     case IrOpcode::kFloat64Constant:
     case IrOpcode::kDelayedStringConstant:
       return g->UseImmediate(input);
-    case IrOpcode::kNumberConstant:
-      if (rep == MachineRepresentation::kWord32) {
-        Smi smi = NumberConstantToSmi(input);
-        return g->UseImmediate(static_cast<int32_t>(smi.ptr()));
-      } else {
-        return g->UseImmediate(input);
-      }
-    case IrOpcode::kCompressedHeapConstant:
     case IrOpcode::kHeapConstant: {
       if (!CanBeTaggedOrCompressedPointer(rep)) {
         // If we have inconsistent static and dynamic types, e.g. if we
@@ -582,8 +533,6 @@ class StateObjectDeduplicator {
     return id;
   }
 
-  size_t size() const { return objects_.size(); }
-
  private:
   static bool HasObjectId(Node* node) {
     return node->opcode() == IrOpcode::kTypedObjectState ||
@@ -598,7 +547,11 @@ size_t InstructionSelector::AddOperandToStateValueDescriptor(
     StateValueList* values, InstructionOperandVector* inputs,
     OperandGenerator* g, StateObjectDeduplicator* deduplicator, Node* input,
     MachineType type, FrameStateInputKind kind, Zone* zone) {
-  DCHECK_NOT_NULL(input);
+  if (input == nullptr) {
+    values->PushOptimizedOut();
+    return 0;
+  }
+
   switch (input->opcode()) {
     case IrOpcode::kArgumentsElementsState: {
       values->PushArgumentsElements(ArgumentsStateTypeOf(input->op()));
@@ -610,11 +563,12 @@ size_t InstructionSelector::AddOperandToStateValueDescriptor(
       return 0;
     }
     case IrOpcode::kArgumentsLengthState: {
-      values->PushArgumentsLength();
+      values->PushArgumentsLength(ArgumentsStateTypeOf(input->op()));
       return 0;
     }
-    case IrOpcode::kObjectState:
+    case IrOpcode::kObjectState: {
       UNREACHABLE();
+    }
     case IrOpcode::kTypedObjectState:
     case IrOpcode::kObjectId: {
       size_t id = deduplicator->GetObjectId(input);
@@ -655,116 +609,28 @@ size_t InstructionSelector::AddOperandToStateValueDescriptor(
   }
 }
 
-struct InstructionSelector::CachedStateValues : public ZoneObject {
- public:
-  CachedStateValues(Zone* zone, StateValueList* values, size_t values_start,
-                    InstructionOperandVector* inputs, size_t inputs_start)
-      : inputs_(inputs->begin() + inputs_start, inputs->end(), zone),
-        values_(values->MakeSlice(values_start)) {}
-
-  size_t Emit(InstructionOperandVector* inputs, StateValueList* values) {
-    inputs->insert(inputs->end(), inputs_.begin(), inputs_.end());
-    values->PushCachedSlice(values_);
-    return inputs_.size();
-  }
-
- private:
-  InstructionOperandVector inputs_;
-  StateValueList::Slice values_;
-};
-
-class InstructionSelector::CachedStateValuesBuilder {
- public:
-  explicit CachedStateValuesBuilder(StateValueList* values,
-                                    InstructionOperandVector* inputs,
-                                    StateObjectDeduplicator* deduplicator)
-      : values_(values),
-        inputs_(inputs),
-        deduplicator_(deduplicator),
-        values_start_(values->size()),
-        nested_start_(values->nested_count()),
-        inputs_start_(inputs->size()),
-        deduplicator_start_(deduplicator->size()) {}
-
-  // We can only build a CachedStateValues for a StateValue if it didn't update
-  // any of the ids in the deduplicator.
-  bool CanCache() const { return deduplicator_->size() == deduplicator_start_; }
-
-  InstructionSelector::CachedStateValues* Build(Zone* zone) {
-    DCHECK(CanCache());
-    DCHECK(values_->nested_count() == nested_start_);
-    return zone->New<InstructionSelector::CachedStateValues>(
-        zone, values_, values_start_, inputs_, inputs_start_);
-  }
-
- private:
-  StateValueList* values_;
-  InstructionOperandVector* inputs_;
-  StateObjectDeduplicator* deduplicator_;
-  size_t values_start_;
-  size_t nested_start_;
-  size_t inputs_start_;
-  size_t deduplicator_start_;
-};
-
-size_t InstructionSelector::AddInputsToFrameStateDescriptor(
-    StateValueList* values, InstructionOperandVector* inputs,
-    OperandGenerator* g, StateObjectDeduplicator* deduplicator, Node* node,
-    FrameStateInputKind kind, Zone* zone) {
-  // StateValues are often shared across different nodes, and processing them is
-  // expensive, so cache the result of processing a StateValue so that we can
-  // quickly copy the result if we see it again.
-  FrameStateInput key(node, kind);
-  auto cache_entry = state_values_cache_.find(key);
-  if (cache_entry != state_values_cache_.end()) {
-    // Entry found in cache, emit cached version.
-    return cache_entry->second->Emit(inputs, values);
-  } else {
-    // Not found in cache, generate and then store in cache if possible.
-    size_t entries = 0;
-    CachedStateValuesBuilder cache_builder(values, inputs, deduplicator);
-    StateValuesAccess::iterator it = StateValuesAccess(node).begin();
-    // Take advantage of sparse nature of StateValuesAccess to skip over
-    // multiple empty nodes at once pushing repeated OptimizedOuts all in one
-    // go.
-    while (!it.done()) {
-      values->PushOptimizedOut(it.AdvanceTillNotEmpty());
-      if (it.done()) break;
-      StateValuesAccess::TypedNode input_node = *it;
-      entries += AddOperandToStateValueDescriptor(values, inputs, g,
-                                                  deduplicator, input_node.node,
-                                                  input_node.type, kind, zone);
-      ++it;
-    }
-    if (cache_builder.CanCache()) {
-      // Use this->zone() to build the cache entry in the instruction selector's
-      // zone rather than the more long-lived instruction zone.
-      state_values_cache_.emplace(key, cache_builder.Build(this->zone()));
-    }
-    return entries;
-  }
-}
-
 // Returns the number of instruction operands added to inputs.
 size_t InstructionSelector::AddInputsToFrameStateDescriptor(
-    FrameStateDescriptor* descriptor, FrameState state, OperandGenerator* g,
+    FrameStateDescriptor* descriptor, Node* state, OperandGenerator* g,
     StateObjectDeduplicator* deduplicator, InstructionOperandVector* inputs,
     FrameStateInputKind kind, Zone* zone) {
+  DCHECK_EQ(IrOpcode::kFrameState, state->op()->opcode());
+
   size_t entries = 0;
   size_t initial_size = inputs->size();
   USE(initial_size);  // initial_size is only used for debug.
 
   if (descriptor->outer_state()) {
     entries += AddInputsToFrameStateDescriptor(
-        descriptor->outer_state(), FrameState{state.outer_frame_state()}, g,
-        deduplicator, inputs, kind, zone);
+        descriptor->outer_state(), state->InputAt(kFrameStateOuterStateInput),
+        g, deduplicator, inputs, kind, zone);
   }
 
-  Node* parameters = state.parameters();
-  Node* locals = state.locals();
-  Node* stack = state.stack();
-  Node* context = state.context();
-  Node* function = state.function();
+  Node* parameters = state->InputAt(kFrameStateParametersInput);
+  Node* locals = state->InputAt(kFrameStateLocalsInput);
+  Node* stack = state->InputAt(kFrameStateStackInput);
+  Node* context = state->InputAt(kFrameStateContextInput);
+  Node* function = state->InputAt(kFrameStateFunctionInput);
 
   DCHECK_EQ(descriptor->parameters_count(),
             StateValuesAccess(parameters).size());
@@ -776,27 +642,37 @@ size_t InstructionSelector::AddInputsToFrameStateDescriptor(
   DCHECK_EQ(values_descriptor->size(), 0u);
   values_descriptor->ReserveSize(descriptor->GetSize());
 
-  DCHECK_NOT_NULL(function);
   entries += AddOperandToStateValueDescriptor(
       values_descriptor, inputs, g, deduplicator, function,
       MachineType::AnyTagged(), FrameStateInputKind::kStackSlot, zone);
-
-  entries += AddInputsToFrameStateDescriptor(
-      values_descriptor, inputs, g, deduplicator, parameters, kind, zone);
-
+  for (StateValuesAccess::TypedNode input_node :
+       StateValuesAccess(parameters)) {
+    entries += AddOperandToStateValueDescriptor(values_descriptor, inputs, g,
+                                                deduplicator, input_node.node,
+                                                input_node.type, kind, zone);
+  }
   if (descriptor->HasContext()) {
-    DCHECK_NOT_NULL(context);
     entries += AddOperandToStateValueDescriptor(
         values_descriptor, inputs, g, deduplicator, context,
         MachineType::AnyTagged(), FrameStateInputKind::kStackSlot, zone);
   }
-
-  entries += AddInputsToFrameStateDescriptor(values_descriptor, inputs, g,
-                                             deduplicator, locals, kind, zone);
-  entries += AddInputsToFrameStateDescriptor(values_descriptor, inputs, g,
-                                             deduplicator, stack, kind, zone);
+  for (StateValuesAccess::TypedNode input_node : StateValuesAccess(locals)) {
+    entries += AddOperandToStateValueDescriptor(values_descriptor, inputs, g,
+                                                deduplicator, input_node.node,
+                                                input_node.type, kind, zone);
+  }
+  for (StateValuesAccess::TypedNode input_node : StateValuesAccess(stack)) {
+    entries += AddOperandToStateValueDescriptor(values_descriptor, inputs, g,
+                                                deduplicator, input_node.node,
+                                                input_node.type, kind, zone);
+  }
   DCHECK_EQ(initial_size + entries, inputs->size());
   return entries;
+}
+
+Instruction* InstructionSelector::EmitWithContinuation(
+    InstructionCode opcode, FlagsContinuation* cont) {
+  return EmitWithContinuation(opcode, 0, nullptr, 0, nullptr, cont);
 }
 
 Instruction* InstructionSelector::EmitWithContinuation(
@@ -823,14 +699,6 @@ Instruction* InstructionSelector::EmitWithContinuation(
 Instruction* InstructionSelector::EmitWithContinuation(
     InstructionCode opcode, size_t output_count, InstructionOperand* outputs,
     size_t input_count, InstructionOperand* inputs, FlagsContinuation* cont) {
-  return EmitWithContinuation(opcode, output_count, outputs, input_count,
-                              inputs, 0, nullptr, cont);
-}
-
-Instruction* InstructionSelector::EmitWithContinuation(
-    InstructionCode opcode, size_t output_count, InstructionOperand* outputs,
-    size_t input_count, InstructionOperand* inputs, size_t temp_count,
-    InstructionOperand* temps, FlagsContinuation* cont) {
   OperandGenerator g(this);
 
   opcode = cont->Encode(opcode);
@@ -845,31 +713,16 @@ Instruction* InstructionSelector::EmitWithContinuation(
     continuation_outputs_.push_back(outputs[i]);
   }
 
-  continuation_temps_.resize(0);
-  for (size_t i = 0; i < temp_count; i++) {
-    continuation_temps_.push_back(temps[i]);
-  }
-
   if (cont->IsBranch()) {
     continuation_inputs_.push_back(g.Label(cont->true_block()));
     continuation_inputs_.push_back(g.Label(cont->false_block()));
   } else if (cont->IsDeoptimize()) {
-    int immediate_args_count = 0;
-    opcode |= DeoptImmedArgsCountField::encode(immediate_args_count) |
-              DeoptFrameStateOffsetField::encode(static_cast<int>(input_count));
-    AppendDeoptimizeArguments(&continuation_inputs_, cont->reason(),
-                              cont->node_id(), cont->feedback(),
-                              FrameState{cont->frame_state()});
+    opcode |= MiscField::encode(static_cast<int>(input_count));
+    AppendDeoptimizeArguments(&continuation_inputs_, cont->kind(),
+                              cont->reason(), cont->feedback(),
+                              cont->frame_state());
   } else if (cont->IsSet()) {
     continuation_outputs_.push_back(g.DefineAsRegister(cont->result()));
-  } else if (cont->IsSelect()) {
-    // The {Select} should put one of two values into the output register,
-    // depending on the result of the condition. The two result values are in
-    // the last two input slots, the {false_value} in {input_count - 2}, and the
-    // true_value in {input_count - 1}. The other inputs are used for the
-    // condition.
-    AddOutputToSelectContinuation(&g, static_cast<int>(input_count) - 2,
-                                  cont->result());
   } else if (cont->IsTrap()) {
     int trap_id = static_cast<int>(cont->trap_id());
     continuation_inputs_.push_back(g.UseImmediate(trap_id));
@@ -883,24 +736,39 @@ Instruction* InstructionSelector::EmitWithContinuation(
   size_t const emit_outputs_size = continuation_outputs_.size();
   auto* emit_outputs =
       emit_outputs_size ? &continuation_outputs_.front() : nullptr;
-  size_t const emit_temps_size = continuation_temps_.size();
-  auto* emit_temps = emit_temps_size ? &continuation_temps_.front() : nullptr;
   return Emit(opcode, emit_outputs_size, emit_outputs, emit_inputs_size,
-              emit_inputs, emit_temps_size, emit_temps);
+              emit_inputs, 0, nullptr);
 }
 
 void InstructionSelector::AppendDeoptimizeArguments(
-    InstructionOperandVector* args, DeoptimizeReason reason, NodeId node_id,
-    FeedbackSource const& feedback, FrameState frame_state) {
+    InstructionOperandVector* args, DeoptimizeKind kind,
+    DeoptimizeReason reason, VectorSlotPair const& feedback,
+    Node* frame_state) {
   OperandGenerator g(this);
   FrameStateDescriptor* const descriptor = GetFrameStateDescriptor(frame_state);
-  int const state_id = sequence()->AddDeoptimizationEntry(
-      descriptor, DeoptimizeKind::kEager, reason, node_id, feedback);
+  DCHECK_NE(DeoptimizeKind::kLazy, kind);
+  int const state_id =
+      sequence()->AddDeoptimizationEntry(descriptor, kind, reason, feedback);
   args->push_back(g.TempImmediate(state_id));
   StateObjectDeduplicator deduplicator(instruction_zone());
   AddInputsToFrameStateDescriptor(descriptor, frame_state, &g, &deduplicator,
                                   args, FrameStateInputKind::kAny,
                                   instruction_zone());
+}
+
+Instruction* InstructionSelector::EmitDeoptimize(
+    InstructionCode opcode, size_t output_count, InstructionOperand* outputs,
+    size_t input_count, InstructionOperand* inputs, DeoptimizeKind kind,
+    DeoptimizeReason reason, VectorSlotPair const& feedback,
+    Node* frame_state) {
+  InstructionOperandVector args(instruction_zone());
+  for (size_t i = 0; i < input_count; ++i) {
+    args.push_back(inputs[i]);
+  }
+  opcode |= MiscField::encode(static_cast<int>(input_count));
+  AppendDeoptimizeArguments(&args, kind, reason, feedback, frame_state);
+  return Emit(opcode, output_count, outputs, args.size(), &args.front(), 0,
+              nullptr);
 }
 
 // An internal helper class for generating the operands to calls.
@@ -944,10 +812,10 @@ struct CallBuffer {
 // InstructionSelector::VisitCall platform independent instead.
 void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
                                                CallBufferFlags flags,
+                                               bool is_tail_call,
                                                int stack_param_delta) {
   OperandGenerator g(this);
   size_t ret_count = buffer->descriptor->ReturnCount();
-  bool is_tail_call = (flags & kCallTail) != 0;
   DCHECK_LE(call->op()->ValueOutputCount(), ret_count);
   DCHECK_EQ(
       call->op()->ValueInputCount(),
@@ -960,9 +828,13 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
       buffer->output_nodes.push_back(result);
     } else {
       buffer->output_nodes.resize(ret_count);
+      int stack_count = 0;
       for (size_t i = 0; i < ret_count; ++i) {
         LinkageLocation location = buffer->descriptor->GetReturnLocation(i);
         buffer->output_nodes[i] = PushParameter(nullptr, location);
+        if (location.IsCallerFrameSlot()) {
+          stack_count += location.GetSizeInPointers();
+        }
       }
       for (Edge const edge : call->use_edges()) {
         if (!NodeProperties::IsValueEdge(edge)) continue;
@@ -974,9 +846,7 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
         DCHECK(!buffer->output_nodes[index].node);
         buffer->output_nodes[index].node = node;
       }
-
-      frame_->EnsureReturnSlots(
-          static_cast<int>(buffer->descriptor->ReturnSlotCount()));
+      frame_->EnsureReturnSlots(stack_count);
     }
 
     // Filter out the outputs that aren't live because no projection uses them.
@@ -1011,14 +881,22 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
   bool call_code_immediate = (flags & kCallCodeImmediate) != 0;
   bool call_address_immediate = (flags & kCallAddressImmediate) != 0;
   bool call_use_fixed_target_reg = (flags & kCallFixedTargetRegister) != 0;
+  bool call_through_slot = (flags & kAllowCallThroughSlot) != 0;
   switch (buffer->descriptor->kind()) {
     case CallDescriptor::kCallCodeObject:
+      // TODO(jgruber, v8:7449): The below is a hack to support tail-calls from
+      // JS-linkage callers with a register code target. The problem is that the
+      // code target register may be clobbered before the final jmp by
+      // AssemblePopArgumentsAdaptorFrame. As a more permanent fix we could
+      // entirely remove support for tail-calls from JS-linkage callers.
       buffer->instruction_args.push_back(
           (call_code_immediate && callee->opcode() == IrOpcode::kHeapConstant)
               ? g.UseImmediate(callee)
               : call_use_fixed_target_reg
                     ? g.UseFixed(callee, kJavaScriptCallCodeStartRegister)
-                    : g.UseRegister(callee));
+                    : is_tail_call ? g.UseUniqueRegister(callee)
+                                   : call_through_slot ? g.UseUniqueSlot(callee)
+                                                       : g.UseRegister(callee));
       break;
     case CallDescriptor::kCallAddress:
       buffer->instruction_args.push_back(
@@ -1029,7 +907,6 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
                     ? g.UseFixed(callee, kJavaScriptCallCodeStartRegister)
                     : g.UseRegister(callee));
       break;
-#if V8_ENABLE_WEBASSEMBLY
     case CallDescriptor::kCallWasmCapiFunction:
     case CallDescriptor::kCallWasmFunction:
     case CallDescriptor::kCallWasmImportWrapper:
@@ -1042,7 +919,6 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
                     ? g.UseFixed(callee, kJavaScriptCallCodeStartRegister)
                     : g.UseRegister(callee));
       break;
-#endif  // V8_ENABLE_WEBASSEMBLY
     case CallDescriptor::kCallBuiltinPointer:
       // The common case for builtin pointers is to have the target in a
       // register. If we have a constant, we use a register anyway to simplify
@@ -1059,28 +935,34 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
   }
   DCHECK_EQ(1u, buffer->instruction_args.size());
 
+  // Argument 1 is used for poison-alias index (encoded in a word-sized
+  // immediate. This an index of the operand that aliases with poison register
+  // or -1 if there is no aliasing.
+  buffer->instruction_args.push_back(g.TempImmediate(-1));
+  const size_t poison_alias_index = 1;
+  DCHECK_EQ(buffer->instruction_args.size() - 1, poison_alias_index);
+
   // If the call needs a frame state, we insert the state information as
   // follows (n is the number of value inputs to the frame state):
-  // arg 1               : deoptimization id.
-  // arg 2 - arg (n + 2) : value inputs to the frame state.
+  // arg 2               : deoptimization id.
+  // arg 3 - arg (n + 2) : value inputs to the frame state.
   size_t frame_state_entries = 0;
   USE(frame_state_entries);  // frame_state_entries is only used for debug.
   if (buffer->frame_state_descriptor != nullptr) {
-    FrameState frame_state{
-        call->InputAt(static_cast<int>(buffer->descriptor->InputCount()))};
+    Node* frame_state =
+        call->InputAt(static_cast<int>(buffer->descriptor->InputCount()));
 
     // If it was a syntactic tail call we need to drop the current frame and
     // all the frames on top of it that are either an arguments adaptor frame
     // or a tail caller frame.
     if (is_tail_call) {
-      frame_state = FrameState{NodeProperties::GetFrameStateInput(frame_state)};
+      frame_state = NodeProperties::GetFrameStateInput(frame_state);
       buffer->frame_state_descriptor =
           buffer->frame_state_descriptor->outer_state();
       while (buffer->frame_state_descriptor != nullptr &&
              buffer->frame_state_descriptor->type() ==
                  FrameStateType::kArgumentsAdaptor) {
-        frame_state =
-            FrameState{NodeProperties::GetFrameStateInput(frame_state)};
+        frame_state = NodeProperties::GetFrameStateInput(frame_state);
         buffer->frame_state_descriptor =
             buffer->frame_state_descriptor->outer_state();
       }
@@ -1088,7 +970,7 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
 
     int const state_id = sequence()->AddDeoptimizationEntry(
         buffer->frame_state_descriptor, DeoptimizeKind::kLazy,
-        DeoptimizeReason::kUnknown, call->id(), FeedbackSource());
+        DeoptimizeReason::kUnknown, VectorSlotPair());
     buffer->instruction_args.push_back(g.TempImmediate(state_id));
 
     StateObjectDeduplicator deduplicator(instruction_zone());
@@ -1099,7 +981,7 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
                 &buffer->instruction_args, FrameStateInputKind::kStackSlot,
                 instruction_zone());
 
-    DCHECK_EQ(1 + frame_state_entries, buffer->instruction_args.size());
+    DCHECK_EQ(2 + frame_state_entries, buffer->instruction_args.size());
   }
 
   size_t input_count = static_cast<size_t>(buffer->input_count());
@@ -1110,38 +992,51 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
   // as an InstructionOperand argument to the call.
   auto iter(call->inputs().begin());
   size_t pushed_count = 0;
+  bool call_tail = (flags & kCallTail) != 0;
   for (size_t index = 0; index < input_count; ++iter, ++index) {
     DCHECK(iter != call->inputs().end());
     DCHECK_NE(IrOpcode::kFrameState, (*iter)->op()->opcode());
     if (index == 0) continue;  // The first argument (callee) is already done.
 
     LinkageLocation location = buffer->descriptor->GetInputLocation(index);
-    if (is_tail_call) {
+    if (call_tail) {
       location = LinkageLocation::ConvertToTailCallerLocation(
           location, stack_param_delta);
     }
     InstructionOperand op = g.UseLocation(*iter, location);
     UnallocatedOperand unallocated = UnallocatedOperand::cast(op);
-    if (unallocated.HasFixedSlotPolicy() && !is_tail_call) {
-      int stack_index = buffer->descriptor->GetStackIndexFromSlot(
-          unallocated.fixed_slot_index());
+    if (unallocated.HasFixedSlotPolicy() && !call_tail) {
+      int stack_index = -unallocated.fixed_slot_index() - 1;
       // This can insert empty slots before stack_index and will insert enough
       // slots after stack_index to store the parameter.
       if (static_cast<size_t>(stack_index) >= buffer->pushed_nodes.size()) {
-        int num_slots = location.GetSizeInPointers();
+        int num_slots = std::max(
+            1, (ElementSizeInBytes(location.GetType().representation()) /
+                kSystemPointerSize));
         buffer->pushed_nodes.resize(stack_index + num_slots);
       }
       PushParameter param = {*iter, location};
       buffer->pushed_nodes[stack_index] = param;
       pushed_count++;
     } else {
+      // If we do load poisoning and the linkage uses the poisoning register,
+      // then we request the input in memory location, and during code
+      // generation, we move the input to the register.
+      if (poisoning_level_ != PoisoningMitigationLevel::kDontPoison &&
+          unallocated.HasFixedRegisterPolicy()) {
+        int reg = unallocated.fixed_register_index();
+        if (Register::from_code(reg) == kSpeculationPoisonRegister) {
+          buffer->instruction_args[poison_alias_index] = g.TempImmediate(
+              static_cast<int32_t>(buffer->instruction_args.size()));
+          op = g.UseRegisterOrSlotOrConstant(*iter);
+        }
+      }
       buffer->instruction_args.push_back(op);
     }
   }
   DCHECK_EQ(input_count, buffer->instruction_args.size() + pushed_count -
-                             frame_state_entries);
-  USE(pushed_count);
-  if (V8_TARGET_ARCH_STORES_RETURN_ADDRESS_ON_STACK && is_tail_call &&
+                             frame_state_entries - 1);
+  if (V8_TARGET_ARCH_STORES_RETURN_ADDRESS_ON_STACK && call_tail &&
       stack_param_delta != 0) {
     // For tail calls that change the size of their parameter list and keep
     // their return address on the stack, move the return address to just above
@@ -1159,6 +1054,7 @@ void InstructionSelector::InitializeCallBuffer(Node* call, CallBuffer* buffer,
 bool InstructionSelector::IsSourcePositionUsed(Node* node) {
   return (source_position_mode_ == kAllSourcePositions ||
           node->opcode() == IrOpcode::kCall ||
+          node->opcode() == IrOpcode::kCallWithCallerSavedRegisters ||
           node->opcode() == IrOpcode::kTrapIf ||
           node->opcode() == IrOpcode::kTrapUnless ||
           node->opcode() == IrOpcode::kProtectedLoad ||
@@ -1177,16 +1073,12 @@ void InstructionSelector::VisitBlock(BasicBlock* block) {
   int effect_level = 0;
   for (Node* const node : *block) {
     SetEffectLevel(node, effect_level);
-    current_effect_level_ = effect_level;
     if (node->opcode() == IrOpcode::kStore ||
         node->opcode() == IrOpcode::kUnalignedStore ||
         node->opcode() == IrOpcode::kCall ||
-        node->opcode() == IrOpcode::kProtectedStore ||
-#define ADD_EFFECT_FOR_ATOMIC_OP(Opcode) \
-  node->opcode() == IrOpcode::k##Opcode ||
-        MACHINE_ATOMIC_OP_LIST(ADD_EFFECT_FOR_ATOMIC_OP)
-#undef ADD_EFFECT_FOR_ATOMIC_OP
-                node->opcode() == IrOpcode::kMemoryBarrier) {
+        node->opcode() == IrOpcode::kCallWithCallerSavedRegisters ||
+        node->opcode() == IrOpcode::kProtectedLoad ||
+        node->opcode() == IrOpcode::kProtectedStore) {
       ++effect_level;
     }
   }
@@ -1195,7 +1087,6 @@ void InstructionSelector::VisitBlock(BasicBlock* block) {
   // control input should be on the same effect level as the last node.
   if (block->control_input() != nullptr) {
     SetEffectLevel(block->control_input(), effect_level);
-    current_effect_level_ = effect_level;
   }
 
   auto FinishEmittedInstructions = [&](Node* node, int instruction_start) {
@@ -1207,7 +1098,8 @@ void InstructionSelector::VisitBlock(BasicBlock* block) {
     if (!source_positions_) return true;
     SourcePosition source_position = source_positions_->GetSourcePosition(node);
     if (source_position.IsKnown() && IsSourcePositionUsed(node)) {
-      sequence()->SetSourcePosition(instructions_.back(), source_position);
+      sequence()->SetSourcePosition(instructions_[instruction_start],
+                                    source_position);
     }
     return true;
   };
@@ -1215,9 +1107,8 @@ void InstructionSelector::VisitBlock(BasicBlock* block) {
   // Generate code for the block control "top down", but schedule the code
   // "bottom up".
   VisitControl(block);
-  if (!FinishEmittedInstructions(block->control_input(), current_block_end)) {
+  if (!FinishEmittedInstructions(block->control_input(), current_block_end))
     return;
-  }
 
   // Visit code in reverse control flow order, because architecture-specific
   // matching may cover more than one node at a time.
@@ -1326,8 +1217,8 @@ void InstructionSelector::VisitControl(BasicBlock* block) {
     }
     case BasicBlock::kDeoptimize: {
       DeoptimizeParameters p = DeoptimizeParametersOf(input->op());
-      FrameState value{input->InputAt(0)};
-      VisitDeoptimize(p.reason(), input->id(), p.feedback(), value);
+      Node* value = input->InputAt(0);
+      VisitDeoptimize(p.kind(), p.reason(), p.feedback(), value);
       break;
     }
     case BasicBlock::kThrow:
@@ -1360,7 +1251,6 @@ void InstructionSelector::MarkPairProjectionsAsWord32(Node* node) {
 }
 
 void InstructionSelector::VisitNode(Node* node) {
-  tick_counter_->TickAndMaybeEnterSafepoint();
   DCHECK_NOT_NULL(schedule()->block(node));  // should only use scheduled nodes.
   switch (node->opcode()) {
     case IrOpcode::kStart:
@@ -1380,19 +1270,17 @@ void InstructionSelector::VisitNode(Node* node) {
       // No code needed for these graph artifacts.
       return;
     case IrOpcode::kIfException:
-      return MarkAsTagged(node), VisitIfException(node);
+      return MarkAsReference(node), VisitIfException(node);
     case IrOpcode::kFinishRegion:
-      return MarkAsTagged(node), VisitFinishRegion(node);
+      return MarkAsReference(node), VisitFinishRegion(node);
     case IrOpcode::kParameter: {
-      // Parameters should always be scheduled to the first block.
-      DCHECK_EQ(schedule()->block(node)->rpo_number(), 0);
       MachineType type =
           linkage()->GetParameterType(ParameterIndexOf(node->op()));
       MarkAsRepresentation(type.representation(), node);
       return VisitParameter(node);
     }
     case IrOpcode::kOsrValue:
-      return MarkAsTagged(node), VisitOsrValue(node);
+      return MarkAsReference(node), VisitOsrValue(node);
     case IrOpcode::kPhi: {
       MachineRepresentation rep = PhiRepresentationOf(node->op());
       if (rep == MachineRepresentation::kNone) return;
@@ -1403,7 +1291,6 @@ void InstructionSelector::VisitNode(Node* node) {
       return VisitProjection(node);
     case IrOpcode::kInt32Constant:
     case IrOpcode::kInt64Constant:
-    case IrOpcode::kTaggedIndexConstant:
     case IrOpcode::kExternalConstant:
     case IrOpcode::kRelocatableInt32Constant:
     case IrOpcode::kRelocatableInt64Constant:
@@ -1413,18 +1300,18 @@ void InstructionSelector::VisitNode(Node* node) {
     case IrOpcode::kFloat64Constant:
       return MarkAsFloat64(node), VisitConstant(node);
     case IrOpcode::kHeapConstant:
-      return MarkAsTagged(node), VisitConstant(node);
-    case IrOpcode::kCompressedHeapConstant:
-      return MarkAsCompressed(node), VisitConstant(node);
+      return MarkAsReference(node), VisitConstant(node);
     case IrOpcode::kNumberConstant: {
       double value = OpParameter<double>(node->op());
-      if (!IsSmiDouble(value)) MarkAsTagged(node);
+      if (!IsSmiDouble(value)) MarkAsReference(node);
       return VisitConstant(node);
     }
     case IrOpcode::kDelayedStringConstant:
-      return MarkAsTagged(node), VisitConstant(node);
+      return MarkAsReference(node), VisitConstant(node);
     case IrOpcode::kCall:
       return VisitCall(node);
+    case IrOpcode::kCallWithCallerSavedRegisters:
+      return VisitCallWithCallerSavedRegisters(node);
     case IrOpcode::kDeoptimizeIf:
       return VisitDeoptimizeIf(node);
     case IrOpcode::kDeoptimizeUnless:
@@ -1437,8 +1324,8 @@ void InstructionSelector::VisitNode(Node* node) {
     case IrOpcode::kStateValues:
     case IrOpcode::kObjectState:
       return;
-    case IrOpcode::kAbortCSADcheck:
-      VisitAbortCSADcheck(node);
+    case IrOpcode::kDebugAbort:
+      VisitDebugAbort(node);
       return;
     case IrOpcode::kDebugBreak:
       VisitDebugBreak(node);
@@ -1458,28 +1345,20 @@ void InstructionSelector::VisitNode(Node* node) {
     case IrOpcode::kRetain:
       VisitRetain(node);
       return;
-    case IrOpcode::kLoad:
-    case IrOpcode::kLoadImmutable: {
+    case IrOpcode::kLoad: {
       LoadRepresentation type = LoadRepresentationOf(node->op());
       MarkAsRepresentation(type.representation(), node);
       return VisitLoad(node);
     }
-    case IrOpcode::kLoadTransform: {
-      MarkAsRepresentation(MachineRepresentation::kSimd128, node);
-      return VisitLoadTransform(node);
-    }
-    case IrOpcode::kLoadLane: {
-      MarkAsRepresentation(MachineRepresentation::kSimd128, node);
-      return VisitLoadLane(node);
+    case IrOpcode::kPoisonedLoad: {
+      LoadRepresentation type = LoadRepresentationOf(node->op());
+      MarkAsRepresentation(type.representation(), node);
+      return VisitPoisonedLoad(node);
     }
     case IrOpcode::kStore:
       return VisitStore(node);
     case IrOpcode::kProtectedStore:
       return VisitProtectedStore(node);
-    case IrOpcode::kStoreLane: {
-      MarkAsRepresentation(MachineRepresentation::kSimd128, node);
-      return VisitStoreLane(node);
-    }
     case IrOpcode::kWord32And:
       return MarkAsWord32(node), VisitWord32And(node);
     case IrOpcode::kWord32Or:
@@ -1492,8 +1371,6 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsWord32(node), VisitWord32Shr(node);
     case IrOpcode::kWord32Sar:
       return MarkAsWord32(node), VisitWord32Sar(node);
-    case IrOpcode::kWord32Rol:
-      return MarkAsWord32(node), VisitWord32Rol(node);
     case IrOpcode::kWord32Ror:
       return MarkAsWord32(node), VisitWord32Ror(node);
     case IrOpcode::kWord32Equal:
@@ -1512,8 +1389,6 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsWord32(node), VisitWord32Popcnt(node);
     case IrOpcode::kWord64Popcnt:
       return MarkAsWord32(node), VisitWord64Popcnt(node);
-    case IrOpcode::kWord32Select:
-      return MarkAsWord32(node), VisitSelect(node);
     case IrOpcode::kWord64And:
       return MarkAsWord64(node), VisitWord64And(node);
     case IrOpcode::kWord64Or:
@@ -1526,8 +1401,6 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsWord64(node), VisitWord64Shr(node);
     case IrOpcode::kWord64Sar:
       return MarkAsWord64(node), VisitWord64Sar(node);
-    case IrOpcode::kWord64Rol:
-      return MarkAsWord64(node), VisitWord64Rol(node);
     case IrOpcode::kWord64Ror:
       return MarkAsWord64(node), VisitWord64Ror(node);
     case IrOpcode::kWord64Clz:
@@ -1538,14 +1411,10 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsWord64(node), VisitWord64ReverseBits(node);
     case IrOpcode::kWord64ReverseBytes:
       return MarkAsWord64(node), VisitWord64ReverseBytes(node);
-    case IrOpcode::kSimd128ReverseBytes:
-      return MarkAsSimd128(node), VisitSimd128ReverseBytes(node);
     case IrOpcode::kInt64AbsWithOverflow:
       return MarkAsWord64(node), VisitInt64AbsWithOverflow(node);
     case IrOpcode::kWord64Equal:
       return VisitWord64Equal(node);
-    case IrOpcode::kWord64Select:
-      return MarkAsWord64(node), VisitSelect(node);
     case IrOpcode::kInt32Add:
       return MarkAsWord32(node), VisitInt32Add(node);
     case IrOpcode::kInt32AddWithOverflow:
@@ -1605,11 +1474,10 @@ void InstructionSelector::VisitNode(Node* node) {
     case IrOpcode::kUint64Mod:
       return MarkAsWord64(node), VisitUint64Mod(node);
     case IrOpcode::kBitcastTaggedToWord:
-    case IrOpcode::kBitcastTaggedToWordForTagAndSmiBits:
       return MarkAsRepresentation(MachineType::PointerRepresentation(), node),
              VisitBitcastTaggedToWord(node);
     case IrOpcode::kBitcastWordToTagged:
-      return MarkAsTagged(node), VisitBitcastWordToTagged(node);
+      return MarkAsReference(node), VisitBitcastWordToTagged(node);
     case IrOpcode::kBitcastWordToTaggedSigned:
       return MarkAsRepresentation(MachineRepresentation::kTaggedSigned, node),
              EmitIdentity(node);
@@ -1652,12 +1520,29 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsWord64(node), VisitTryTruncateFloat32ToUint64(node);
     case IrOpcode::kTryTruncateFloat64ToUint64:
       return MarkAsWord64(node), VisitTryTruncateFloat64ToUint64(node);
-    case IrOpcode::kBitcastWord32ToWord64:
-      return MarkAsWord64(node), VisitBitcastWord32ToWord64(node);
     case IrOpcode::kChangeInt32ToInt64:
       return MarkAsWord64(node), VisitChangeInt32ToInt64(node);
     case IrOpcode::kChangeUint32ToUint64:
       return MarkAsWord64(node), VisitChangeUint32ToUint64(node);
+// TODO(mips-team): Support compress pointers.
+#ifdef V8_COMPRESS_POINTERS
+    case IrOpcode::kChangeTaggedToCompressed:
+      return MarkAsCompressed(node), VisitChangeTaggedToCompressed(node);
+    case IrOpcode::kChangeTaggedPointerToCompressedPointer:
+      return MarkAsCompressed(node),
+             VisitChangeTaggedPointerToCompressedPointer(node);
+    case IrOpcode::kChangeTaggedSignedToCompressedSigned:
+      return MarkAsWord32(node),
+             VisitChangeTaggedSignedToCompressedSigned(node);
+    case IrOpcode::kChangeCompressedToTagged:
+      return MarkAsReference(node), VisitChangeCompressedToTagged(node);
+    case IrOpcode::kChangeCompressedPointerToTaggedPointer:
+      return MarkAsReference(node),
+             VisitChangeCompressedPointerToTaggedPointer(node);
+    case IrOpcode::kChangeCompressedSignedToTaggedSigned:
+      return MarkAsWord64(node),
+             VisitChangeCompressedSignedToTaggedSigned(node);
+#endif
     case IrOpcode::kTruncateFloat64ToFloat32:
       return MarkAsFloat32(node), VisitTruncateFloat64ToFloat32(node);
     case IrOpcode::kTruncateFloat64ToWord32:
@@ -1710,8 +1595,6 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsFloat32(node), VisitFloat32Max(node);
     case IrOpcode::kFloat32Min:
       return MarkAsFloat32(node), VisitFloat32Min(node);
-    case IrOpcode::kFloat32Select:
-      return MarkAsFloat32(node), VisitSelect(node);
     case IrOpcode::kFloat64Add:
       return MarkAsFloat64(node), VisitFloat64Add(node);
     case IrOpcode::kFloat64Sub:
@@ -1780,8 +1663,6 @@ void InstructionSelector::VisitNode(Node* node) {
       return VisitFloat64LessThan(node);
     case IrOpcode::kFloat64LessThanOrEqual:
       return VisitFloat64LessThanOrEqual(node);
-    case IrOpcode::kFloat64Select:
-      return MarkAsFloat64(node), VisitSelect(node);
     case IrOpcode::kFloat32RoundDown:
       return MarkAsFloat32(node), VisitFloat32RoundDown(node);
     case IrOpcode::kFloat64RoundDown:
@@ -1808,12 +1689,16 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsFloat64(node), VisitFloat64InsertLowWord32(node);
     case IrOpcode::kFloat64InsertHighWord32:
       return MarkAsFloat64(node), VisitFloat64InsertHighWord32(node);
+    case IrOpcode::kTaggedPoisonOnSpeculation:
+      return MarkAsReference(node), VisitTaggedPoisonOnSpeculation(node);
+    case IrOpcode::kWord32PoisonOnSpeculation:
+      return MarkAsWord32(node), VisitWord32PoisonOnSpeculation(node);
+    case IrOpcode::kWord64PoisonOnSpeculation:
+      return MarkAsWord64(node), VisitWord64PoisonOnSpeculation(node);
     case IrOpcode::kStackSlot:
       return VisitStackSlot(node);
-    case IrOpcode::kStackPointerGreaterThan:
-      return VisitStackPointerGreaterThan(node);
-    case IrOpcode::kLoadStackCheckOffset:
-      return VisitLoadStackCheckOffset(node);
+    case IrOpcode::kLoadStackPointer:
+      return VisitLoadStackPointer(node);
     case IrOpcode::kLoadFramePointer:
       return VisitLoadFramePointer(node);
     case IrOpcode::kLoadParentFramePointer:
@@ -1849,17 +1734,13 @@ void InstructionSelector::VisitNode(Node* node) {
       MarkAsWord32(node);
       MarkPairProjectionsAsWord32(node);
       return VisitWord32PairSar(node);
-    case IrOpcode::kMemoryBarrier:
-      return VisitMemoryBarrier(node);
     case IrOpcode::kWord32AtomicLoad: {
-      AtomicLoadParameters params = AtomicLoadParametersOf(node->op());
-      LoadRepresentation type = params.representation();
+      LoadRepresentation type = LoadRepresentationOf(node->op());
       MarkAsRepresentation(type.representation(), node);
       return VisitWord32AtomicLoad(node);
     }
     case IrOpcode::kWord64AtomicLoad: {
-      AtomicLoadParameters params = AtomicLoadParametersOf(node->op());
-      LoadRepresentation type = params.representation();
+      LoadRepresentation type = LoadRepresentationOf(node->op());
       MarkAsRepresentation(type.representation(), node);
       return VisitWord64AtomicLoad(node);
     }
@@ -1927,60 +1808,6 @@ void InstructionSelector::VisitNode(Node* node) {
     case IrOpcode::kUnsafePointerAdd:
       MarkAsRepresentation(MachineType::PointerRepresentation(), node);
       return VisitUnsafePointerAdd(node);
-    case IrOpcode::kF64x2Splat:
-      return MarkAsSimd128(node), VisitF64x2Splat(node);
-    case IrOpcode::kF64x2ExtractLane:
-      return MarkAsFloat64(node), VisitF64x2ExtractLane(node);
-    case IrOpcode::kF64x2ReplaceLane:
-      return MarkAsSimd128(node), VisitF64x2ReplaceLane(node);
-    case IrOpcode::kF64x2Abs:
-      return MarkAsSimd128(node), VisitF64x2Abs(node);
-    case IrOpcode::kF64x2Neg:
-      return MarkAsSimd128(node), VisitF64x2Neg(node);
-    case IrOpcode::kF64x2Sqrt:
-      return MarkAsSimd128(node), VisitF64x2Sqrt(node);
-    case IrOpcode::kF64x2Add:
-      return MarkAsSimd128(node), VisitF64x2Add(node);
-    case IrOpcode::kF64x2Sub:
-      return MarkAsSimd128(node), VisitF64x2Sub(node);
-    case IrOpcode::kF64x2Mul:
-      return MarkAsSimd128(node), VisitF64x2Mul(node);
-    case IrOpcode::kF64x2Div:
-      return MarkAsSimd128(node), VisitF64x2Div(node);
-    case IrOpcode::kF64x2Min:
-      return MarkAsSimd128(node), VisitF64x2Min(node);
-    case IrOpcode::kF64x2Max:
-      return MarkAsSimd128(node), VisitF64x2Max(node);
-    case IrOpcode::kF64x2Eq:
-      return MarkAsSimd128(node), VisitF64x2Eq(node);
-    case IrOpcode::kF64x2Ne:
-      return MarkAsSimd128(node), VisitF64x2Ne(node);
-    case IrOpcode::kF64x2Lt:
-      return MarkAsSimd128(node), VisitF64x2Lt(node);
-    case IrOpcode::kF64x2Le:
-      return MarkAsSimd128(node), VisitF64x2Le(node);
-    case IrOpcode::kF64x2Qfma:
-      return MarkAsSimd128(node), VisitF64x2Qfma(node);
-    case IrOpcode::kF64x2Qfms:
-      return MarkAsSimd128(node), VisitF64x2Qfms(node);
-    case IrOpcode::kF64x2Pmin:
-      return MarkAsSimd128(node), VisitF64x2Pmin(node);
-    case IrOpcode::kF64x2Pmax:
-      return MarkAsSimd128(node), VisitF64x2Pmax(node);
-    case IrOpcode::kF64x2Ceil:
-      return MarkAsSimd128(node), VisitF64x2Ceil(node);
-    case IrOpcode::kF64x2Floor:
-      return MarkAsSimd128(node), VisitF64x2Floor(node);
-    case IrOpcode::kF64x2Trunc:
-      return MarkAsSimd128(node), VisitF64x2Trunc(node);
-    case IrOpcode::kF64x2NearestInt:
-      return MarkAsSimd128(node), VisitF64x2NearestInt(node);
-    case IrOpcode::kF64x2ConvertLowI32x4S:
-      return MarkAsSimd128(node), VisitF64x2ConvertLowI32x4S(node);
-    case IrOpcode::kF64x2ConvertLowI32x4U:
-      return MarkAsSimd128(node), VisitF64x2ConvertLowI32x4U(node);
-    case IrOpcode::kF64x2PromoteLowF32x4:
-      return MarkAsSimd128(node), VisitF64x2PromoteLowF32x4(node);
     case IrOpcode::kF32x4Splat:
       return MarkAsSimd128(node), VisitF32x4Splat(node);
     case IrOpcode::kF32x4ExtractLane:
@@ -1995,20 +1822,18 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitF32x4Abs(node);
     case IrOpcode::kF32x4Neg:
       return MarkAsSimd128(node), VisitF32x4Neg(node);
-    case IrOpcode::kF32x4Sqrt:
-      return MarkAsSimd128(node), VisitF32x4Sqrt(node);
     case IrOpcode::kF32x4RecipApprox:
       return MarkAsSimd128(node), VisitF32x4RecipApprox(node);
     case IrOpcode::kF32x4RecipSqrtApprox:
       return MarkAsSimd128(node), VisitF32x4RecipSqrtApprox(node);
     case IrOpcode::kF32x4Add:
       return MarkAsSimd128(node), VisitF32x4Add(node);
+    case IrOpcode::kF32x4AddHoriz:
+      return MarkAsSimd128(node), VisitF32x4AddHoriz(node);
     case IrOpcode::kF32x4Sub:
       return MarkAsSimd128(node), VisitF32x4Sub(node);
     case IrOpcode::kF32x4Mul:
       return MarkAsSimd128(node), VisitF32x4Mul(node);
-    case IrOpcode::kF32x4Div:
-      return MarkAsSimd128(node), VisitF32x4Div(node);
     case IrOpcode::kF32x4Min:
       return MarkAsSimd128(node), VisitF32x4Min(node);
     case IrOpcode::kF32x4Max:
@@ -2021,76 +1846,6 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitF32x4Lt(node);
     case IrOpcode::kF32x4Le:
       return MarkAsSimd128(node), VisitF32x4Le(node);
-    case IrOpcode::kF32x4Qfma:
-      return MarkAsSimd128(node), VisitF32x4Qfma(node);
-    case IrOpcode::kF32x4Qfms:
-      return MarkAsSimd128(node), VisitF32x4Qfms(node);
-    case IrOpcode::kF32x4Pmin:
-      return MarkAsSimd128(node), VisitF32x4Pmin(node);
-    case IrOpcode::kF32x4Pmax:
-      return MarkAsSimd128(node), VisitF32x4Pmax(node);
-    case IrOpcode::kF32x4Ceil:
-      return MarkAsSimd128(node), VisitF32x4Ceil(node);
-    case IrOpcode::kF32x4Floor:
-      return MarkAsSimd128(node), VisitF32x4Floor(node);
-    case IrOpcode::kF32x4Trunc:
-      return MarkAsSimd128(node), VisitF32x4Trunc(node);
-    case IrOpcode::kF32x4NearestInt:
-      return MarkAsSimd128(node), VisitF32x4NearestInt(node);
-    case IrOpcode::kF32x4DemoteF64x2Zero:
-      return MarkAsSimd128(node), VisitF32x4DemoteF64x2Zero(node);
-    case IrOpcode::kI64x2Splat:
-      return MarkAsSimd128(node), VisitI64x2Splat(node);
-    case IrOpcode::kI64x2SplatI32Pair:
-      return MarkAsSimd128(node), VisitI64x2SplatI32Pair(node);
-    case IrOpcode::kI64x2ExtractLane:
-      return MarkAsWord64(node), VisitI64x2ExtractLane(node);
-    case IrOpcode::kI64x2ReplaceLane:
-      return MarkAsSimd128(node), VisitI64x2ReplaceLane(node);
-    case IrOpcode::kI64x2ReplaceLaneI32Pair:
-      return MarkAsSimd128(node), VisitI64x2ReplaceLaneI32Pair(node);
-    case IrOpcode::kI64x2Abs:
-      return MarkAsSimd128(node), VisitI64x2Abs(node);
-    case IrOpcode::kI64x2Neg:
-      return MarkAsSimd128(node), VisitI64x2Neg(node);
-    case IrOpcode::kI64x2SConvertI32x4Low:
-      return MarkAsSimd128(node), VisitI64x2SConvertI32x4Low(node);
-    case IrOpcode::kI64x2SConvertI32x4High:
-      return MarkAsSimd128(node), VisitI64x2SConvertI32x4High(node);
-    case IrOpcode::kI64x2UConvertI32x4Low:
-      return MarkAsSimd128(node), VisitI64x2UConvertI32x4Low(node);
-    case IrOpcode::kI64x2UConvertI32x4High:
-      return MarkAsSimd128(node), VisitI64x2UConvertI32x4High(node);
-    case IrOpcode::kI64x2BitMask:
-      return MarkAsWord32(node), VisitI64x2BitMask(node);
-    case IrOpcode::kI64x2Shl:
-      return MarkAsSimd128(node), VisitI64x2Shl(node);
-    case IrOpcode::kI64x2ShrS:
-      return MarkAsSimd128(node), VisitI64x2ShrS(node);
-    case IrOpcode::kI64x2Add:
-      return MarkAsSimd128(node), VisitI64x2Add(node);
-    case IrOpcode::kI64x2Sub:
-      return MarkAsSimd128(node), VisitI64x2Sub(node);
-    case IrOpcode::kI64x2Mul:
-      return MarkAsSimd128(node), VisitI64x2Mul(node);
-    case IrOpcode::kI64x2Eq:
-      return MarkAsSimd128(node), VisitI64x2Eq(node);
-    case IrOpcode::kI64x2Ne:
-      return MarkAsSimd128(node), VisitI64x2Ne(node);
-    case IrOpcode::kI64x2GtS:
-      return MarkAsSimd128(node), VisitI64x2GtS(node);
-    case IrOpcode::kI64x2GeS:
-      return MarkAsSimd128(node), VisitI64x2GeS(node);
-    case IrOpcode::kI64x2ShrU:
-      return MarkAsSimd128(node), VisitI64x2ShrU(node);
-    case IrOpcode::kI64x2ExtMulLowI32x4S:
-      return MarkAsSimd128(node), VisitI64x2ExtMulLowI32x4S(node);
-    case IrOpcode::kI64x2ExtMulHighI32x4S:
-      return MarkAsSimd128(node), VisitI64x2ExtMulHighI32x4S(node);
-    case IrOpcode::kI64x2ExtMulLowI32x4U:
-      return MarkAsSimd128(node), VisitI64x2ExtMulLowI32x4U(node);
-    case IrOpcode::kI64x2ExtMulHighI32x4U:
-      return MarkAsSimd128(node), VisitI64x2ExtMulHighI32x4U(node);
     case IrOpcode::kI32x4Splat:
       return MarkAsSimd128(node), VisitI32x4Splat(node);
     case IrOpcode::kI32x4ExtractLane:
@@ -2111,6 +1866,8 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitI32x4ShrS(node);
     case IrOpcode::kI32x4Add:
       return MarkAsSimd128(node), VisitI32x4Add(node);
+    case IrOpcode::kI32x4AddHoriz:
+      return MarkAsSimd128(node), VisitI32x4AddHoriz(node);
     case IrOpcode::kI32x4Sub:
       return MarkAsSimd128(node), VisitI32x4Sub(node);
     case IrOpcode::kI32x4Mul:
@@ -2143,34 +1900,10 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitI32x4GtU(node);
     case IrOpcode::kI32x4GeU:
       return MarkAsSimd128(node), VisitI32x4GeU(node);
-    case IrOpcode::kI32x4Abs:
-      return MarkAsSimd128(node), VisitI32x4Abs(node);
-    case IrOpcode::kI32x4BitMask:
-      return MarkAsWord32(node), VisitI32x4BitMask(node);
-    case IrOpcode::kI32x4DotI16x8S:
-      return MarkAsSimd128(node), VisitI32x4DotI16x8S(node);
-    case IrOpcode::kI32x4ExtMulLowI16x8S:
-      return MarkAsSimd128(node), VisitI32x4ExtMulLowI16x8S(node);
-    case IrOpcode::kI32x4ExtMulHighI16x8S:
-      return MarkAsSimd128(node), VisitI32x4ExtMulHighI16x8S(node);
-    case IrOpcode::kI32x4ExtMulLowI16x8U:
-      return MarkAsSimd128(node), VisitI32x4ExtMulLowI16x8U(node);
-    case IrOpcode::kI32x4ExtMulHighI16x8U:
-      return MarkAsSimd128(node), VisitI32x4ExtMulHighI16x8U(node);
-    case IrOpcode::kI32x4ExtAddPairwiseI16x8S:
-      return MarkAsSimd128(node), VisitI32x4ExtAddPairwiseI16x8S(node);
-    case IrOpcode::kI32x4ExtAddPairwiseI16x8U:
-      return MarkAsSimd128(node), VisitI32x4ExtAddPairwiseI16x8U(node);
-    case IrOpcode::kI32x4TruncSatF64x2SZero:
-      return MarkAsSimd128(node), VisitI32x4TruncSatF64x2SZero(node);
-    case IrOpcode::kI32x4TruncSatF64x2UZero:
-      return MarkAsSimd128(node), VisitI32x4TruncSatF64x2UZero(node);
     case IrOpcode::kI16x8Splat:
       return MarkAsSimd128(node), VisitI16x8Splat(node);
-    case IrOpcode::kI16x8ExtractLaneU:
-      return MarkAsWord32(node), VisitI16x8ExtractLaneU(node);
-    case IrOpcode::kI16x8ExtractLaneS:
-      return MarkAsWord32(node), VisitI16x8ExtractLaneS(node);
+    case IrOpcode::kI16x8ExtractLane:
+      return MarkAsWord32(node), VisitI16x8ExtractLane(node);
     case IrOpcode::kI16x8ReplaceLane:
       return MarkAsSimd128(node), VisitI16x8ReplaceLane(node);
     case IrOpcode::kI16x8SConvertI8x16Low:
@@ -2187,12 +1920,14 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitI16x8SConvertI32x4(node);
     case IrOpcode::kI16x8Add:
       return MarkAsSimd128(node), VisitI16x8Add(node);
-    case IrOpcode::kI16x8AddSatS:
-      return MarkAsSimd128(node), VisitI16x8AddSatS(node);
+    case IrOpcode::kI16x8AddSaturateS:
+      return MarkAsSimd128(node), VisitI16x8AddSaturateS(node);
+    case IrOpcode::kI16x8AddHoriz:
+      return MarkAsSimd128(node), VisitI16x8AddHoriz(node);
     case IrOpcode::kI16x8Sub:
       return MarkAsSimd128(node), VisitI16x8Sub(node);
-    case IrOpcode::kI16x8SubSatS:
-      return MarkAsSimd128(node), VisitI16x8SubSatS(node);
+    case IrOpcode::kI16x8SubSaturateS:
+      return MarkAsSimd128(node), VisitI16x8SubSaturateS(node);
     case IrOpcode::kI16x8Mul:
       return MarkAsSimd128(node), VisitI16x8Mul(node);
     case IrOpcode::kI16x8MinS:
@@ -2215,10 +1950,10 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitI16x8ShrU(node);
     case IrOpcode::kI16x8UConvertI32x4:
       return MarkAsSimd128(node), VisitI16x8UConvertI32x4(node);
-    case IrOpcode::kI16x8AddSatU:
-      return MarkAsSimd128(node), VisitI16x8AddSatU(node);
-    case IrOpcode::kI16x8SubSatU:
-      return MarkAsSimd128(node), VisitI16x8SubSatU(node);
+    case IrOpcode::kI16x8AddSaturateU:
+      return MarkAsSimd128(node), VisitI16x8AddSaturateU(node);
+    case IrOpcode::kI16x8SubSaturateU:
+      return MarkAsSimd128(node), VisitI16x8SubSaturateU(node);
     case IrOpcode::kI16x8MinU:
       return MarkAsSimd128(node), VisitI16x8MinU(node);
     case IrOpcode::kI16x8MaxU:
@@ -2227,32 +1962,10 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitI16x8GtU(node);
     case IrOpcode::kI16x8GeU:
       return MarkAsSimd128(node), VisitI16x8GeU(node);
-    case IrOpcode::kI16x8RoundingAverageU:
-      return MarkAsSimd128(node), VisitI16x8RoundingAverageU(node);
-    case IrOpcode::kI16x8Q15MulRSatS:
-      return MarkAsSimd128(node), VisitI16x8Q15MulRSatS(node);
-    case IrOpcode::kI16x8Abs:
-      return MarkAsSimd128(node), VisitI16x8Abs(node);
-    case IrOpcode::kI16x8BitMask:
-      return MarkAsWord32(node), VisitI16x8BitMask(node);
-    case IrOpcode::kI16x8ExtMulLowI8x16S:
-      return MarkAsSimd128(node), VisitI16x8ExtMulLowI8x16S(node);
-    case IrOpcode::kI16x8ExtMulHighI8x16S:
-      return MarkAsSimd128(node), VisitI16x8ExtMulHighI8x16S(node);
-    case IrOpcode::kI16x8ExtMulLowI8x16U:
-      return MarkAsSimd128(node), VisitI16x8ExtMulLowI8x16U(node);
-    case IrOpcode::kI16x8ExtMulHighI8x16U:
-      return MarkAsSimd128(node), VisitI16x8ExtMulHighI8x16U(node);
-    case IrOpcode::kI16x8ExtAddPairwiseI8x16S:
-      return MarkAsSimd128(node), VisitI16x8ExtAddPairwiseI8x16S(node);
-    case IrOpcode::kI16x8ExtAddPairwiseI8x16U:
-      return MarkAsSimd128(node), VisitI16x8ExtAddPairwiseI8x16U(node);
     case IrOpcode::kI8x16Splat:
       return MarkAsSimd128(node), VisitI8x16Splat(node);
-    case IrOpcode::kI8x16ExtractLaneU:
-      return MarkAsWord32(node), VisitI8x16ExtractLaneU(node);
-    case IrOpcode::kI8x16ExtractLaneS:
-      return MarkAsWord32(node), VisitI8x16ExtractLaneS(node);
+    case IrOpcode::kI8x16ExtractLane:
+      return MarkAsWord32(node), VisitI8x16ExtractLane(node);
     case IrOpcode::kI8x16ReplaceLane:
       return MarkAsSimd128(node), VisitI8x16ReplaceLane(node);
     case IrOpcode::kI8x16Neg:
@@ -2265,12 +1978,14 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitI8x16SConvertI16x8(node);
     case IrOpcode::kI8x16Add:
       return MarkAsSimd128(node), VisitI8x16Add(node);
-    case IrOpcode::kI8x16AddSatS:
-      return MarkAsSimd128(node), VisitI8x16AddSatS(node);
+    case IrOpcode::kI8x16AddSaturateS:
+      return MarkAsSimd128(node), VisitI8x16AddSaturateS(node);
     case IrOpcode::kI8x16Sub:
       return MarkAsSimd128(node), VisitI8x16Sub(node);
-    case IrOpcode::kI8x16SubSatS:
-      return MarkAsSimd128(node), VisitI8x16SubSatS(node);
+    case IrOpcode::kI8x16SubSaturateS:
+      return MarkAsSimd128(node), VisitI8x16SubSaturateS(node);
+    case IrOpcode::kI8x16Mul:
+      return MarkAsSimd128(node), VisitI8x16Mul(node);
     case IrOpcode::kI8x16MinS:
       return MarkAsSimd128(node), VisitI8x16MinS(node);
     case IrOpcode::kI8x16MaxS:
@@ -2287,10 +2002,10 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitI8x16ShrU(node);
     case IrOpcode::kI8x16UConvertI16x8:
       return MarkAsSimd128(node), VisitI8x16UConvertI16x8(node);
-    case IrOpcode::kI8x16AddSatU:
-      return MarkAsSimd128(node), VisitI8x16AddSatU(node);
-    case IrOpcode::kI8x16SubSatU:
-      return MarkAsSimd128(node), VisitI8x16SubSatU(node);
+    case IrOpcode::kI8x16AddSaturateU:
+      return MarkAsSimd128(node), VisitI8x16AddSaturateU(node);
+    case IrOpcode::kI8x16SubSaturateU:
+      return MarkAsSimd128(node), VisitI8x16SubSaturateU(node);
     case IrOpcode::kI8x16MinU:
       return MarkAsSimd128(node), VisitI8x16MinU(node);
     case IrOpcode::kI8x16MaxU:
@@ -2299,16 +2014,6 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitI8x16GtU(node);
     case IrOpcode::kI8x16GeU:
       return MarkAsSimd128(node), VisitI8x16GeU(node);
-    case IrOpcode::kI8x16RoundingAverageU:
-      return MarkAsSimd128(node), VisitI8x16RoundingAverageU(node);
-    case IrOpcode::kI8x16Popcnt:
-      return MarkAsSimd128(node), VisitI8x16Popcnt(node);
-    case IrOpcode::kI8x16Abs:
-      return MarkAsSimd128(node), VisitI8x16Abs(node);
-    case IrOpcode::kI8x16BitMask:
-      return MarkAsWord32(node), VisitI8x16BitMask(node);
-    case IrOpcode::kS128Const:
-      return MarkAsSimd128(node), VisitS128Const(node);
     case IrOpcode::kS128Zero:
       return MarkAsSimd128(node), VisitS128Zero(node);
     case IrOpcode::kS128And:
@@ -2321,61 +2026,54 @@ void InstructionSelector::VisitNode(Node* node) {
       return MarkAsSimd128(node), VisitS128Not(node);
     case IrOpcode::kS128Select:
       return MarkAsSimd128(node), VisitS128Select(node);
-    case IrOpcode::kS128AndNot:
-      return MarkAsSimd128(node), VisitS128AndNot(node);
-    case IrOpcode::kI8x16Swizzle:
-      return MarkAsSimd128(node), VisitI8x16Swizzle(node);
-    case IrOpcode::kI8x16Shuffle:
-      return MarkAsSimd128(node), VisitI8x16Shuffle(node);
-    case IrOpcode::kV128AnyTrue:
-      return MarkAsWord32(node), VisitV128AnyTrue(node);
-    case IrOpcode::kI64x2AllTrue:
-      return MarkAsWord32(node), VisitI64x2AllTrue(node);
-    case IrOpcode::kI32x4AllTrue:
-      return MarkAsWord32(node), VisitI32x4AllTrue(node);
-    case IrOpcode::kI16x8AllTrue:
-      return MarkAsWord32(node), VisitI16x8AllTrue(node);
-    case IrOpcode::kI8x16AllTrue:
-      return MarkAsWord32(node), VisitI8x16AllTrue(node);
-    case IrOpcode::kI8x16RelaxedLaneSelect:
-      return MarkAsSimd128(node), VisitI8x16RelaxedLaneSelect(node);
-    case IrOpcode::kI16x8RelaxedLaneSelect:
-      return MarkAsSimd128(node), VisitI16x8RelaxedLaneSelect(node);
-    case IrOpcode::kI32x4RelaxedLaneSelect:
-      return MarkAsSimd128(node), VisitI32x4RelaxedLaneSelect(node);
-    case IrOpcode::kI64x2RelaxedLaneSelect:
-      return MarkAsSimd128(node), VisitI64x2RelaxedLaneSelect(node);
-    case IrOpcode::kF32x4RelaxedMin:
-      return MarkAsSimd128(node), VisitF32x4RelaxedMin(node);
-    case IrOpcode::kF32x4RelaxedMax:
-      return MarkAsSimd128(node), VisitF32x4RelaxedMax(node);
-    case IrOpcode::kF64x2RelaxedMin:
-      return MarkAsSimd128(node), VisitF64x2RelaxedMin(node);
-    case IrOpcode::kF64x2RelaxedMax:
-      return MarkAsSimd128(node), VisitF64x2RelaxedMax(node);
-    case IrOpcode::kI32x4RelaxedTruncF64x2SZero:
-      return MarkAsSimd128(node), VisitI32x4RelaxedTruncF64x2SZero(node);
-    case IrOpcode::kI32x4RelaxedTruncF64x2UZero:
-      return MarkAsSimd128(node), VisitI32x4RelaxedTruncF64x2UZero(node);
-    case IrOpcode::kI32x4RelaxedTruncF32x4S:
-      return MarkAsSimd128(node), VisitI32x4RelaxedTruncF32x4S(node);
-    case IrOpcode::kI32x4RelaxedTruncF32x4U:
-      return MarkAsSimd128(node), VisitI32x4RelaxedTruncF32x4U(node);
+    case IrOpcode::kS8x16Shuffle:
+      return MarkAsSimd128(node), VisitS8x16Shuffle(node);
+    case IrOpcode::kS1x4AnyTrue:
+      return MarkAsWord32(node), VisitS1x4AnyTrue(node);
+    case IrOpcode::kS1x4AllTrue:
+      return MarkAsWord32(node), VisitS1x4AllTrue(node);
+    case IrOpcode::kS1x8AnyTrue:
+      return MarkAsWord32(node), VisitS1x8AnyTrue(node);
+    case IrOpcode::kS1x8AllTrue:
+      return MarkAsWord32(node), VisitS1x8AllTrue(node);
+    case IrOpcode::kS1x16AnyTrue:
+      return MarkAsWord32(node), VisitS1x16AnyTrue(node);
+    case IrOpcode::kS1x16AllTrue:
+      return MarkAsWord32(node), VisitS1x16AllTrue(node);
     default:
       FATAL("Unexpected operator #%d:%s @ node #%d", node->opcode(),
             node->op()->mnemonic(), node->id());
+      break;
   }
 }
 
-void InstructionSelector::VisitStackPointerGreaterThan(Node* node) {
-  FlagsContinuation cont =
-      FlagsContinuation::ForSet(kStackPointerGreaterThanCondition, node);
-  VisitStackPointerGreaterThan(node, &cont);
+void InstructionSelector::EmitWordPoisonOnSpeculation(Node* node) {
+  if (poisoning_level_ != PoisoningMitigationLevel::kDontPoison) {
+    OperandGenerator g(this);
+    Node* input_node = NodeProperties::GetValueInput(node, 0);
+    InstructionOperand input = g.UseRegister(input_node);
+    InstructionOperand output = g.DefineSameAsFirst(node);
+    Emit(kArchWordPoisonOnSpeculation, output, input);
+  } else {
+    EmitIdentity(node);
+  }
 }
 
-void InstructionSelector::VisitLoadStackCheckOffset(Node* node) {
+void InstructionSelector::VisitWord32PoisonOnSpeculation(Node* node) {
+  EmitWordPoisonOnSpeculation(node);
+}
+
+void InstructionSelector::VisitWord64PoisonOnSpeculation(Node* node) {
+  EmitWordPoisonOnSpeculation(node);
+}
+
+void InstructionSelector::VisitTaggedPoisonOnSpeculation(Node* node) {
+  EmitWordPoisonOnSpeculation(node);
+}
+
+void InstructionSelector::VisitLoadStackPointer(Node* node) {
   OperandGenerator g(this);
-  Emit(kArchStackCheckOffset, g.DefineAsRegister(node));
+  Emit(kArchStackPointer, g.DefineAsRegister(node));
 }
 
 void InstructionSelector::VisitLoadFramePointer(Node* node) {
@@ -2472,8 +2170,8 @@ void InstructionSelector::VisitFloat64Tanh(Node* node) {
   VisitFloat64Ieee754Unop(node, kIeee754Float64Tanh);
 }
 
-void InstructionSelector::EmitTableSwitch(
-    const SwitchInfo& sw, InstructionOperand const& index_operand) {
+void InstructionSelector::EmitTableSwitch(const SwitchInfo& sw,
+                                          InstructionOperand& index_operand) {
   OperandGenerator g(this);
   size_t input_count = 2 + sw.value_range();
   DCHECK_LE(sw.value_range(), std::numeric_limits<size_t>::max() - 2);
@@ -2490,8 +2188,25 @@ void InstructionSelector::EmitTableSwitch(
   Emit(kArchTableSwitch, 0, nullptr, input_count, inputs, 0, nullptr);
 }
 
+void InstructionSelector::EmitLookupSwitch(const SwitchInfo& sw,
+                                           InstructionOperand& value_operand) {
+  OperandGenerator g(this);
+  std::vector<CaseInfo> cases = sw.CasesSortedByOriginalOrder();
+  size_t input_count = 2 + sw.case_count() * 2;
+  DCHECK_LE(sw.case_count(), (std::numeric_limits<size_t>::max() - 2) / 2);
+  auto* inputs = zone()->NewArray<InstructionOperand>(input_count);
+  inputs[0] = value_operand;
+  inputs[1] = g.Label(sw.default_branch());
+  for (size_t index = 0; index < cases.size(); ++index) {
+    const CaseInfo& c = cases[index];
+    inputs[index * 2 + 2 + 0] = g.TempImmediate(c.value);
+    inputs[index * 2 + 2 + 1] = g.Label(c.branch);
+  }
+  Emit(kArchLookupSwitch, 0, nullptr, input_count, inputs, 0, nullptr);
+}
+
 void InstructionSelector::EmitBinarySearchSwitch(
-    const SwitchInfo& sw, InstructionOperand const& value_operand) {
+    const SwitchInfo& sw, InstructionOperand& value_operand) {
   OperandGenerator g(this);
   size_t input_count = 2 + sw.case_count() * 2;
   DCHECK_LE(sw.case_count(), (std::numeric_limits<size_t>::max() - 2) / 2);
@@ -2499,6 +2214,8 @@ void InstructionSelector::EmitBinarySearchSwitch(
   inputs[0] = value_operand;
   inputs[1] = g.Label(sw.default_branch());
   std::vector<CaseInfo> cases = sw.CasesSortedByValue();
+  std::stable_sort(cases.begin(), cases.end(),
+                   [](CaseInfo a, CaseInfo b) { return a.value < b.value; });
   for (size_t index = 0; index < cases.size(); ++index) {
     const CaseInfo& c = cases[index];
     inputs[index * 2 + 2 + 0] = g.TempImmediate(c.value);
@@ -2530,8 +2247,6 @@ void InstructionSelector::VisitWord64Shl(Node* node) { UNIMPLEMENTED(); }
 void InstructionSelector::VisitWord64Shr(Node* node) { UNIMPLEMENTED(); }
 
 void InstructionSelector::VisitWord64Sar(Node* node) { UNIMPLEMENTED(); }
-
-void InstructionSelector::VisitWord64Rol(Node* node) { UNIMPLEMENTED(); }
 
 void InstructionSelector::VisitWord64Ror(Node* node) { UNIMPLEMENTED(); }
 
@@ -2581,10 +2296,6 @@ void InstructionSelector::VisitUint64LessThanOrEqual(Node* node) {
 
 void InstructionSelector::VisitUint64Mod(Node* node) { UNIMPLEMENTED(); }
 
-void InstructionSelector::VisitBitcastWord32ToWord64(Node* node) {
-  UNIMPLEMENTED();
-}
-
 void InstructionSelector::VisitChangeInt32ToInt64(Node* node) {
   UNIMPLEMENTED();
 }
@@ -2596,6 +2307,37 @@ void InstructionSelector::VisitChangeInt64ToFloat64(Node* node) {
 void InstructionSelector::VisitChangeUint32ToUint64(Node* node) {
   UNIMPLEMENTED();
 }
+
+// TODO(mips-team): Support compress pointers.
+#ifdef V8_COMPRESS_POINTERS
+void InstructionSelector::VisitChangeTaggedToCompressed(Node* node) {
+  UNIMPLEMENTED();
+}
+
+void InstructionSelector::VisitChangeTaggedPointerToCompressedPointer(
+    Node* node) {
+  UNIMPLEMENTED();
+}
+
+void InstructionSelector::VisitChangeTaggedSignedToCompressedSigned(
+    Node* node) {
+  UNIMPLEMENTED();
+}
+
+void InstructionSelector::VisitChangeCompressedToTagged(Node* node) {
+  UNIMPLEMENTED();
+}
+
+void InstructionSelector::VisitChangeCompressedPointerToTaggedPointer(
+    Node* node) {
+  UNIMPLEMENTED();
+}
+
+void InstructionSelector::VisitChangeCompressedSignedToTaggedSigned(
+    Node* node) {
+  UNIMPLEMENTED();
+}
+#endif
 
 void InstructionSelector::VisitChangeFloat64ToInt64(Node* node) {
   UNIMPLEMENTED();
@@ -2720,8 +2462,7 @@ void InstructionSelector::VisitWord32AtomicPairCompareExchange(Node* node) {
 #endif  // !V8_TARGET_ARCH_IA32 && !V8_TARGET_ARCH_ARM && !V8_TARGET_ARCH_MIPS
 
 #if !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_MIPS64 && \
-    !V8_TARGET_ARCH_S390 && !V8_TARGET_ARCH_PPC64 &&                          \
-    !V8_TARGET_ARCH_RISCV64 && !V8_TARGET_ARCH_LOONG64
+    !V8_TARGET_ARCH_S390 && !V8_TARGET_ARCH_PPC
 void InstructionSelector::VisitWord64AtomicLoad(Node* node) { UNIMPLEMENTED(); }
 
 void InstructionSelector::VisitWord64AtomicStore(Node* node) {
@@ -2745,78 +2486,8 @@ void InstructionSelector::VisitWord64AtomicExchange(Node* node) {
 void InstructionSelector::VisitWord64AtomicCompareExchange(Node* node) {
   UNIMPLEMENTED();
 }
-#endif  // !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_PPC64
-        // !V8_TARGET_ARCH_MIPS64 && !V8_TARGET_ARCH_S390 &&
-        // !V8_TARGET_ARCH_RISCV64 && !V8_TARGET_ARCH_LOONG64
-
-#if !V8_TARGET_ARCH_IA32 && !V8_TARGET_ARCH_ARM
-// This is only needed on 32-bit to split the 64-bit value into two operands.
-void InstructionSelector::VisitI64x2SplatI32Pair(Node* node) {
-  UNIMPLEMENTED();
-}
-void InstructionSelector::VisitI64x2ReplaceLaneI32Pair(Node* node) {
-  UNIMPLEMENTED();
-}
-#endif  // !V8_TARGET_ARCH_IA32
-
-#if !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_S390X && !V8_TARGET_ARCH_PPC64
-#if !V8_TARGET_ARCH_ARM64
-#if !V8_TARGET_ARCH_MIPS64 && !V8_TARGET_ARCH_LOONG64 && !V8_TARGET_ARCH_RISCV64
-void InstructionSelector::VisitI64x2Splat(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitI64x2ExtractLane(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitI64x2ReplaceLane(Node* node) { UNIMPLEMENTED(); }
-#endif  // !V8_TARGET_ARCH_MIPS64 && !V8_TARGET_ARCH_LOONG64 &&
-        // !V8_TARGET_ARCH_RISCV64
-#endif  // !V8_TARGET_ARCH_ARM64
-#endif  // !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_S390X && !V8_TARGET_ARCH_PPC64
-
-#if !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_S390X && !V8_TARGET_ARCH_PPC64 && \
-    !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_IA32 && !V8_TARGET_ARCH_RISCV64
-void InstructionSelector::VisitF64x2Qfma(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitF64x2Qfms(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitF32x4Qfma(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitF32x4Qfms(Node* node) { UNIMPLEMENTED(); }
-#endif  // !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_S390X && !V8_TARGET_ARCH_PPC64
-        // && !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_IA32 &&
-        // !V8_TARGET_ARCH_RISCV64
-
-#if !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_IA32 && !V8_TARGET_ARCH_ARM64 && \
-    !V8_TARGET_ARCH_RISCV64 && !V8_TARGET_ARCH_ARM
-void InstructionSelector::VisitI8x16RelaxedLaneSelect(Node* node) {
-  UNIMPLEMENTED();
-}
-void InstructionSelector::VisitI16x8RelaxedLaneSelect(Node* node) {
-  UNIMPLEMENTED();
-}
-void InstructionSelector::VisitI32x4RelaxedLaneSelect(Node* node) {
-  UNIMPLEMENTED();
-}
-void InstructionSelector::VisitI64x2RelaxedLaneSelect(Node* node) {
-  UNIMPLEMENTED();
-}
-void InstructionSelector::VisitF32x4RelaxedMin(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitF32x4RelaxedMax(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitF64x2RelaxedMin(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitF64x2RelaxedMax(Node* node) { UNIMPLEMENTED(); }
-void InstructionSelector::VisitI32x4RelaxedTruncF64x2SZero(Node* node) {
-  UNIMPLEMENTED();
-}
-void InstructionSelector::VisitI32x4RelaxedTruncF64x2UZero(Node* node) {
-  UNIMPLEMENTED();
-}
-void InstructionSelector::VisitI32x4RelaxedTruncF32x4S(Node* node) {
-  UNIMPLEMENTED();
-}
-void InstructionSelector::VisitI32x4RelaxedTruncF32x4U(Node* node) {
-  UNIMPLEMENTED();
-}
-#endif  // !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_IA32 && !V8_TARGET_ARCH_ARM64
-        // && !V8_TARGET_ARCH_RISCV64 && !V8_TARGET_ARM
-
-#if !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_IA32 && !V8_TARGET_ARCH_ARM64 && \
-    !V8_TARGET_ARCH_RISCV64
-#endif  // !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_IA32 && !V8_TARGET_ARCH_ARM64
-        // && !V8_TARGET_ARCH_RISCV64
+#endif  // !V8_TARGET_ARCH_X64 && !V8_TARGET_ARCH_ARM64 && !V8_TARGET_ARCH_PPC
+        // !V8_TARGET_ARCH_MIPS64 && !V8_TARGET_ARCH_S390
 
 void InstructionSelector::VisitFinishRegion(Node* node) { EmitIdentity(node); }
 
@@ -2834,21 +2505,10 @@ void InstructionSelector::VisitParameter(Node* node) {
 }
 
 namespace {
-
 LinkageLocation ExceptionLocation() {
   return LinkageLocation::ForRegister(kReturnRegister0.code(),
-                                      MachineType::TaggedPointer());
+                                      MachineType::IntPtr());
 }
-
-constexpr InstructionCode EncodeCallDescriptorFlags(
-    InstructionCode opcode, CallDescriptor::Flags flags) {
-  // Note: Not all bits of `flags` are preserved.
-  STATIC_ASSERT(CallDescriptor::kFlagsBitsEncodedInInstructionCode ==
-                MiscField::kSize);
-  DCHECK(Instruction::IsCallWithDescriptorFlags(opcode));
-  return opcode | MiscField::encode(flags & MiscField::kMax);
-}
-
 }  // namespace
 
 void InstructionSelector::VisitIfException(Node* node) {
@@ -2867,9 +2527,9 @@ void InstructionSelector::VisitOsrValue(Node* node) {
 void InstructionSelector::VisitPhi(Node* node) {
   const int input_count = node->op()->ValueInputCount();
   DCHECK_EQ(input_count, current_block_->PredecessorCount());
-  PhiInstruction* phi = instruction_zone()->New<PhiInstruction>(
-      instruction_zone(), GetVirtualRegister(node),
-      static_cast<size_t>(input_count));
+  PhiInstruction* phi = new (instruction_zone())
+      PhiInstruction(instruction_zone(), GetVirtualRegister(node),
+                     static_cast<size_t>(input_count));
   sequence()
       ->InstructionBlockAt(RpoNumber::FromInt(current_block_->rpo_number()))
       ->AddPhi(phi);
@@ -2920,26 +2580,14 @@ void InstructionSelector::VisitConstant(Node* node) {
   Emit(kArchNop, g.DefineAsConstant(node));
 }
 
-void InstructionSelector::UpdateMaxPushedArgumentCount(size_t count) {
-  *max_pushed_argument_count_ = std::max(count, *max_pushed_argument_count_);
-}
-
 void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
   OperandGenerator g(this);
   auto call_descriptor = CallDescriptorOf(node->op());
-  SaveFPRegsMode mode = call_descriptor->NeedsCallerSavedFPRegisters()
-                            ? SaveFPRegsMode::kSave
-                            : SaveFPRegsMode::kIgnore;
-
-  if (call_descriptor->NeedsCallerSavedRegisters()) {
-    Emit(kArchSaveCallerRegisters | MiscField::encode(static_cast<int>(mode)),
-         g.NoOutput());
-  }
 
   FrameStateDescriptor* frame_state_descriptor = nullptr;
   if (call_descriptor->NeedsFrameState()) {
-    frame_state_descriptor = GetFrameStateDescriptor(FrameState{
-        node->InputAt(static_cast<int>(call_descriptor->InputCount()))});
+    frame_state_descriptor = GetFrameStateDescriptor(
+        node->InputAt(static_cast<int>(call_descriptor->InputCount())));
   }
 
   CallBuffer buffer(zone(), call_descriptor, frame_state_descriptor);
@@ -2951,10 +2599,18 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
   // Improve constant pool and the heuristics in the register allocator
   // for where to emit constants.
   CallBufferFlags call_buffer_flags(kCallCodeImmediate | kCallAddressImmediate);
-  InitializeCallBuffer(node, &buffer, call_buffer_flags);
+  if (flags & CallDescriptor::kAllowCallThroughSlot) {
+    // TODO(v8:6666): Remove kAllowCallThroughSlot and use a pc-relative call
+    // instead once builtins are embedded in every build configuration.
+    call_buffer_flags |= kAllowCallThroughSlot;
+#ifndef V8_TARGET_ARCH_32_BIT
+    // kAllowCallThroughSlot is only supported on ia32.
+    UNREACHABLE();
+#endif
+  }
+  InitializeCallBuffer(node, &buffer, call_buffer_flags, false);
 
-  EmitPrepareArguments(&buffer.pushed_nodes, call_descriptor, node);
-  UpdateMaxPushedArgumentCount(buffer.pushed_nodes.size());
+  EmitPrepareArguments(&(buffer.pushed_nodes), call_descriptor, node);
 
   // Pass label of exception handler block.
   if (handler) {
@@ -2964,40 +2620,25 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
   }
 
   // Select the appropriate opcode based on the call type.
-  InstructionCode opcode;
+  InstructionCode opcode = kArchNop;
   switch (call_descriptor->kind()) {
-    case CallDescriptor::kCallAddress: {
-      int gp_param_count =
-          static_cast<int>(call_descriptor->GPParameterCount());
-      int fp_param_count =
-          static_cast<int>(call_descriptor->FPParameterCount());
-#if ABI_USES_FUNCTION_DESCRIPTORS
-      // Highest fp_param_count bit is used on AIX to indicate if a CFunction
-      // call has function descriptor or not.
-      STATIC_ASSERT(FPParamField::kSize == kHasFunctionDescriptorBitShift + 1);
-      if (!call_descriptor->NoFunctionDescriptor()) {
-        fp_param_count |= 1 << kHasFunctionDescriptorBitShift;
-      }
-#endif
-      opcode = kArchCallCFunction | ParamField::encode(gp_param_count) |
-               FPParamField::encode(fp_param_count);
+    case CallDescriptor::kCallAddress:
+      opcode = kArchCallCFunction | MiscField::encode(static_cast<int>(
+                                        call_descriptor->ParameterCount()));
       break;
-    }
     case CallDescriptor::kCallCodeObject:
-      opcode = EncodeCallDescriptorFlags(kArchCallCodeObject, flags);
+      opcode = kArchCallCodeObject | MiscField::encode(flags);
       break;
     case CallDescriptor::kCallJSFunction:
-      opcode = EncodeCallDescriptorFlags(kArchCallJSFunction, flags);
+      opcode = kArchCallJSFunction | MiscField::encode(flags);
       break;
-#if V8_ENABLE_WEBASSEMBLY
     case CallDescriptor::kCallWasmCapiFunction:
     case CallDescriptor::kCallWasmFunction:
     case CallDescriptor::kCallWasmImportWrapper:
-      opcode = EncodeCallDescriptorFlags(kArchCallWasmFunction, flags);
+      opcode = kArchCallWasmFunction | MiscField::encode(flags);
       break;
-#endif  // V8_ENABLE_WEBASSEMBLY
     case CallDescriptor::kCallBuiltinPointer:
-      opcode = EncodeCallDescriptorFlags(kArchCallBuiltinPointer, flags);
+      opcode = kArchCallBuiltinPointer | MiscField::encode(flags);
       break;
   }
 
@@ -3011,22 +2652,29 @@ void InstructionSelector::VisitCall(Node* node, BasicBlock* handler) {
   call_instr->MarkAsCall();
 
   EmitPrepareResults(&(buffer.output_nodes), call_descriptor, node);
+}
 
-  if (call_descriptor->NeedsCallerSavedRegisters()) {
-    Emit(
-        kArchRestoreCallerRegisters | MiscField::encode(static_cast<int>(mode)),
-        g.NoOutput());
-  }
+void InstructionSelector::VisitCallWithCallerSavedRegisters(
+    Node* node, BasicBlock* handler) {
+  OperandGenerator g(this);
+  const auto fp_mode = CallDescriptorOf(node->op())->get_save_fp_mode();
+  Emit(kArchSaveCallerRegisters | MiscField::encode(static_cast<int>(fp_mode)),
+       g.NoOutput());
+  VisitCall(node, handler);
+  Emit(kArchRestoreCallerRegisters |
+           MiscField::encode(static_cast<int>(fp_mode)),
+       g.NoOutput());
 }
 
 void InstructionSelector::VisitTailCall(Node* node) {
   OperandGenerator g(this);
+  auto call_descriptor = CallDescriptorOf(node->op());
 
-  auto caller = linkage()->GetIncomingDescriptor();
-  auto callee = CallDescriptorOf(node->op());
-  DCHECK(caller->CanTailCall(callee));
-  const int stack_param_delta = callee->GetStackParameterDelta(caller);
-  CallBuffer buffer(zone(), callee, nullptr);
+  CallDescriptor* caller = linkage()->GetIncomingDescriptor();
+  DCHECK(caller->CanTailCall(node));
+  const CallDescriptor* callee = CallDescriptorOf(node->op());
+  int stack_param_delta = callee->GetStackParameterDelta(caller);
+  CallBuffer buffer(zone(), call_descriptor, nullptr);
 
   // Compute InstructionOperands for inputs and outputs.
   CallBufferFlags flags(kCallCodeImmediate | kCallTail);
@@ -3036,44 +2684,57 @@ void InstructionSelector::VisitTailCall(Node* node) {
   if (callee->flags() & CallDescriptor::kFixedTargetRegister) {
     flags |= kCallFixedTargetRegister;
   }
-  InitializeCallBuffer(node, &buffer, flags, stack_param_delta);
-  UpdateMaxPushedArgumentCount(stack_param_delta);
+  DCHECK_EQ(callee->flags() & CallDescriptor::kAllowCallThroughSlot, 0);
+  InitializeCallBuffer(node, &buffer, flags, true, stack_param_delta);
 
   // Select the appropriate opcode based on the call type.
   InstructionCode opcode;
   InstructionOperandVector temps(zone());
-  switch (callee->kind()) {
-    case CallDescriptor::kCallCodeObject:
-      opcode = kArchTailCallCodeObject;
-      break;
-    case CallDescriptor::kCallAddress:
-      DCHECK(!caller->IsJSFunctionCall());
-      opcode = kArchTailCallAddress;
-      break;
-#if V8_ENABLE_WEBASSEMBLY
-    case CallDescriptor::kCallWasmFunction:
-      DCHECK(!caller->IsJSFunctionCall());
-      opcode = kArchTailCallWasm;
-      break;
-#endif  // V8_ENABLE_WEBASSEMBLY
-    default:
-      UNREACHABLE();
+  if (linkage()->GetIncomingDescriptor()->IsJSFunctionCall()) {
+    switch (call_descriptor->kind()) {
+      case CallDescriptor::kCallCodeObject:
+        opcode = kArchTailCallCodeObjectFromJSFunction;
+        break;
+      default:
+        UNREACHABLE();
+        return;
+    }
+    int temps_count = GetTempsCountForTailCallFromJSFunction();
+    for (int i = 0; i < temps_count; i++) {
+      temps.push_back(g.TempRegister());
+    }
+  } else {
+    switch (call_descriptor->kind()) {
+      case CallDescriptor::kCallCodeObject:
+        opcode = kArchTailCallCodeObject;
+        break;
+      case CallDescriptor::kCallAddress:
+        opcode = kArchTailCallAddress;
+        break;
+      case CallDescriptor::kCallWasmFunction:
+        opcode = kArchTailCallWasm;
+        break;
+      default:
+        UNREACHABLE();
+        return;
+    }
   }
-  opcode = EncodeCallDescriptorFlags(opcode, callee->flags());
+  opcode |= MiscField::encode(call_descriptor->flags());
 
   Emit(kArchPrepareTailCall, g.NoOutput());
 
-  // Add an immediate operand that represents the offset to the first slot that
-  // is unused with respect to the stack pointer that has been updated for the
-  // tail call instruction. Backends that pad arguments can write the padding
-  // value at this offset from the stack.
-  const int optional_padding_offset =
-      callee->GetOffsetToFirstUnusedStackSlot() - 1;
-  buffer.instruction_args.push_back(g.TempImmediate(optional_padding_offset));
+  // Add an immediate operand that represents the first slot that is unused
+  // with respect to the stack pointer that has been updated for the tail call
+  // instruction. This is used by backends that need to pad arguments for stack
+  // alignment, in order to store an optional slot of padding above the
+  // arguments.
+  int optional_padding_slot = callee->GetFirstUnusedStackSlot();
+  buffer.instruction_args.push_back(g.TempImmediate(optional_padding_slot));
 
-  const int first_unused_slot_offset =
-      kReturnAddressStackSlotCount + stack_param_delta;
-  buffer.instruction_args.push_back(g.TempImmediate(first_unused_slot_offset));
+  int first_unused_stack_slot =
+      (V8_TARGET_ARCH_STORES_RETURN_ADDRESS_ON_STACK ? true : false) +
+      stack_param_delta;
+  buffer.instruction_args.push_back(g.TempImmediate(first_unused_stack_slot));
 
   // Emit the tailcall instruction.
   Emit(opcode, 0, nullptr, buffer.instruction_args.size(),
@@ -3108,32 +2769,41 @@ void InstructionSelector::VisitReturn(Node* ret) {
 
 void InstructionSelector::VisitBranch(Node* branch, BasicBlock* tbranch,
                                       BasicBlock* fbranch) {
-  FlagsContinuation cont =
-      FlagsContinuation::ForBranch(kNotEqual, tbranch, fbranch);
-  VisitWordCompareZero(branch, branch->InputAt(0), &cont);
+  if (NeedsPoisoning(IsSafetyCheckOf(branch->op()))) {
+    FlagsContinuation cont =
+        FlagsContinuation::ForBranchAndPoison(kNotEqual, tbranch, fbranch);
+    VisitWordCompareZero(branch, branch->InputAt(0), &cont);
+  } else {
+    FlagsContinuation cont =
+        FlagsContinuation::ForBranch(kNotEqual, tbranch, fbranch);
+    VisitWordCompareZero(branch, branch->InputAt(0), &cont);
+  }
 }
 
 void InstructionSelector::VisitDeoptimizeIf(Node* node) {
   DeoptimizeParameters p = DeoptimizeParametersOf(node->op());
-  FlagsContinuation cont = FlagsContinuation::ForDeoptimize(
-      kNotEqual, p.reason(), node->id(), p.feedback(),
-      FrameState{node->InputAt(1)});
-  VisitWordCompareZero(node, node->InputAt(0), &cont);
+  if (NeedsPoisoning(p.is_safety_check())) {
+    FlagsContinuation cont = FlagsContinuation::ForDeoptimizeAndPoison(
+        kNotEqual, p.kind(), p.reason(), p.feedback(), node->InputAt(1));
+    VisitWordCompareZero(node, node->InputAt(0), &cont);
+  } else {
+    FlagsContinuation cont = FlagsContinuation::ForDeoptimize(
+        kNotEqual, p.kind(), p.reason(), p.feedback(), node->InputAt(1));
+    VisitWordCompareZero(node, node->InputAt(0), &cont);
+  }
 }
 
 void InstructionSelector::VisitDeoptimizeUnless(Node* node) {
   DeoptimizeParameters p = DeoptimizeParametersOf(node->op());
-  FlagsContinuation cont = FlagsContinuation::ForDeoptimize(
-      kEqual, p.reason(), node->id(), p.feedback(),
-      FrameState{node->InputAt(1)});
-  VisitWordCompareZero(node, node->InputAt(0), &cont);
-}
-
-void InstructionSelector::VisitSelect(Node* node) {
-  FlagsContinuation cont =
-      FlagsContinuation::ForSelect(kNotEqual, node,
-                                   node->InputAt(1), node->InputAt(2));
-  VisitWordCompareZero(node, node->InputAt(0), &cont);
+  if (NeedsPoisoning(p.is_safety_check())) {
+    FlagsContinuation cont = FlagsContinuation::ForDeoptimizeAndPoison(
+        kEqual, p.kind(), p.reason(), p.feedback(), node->InputAt(1));
+    VisitWordCompareZero(node, node->InputAt(0), &cont);
+  } else {
+    FlagsContinuation cont = FlagsContinuation::ForDeoptimize(
+        kEqual, p.kind(), p.reason(), p.feedback(), node->InputAt(1));
+    VisitWordCompareZero(node, node->InputAt(0), &cont);
+  }
 }
 
 void InstructionSelector::VisitTrapIf(Node* node, TrapId trap_id) {
@@ -3149,17 +2819,17 @@ void InstructionSelector::VisitTrapUnless(Node* node, TrapId trap_id) {
 }
 
 void InstructionSelector::EmitIdentity(Node* node) {
+  OperandGenerator g(this);
   MarkAsUsed(node->InputAt(0));
   SetRename(node, node->InputAt(0));
 }
 
-void InstructionSelector::VisitDeoptimize(DeoptimizeReason reason,
-                                          NodeId node_id,
-                                          FeedbackSource const& feedback,
-                                          FrameState frame_state) {
-  InstructionOperandVector args(instruction_zone());
-  AppendDeoptimizeArguments(&args, reason, node_id, feedback, frame_state);
-  Emit(kArchDeoptimize, 0, nullptr, args.size(), &args.front(), 0, nullptr);
+void InstructionSelector::VisitDeoptimize(DeoptimizeKind kind,
+                                          DeoptimizeReason reason,
+                                          VectorSlotPair const& feedback,
+                                          Node* value) {
+  EmitDeoptimize(kArchDeoptimize, 0, nullptr, 0, nullptr, kind, reason,
+                 feedback, value);
 }
 
 void InstructionSelector::VisitThrow(Node* node) {
@@ -3178,13 +2848,8 @@ void InstructionSelector::VisitUnreachable(Node* node) {
 }
 
 void InstructionSelector::VisitStaticAssert(Node* node) {
-  Node* asserted = node->InputAt(0);
-  UnparkedScopeIfNeeded scope(broker_);
-  AllowHandleDereference allow_handle_dereference;
-  asserted->Print(4);
-  FATAL(
-      "Expected Turbofan static assert to hold, but got non-true input:\n  %s",
-      StaticAssertSourceOf(node->op()));
+  node->InputAt(0)->Print();
+  FATAL("Expected turbofan static assert to hold, but got non-true input!\n");
 }
 
 void InstructionSelector::VisitDeadValue(Node* node) {
@@ -3222,109 +2887,86 @@ bool InstructionSelector::CanProduceSignalingNaN(Node* node) {
   return true;
 }
 
-#if V8_TARGET_ARCH_64_BIT
-bool InstructionSelector::ZeroExtendsWord32ToWord64(Node* node,
-                                                    int recursion_depth) {
-  // To compute whether a Node sets its upper 32 bits to zero, there are three
-  // cases.
-  // 1. Phi node, with a computed result already available in phi_states_:
-  //    Read the value from phi_states_.
-  // 2. Phi node, with no result available in phi_states_ yet:
-  //    Recursively check its inputs, and store the result in phi_states_.
-  // 3. Anything else:
-  //    Call the architecture-specific ZeroExtendsWord32ToWord64NoPhis.
-
-  // Limit recursion depth to avoid the possibility of stack overflow on very
-  // large functions.
-  const int kMaxRecursionDepth = 100;
-
-  if (node->opcode() == IrOpcode::kPhi) {
-    Upper32BitsState current = phi_states_[node->id()];
-    if (current != Upper32BitsState::kNotYetChecked) {
-      return current == Upper32BitsState::kUpperBitsGuaranteedZero;
-    }
-
-    // If further recursion is prevented, we can't make any assumptions about
-    // the output of this phi node.
-    if (recursion_depth >= kMaxRecursionDepth) {
-      return false;
-    }
-
-    // Mark the current node so that we skip it if we recursively visit it
-    // again. Or, said differently, we compute a largest fixed-point so we can
-    // be optimistic when we hit cycles.
-    phi_states_[node->id()] = Upper32BitsState::kUpperBitsGuaranteedZero;
-
-    int input_count = node->op()->ValueInputCount();
-    for (int i = 0; i < input_count; ++i) {
-      Node* input = NodeProperties::GetValueInput(node, i);
-      if (!ZeroExtendsWord32ToWord64(input, recursion_depth + 1)) {
-        phi_states_[node->id()] = Upper32BitsState::kNoGuarantee;
-        return false;
-      }
-    }
-
-    return true;
-  }
-  return ZeroExtendsWord32ToWord64NoPhis(node);
-}
-#endif  // V8_TARGET_ARCH_64_BIT
-
-namespace {
-
-FrameStateDescriptor* GetFrameStateDescriptorInternal(Zone* zone,
-                                                      FrameState state) {
+FrameStateDescriptor* InstructionSelector::GetFrameStateDescriptor(
+    Node* state) {
   DCHECK_EQ(IrOpcode::kFrameState, state->opcode());
-  DCHECK_EQ(FrameState::kFrameStateInputCount, state->InputCount());
-  const FrameStateInfo& state_info = FrameStateInfoOf(state->op());
-  int parameters = state_info.parameter_count();
-  int locals = state_info.local_count();
-  int stack = state_info.type() == FrameStateType::kUnoptimizedFunction ? 1 : 0;
+  DCHECK_EQ(kFrameStateInputCount, state->InputCount());
+  FrameStateInfo state_info = FrameStateInfoOf(state->op());
+
+  int parameters = static_cast<int>(
+      StateValuesAccess(state->InputAt(kFrameStateParametersInput)).size());
+  int locals = static_cast<int>(
+      StateValuesAccess(state->InputAt(kFrameStateLocalsInput)).size());
+  int stack = static_cast<int>(
+      StateValuesAccess(state->InputAt(kFrameStateStackInput)).size());
+
+  DCHECK_EQ(parameters, state_info.parameter_count());
+  DCHECK_EQ(locals, state_info.local_count());
 
   FrameStateDescriptor* outer_state = nullptr;
-  if (state.outer_frame_state()->opcode() == IrOpcode::kFrameState) {
-    outer_state = GetFrameStateDescriptorInternal(
-        zone, FrameState{state.outer_frame_state()});
+  Node* outer_node = state->InputAt(kFrameStateOuterStateInput);
+  if (outer_node->opcode() == IrOpcode::kFrameState) {
+    outer_state = GetFrameStateDescriptor(outer_node);
   }
 
-#if V8_ENABLE_WEBASSEMBLY
-  if (state_info.type() == FrameStateType::kJSToWasmBuiltinContinuation) {
-    auto function_info = static_cast<const JSToWasmFrameStateFunctionInfo*>(
-        state_info.function_info());
-    return zone->New<JSToWasmFrameStateDescriptor>(
-        zone, state_info.type(), state_info.bailout_id(),
-        state_info.state_combine(), parameters, locals, stack,
-        state_info.shared_info(), outer_state, function_info->signature());
-  }
-#endif  // V8_ENABLE_WEBASSEMBLY
-
-  return zone->New<FrameStateDescriptor>(
-      zone, state_info.type(), state_info.bailout_id(),
+  return new (instruction_zone()) FrameStateDescriptor(
+      instruction_zone(), state_info.type(), state_info.bailout_id(),
       state_info.state_combine(), parameters, locals, stack,
       state_info.shared_info(), outer_state);
 }
 
-}  // namespace
-
-FrameStateDescriptor* InstructionSelector::GetFrameStateDescriptor(
-    FrameState state) {
-  auto* desc = GetFrameStateDescriptorInternal(instruction_zone(), state);
-  *max_unoptimized_frame_height_ =
-      std::max(*max_unoptimized_frame_height_,
-               desc->total_conservative_frame_size_in_bytes());
-  return desc;
+// static
+void InstructionSelector::CanonicalizeShuffle(bool inputs_equal,
+                                              uint8_t* shuffle,
+                                              bool* needs_swap,
+                                              bool* is_swizzle) {
+  *needs_swap = false;
+  // Inputs equal, then it's a swizzle.
+  if (inputs_equal) {
+    *is_swizzle = true;
+  } else {
+    // Inputs are distinct; check that both are required.
+    bool src0_is_used = false;
+    bool src1_is_used = false;
+    for (int i = 0; i < kSimd128Size; ++i) {
+      if (shuffle[i] < kSimd128Size) {
+        src0_is_used = true;
+      } else {
+        src1_is_used = true;
+      }
+    }
+    if (src0_is_used && !src1_is_used) {
+      *is_swizzle = true;
+    } else if (src1_is_used && !src0_is_used) {
+      *needs_swap = true;
+      *is_swizzle = true;
+    } else {
+      *is_swizzle = false;
+      // Canonicalize general 2 input shuffles so that the first input lanes are
+      // encountered first. This makes architectural shuffle pattern matching
+      // easier, since we only need to consider 1 input ordering instead of 2.
+      if (shuffle[0] >= kSimd128Size) {
+        // The second operand is used first. Swap inputs and adjust the shuffle.
+        *needs_swap = true;
+        for (int i = 0; i < kSimd128Size; ++i) {
+          shuffle[i] ^= kSimd128Size;
+        }
+      }
+    }
+  }
+  if (*is_swizzle) {
+    for (int i = 0; i < kSimd128Size; ++i) shuffle[i] &= kSimd128Size - 1;
+  }
 }
 
-#if V8_ENABLE_WEBASSEMBLY
 void InstructionSelector::CanonicalizeShuffle(Node* node, uint8_t* shuffle,
                                               bool* is_swizzle) {
   // Get raw shuffle indices.
-  memcpy(shuffle, S128ImmediateParameterOf(node->op()).data(), kSimd128Size);
+  memcpy(shuffle, OpParameter<uint8_t*>(node->op()), kSimd128Size);
   bool needs_swap;
   bool inputs_equal = GetVirtualRegister(node->InputAt(0)) ==
                       GetVirtualRegister(node->InputAt(1));
-  wasm::SimdShuffle::CanonicalizeShuffle(inputs_equal, shuffle, &needs_swap,
-                                         is_swizzle);
+  CanonicalizeShuffle(inputs_equal, shuffle, &needs_swap, is_swizzle);
   if (needs_swap) {
     SwapShuffleInputs(node);
   }
@@ -3342,7 +2984,89 @@ void InstructionSelector::SwapShuffleInputs(Node* node) {
   node->ReplaceInput(0, input1);
   node->ReplaceInput(1, input0);
 }
-#endif  // V8_ENABLE_WEBASSEMBLY
+
+// static
+bool InstructionSelector::TryMatchIdentity(const uint8_t* shuffle) {
+  for (int i = 0; i < kSimd128Size; ++i) {
+    if (shuffle[i] != i) return false;
+  }
+  return true;
+}
+
+// static
+bool InstructionSelector::TryMatch32x4Shuffle(const uint8_t* shuffle,
+                                              uint8_t* shuffle32x4) {
+  for (int i = 0; i < 4; ++i) {
+    if (shuffle[i * 4] % 4 != 0) return false;
+    for (int j = 1; j < 4; ++j) {
+      if (shuffle[i * 4 + j] - shuffle[i * 4 + j - 1] != 1) return false;
+    }
+    shuffle32x4[i] = shuffle[i * 4] / 4;
+  }
+  return true;
+}
+
+// static
+bool InstructionSelector::TryMatch16x8Shuffle(const uint8_t* shuffle,
+                                              uint8_t* shuffle16x8) {
+  for (int i = 0; i < 8; ++i) {
+    if (shuffle[i * 2] % 2 != 0) return false;
+    for (int j = 1; j < 2; ++j) {
+      if (shuffle[i * 2 + j] - shuffle[i * 2 + j - 1] != 1) return false;
+    }
+    shuffle16x8[i] = shuffle[i * 2] / 2;
+  }
+  return true;
+}
+
+// static
+bool InstructionSelector::TryMatchConcat(const uint8_t* shuffle,
+                                         uint8_t* offset) {
+  // Don't match the identity shuffle (e.g. [0 1 2 ... 15]).
+  uint8_t start = shuffle[0];
+  if (start == 0) return false;
+  DCHECK_GT(kSimd128Size, start);  // The shuffle should be canonicalized.
+  // A concatenation is a series of consecutive indices, with at most one jump
+  // in the middle from the last lane to the first.
+  for (int i = 1; i < kSimd128Size; ++i) {
+    if ((shuffle[i]) != ((shuffle[i - 1] + 1))) {
+      if (shuffle[i - 1] != 15) return false;
+      if (shuffle[i] % kSimd128Size != 0) return false;
+    }
+  }
+  *offset = start;
+  return true;
+}
+
+// static
+bool InstructionSelector::TryMatchBlend(const uint8_t* shuffle) {
+  for (int i = 0; i < 16; ++i) {
+    if ((shuffle[i] & 0xF) != i) return false;
+  }
+  return true;
+}
+
+// static
+int32_t InstructionSelector::Pack4Lanes(const uint8_t* shuffle) {
+  int32_t result = 0;
+  for (int i = 3; i >= 0; --i) {
+    result <<= 8;
+    result |= shuffle[i];
+  }
+  return result;
+}
+
+bool InstructionSelector::NeedsPoisoning(IsSafetyCheck safety_check) const {
+  switch (poisoning_level_) {
+    case PoisoningMitigationLevel::kDontPoison:
+      return false;
+    case PoisoningMitigationLevel::kPoisonAll:
+      return safety_check != IsSafetyCheck::kNoSafetyCheck;
+    case PoisoningMitigationLevel::kPoisonCriticalOnly:
+      return safety_check == IsSafetyCheck::kCriticalSafetyCheck;
+  }
+  UNREACHABLE();
+}
 
 }  // namespace compiler
 }  // namespace internal

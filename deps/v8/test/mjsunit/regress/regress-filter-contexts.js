@@ -4,10 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-function f() {
-  return f.x;
-};
-%PrepareFunctionForOptimization(f);
+function f() { return f.x; }
 f.__proto__ = null;
 f.prototype = "";
 

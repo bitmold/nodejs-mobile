@@ -4,7 +4,7 @@
 //
 // Flags: --allow-natives-syntax --no-lazy
 
-d8.file.execute('test/mjsunit/test-async.js');
+load('test/mjsunit/test-async.js');
 
 // For regression testing, it's important that these functions are:
 // 1) toplevel

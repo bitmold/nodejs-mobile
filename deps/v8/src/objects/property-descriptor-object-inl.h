@@ -14,10 +14,9 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/property-descriptor-object-tq-inl.inc"
-
-TQ_OBJECT_CONSTRUCTORS_IMPL(PropertyDescriptorObject)
-}  // namespace internal
+OBJECT_CONSTRUCTORS_IMPL(PropertyDescriptorObject, FixedArray)
+CAST_ACCESSOR(PropertyDescriptorObject)
+}
 }  // namespace v8
 
 #include "src/objects/object-macros-undef.h"

@@ -11,6 +11,9 @@
 namespace v8 {
 namespace internal {
 namespace torque {
+
+DEFINE_CONTEXTUAL_VARIABLE(GlobalContext)
+
 namespace {
 
 template <class T>
@@ -39,16 +42,16 @@ void CheckAlreadyDeclared(const std::string& name, const char* new_type) {
       FilterDeclarables<T>(Declarations::TryLookupShallow(QualifiedName(name)));
   if (!declarations.empty()) {
     Scope* scope = CurrentScope::Get();
-    ReportError("cannot redeclare ", name, " (type ", *new_type, scope, ")");
+    ReportError("cannot redeclare ", name, " (type ", new_type, scope, ")");
   }
 }
 
 }  // namespace
 
 std::vector<Declarable*> Declarations::LookupGlobalScope(
-    const QualifiedName& name) {
+    const std::string& name) {
   std::vector<Declarable*> d =
-      GlobalContext::GetDefaultNamespace()->Lookup(name);
+      GlobalContext::GetDefaultNamespace()->Lookup(QualifiedName(name));
   if (d.empty()) {
     std::stringstream s;
     s << "cannot find \"" << name << "\" in global scope";
@@ -76,14 +79,7 @@ const Type* Declarations::LookupType(const Identifier* name) {
   return alias->type();
 }
 
-base::Optional<const Type*> Declarations::TryLookupType(
-    const QualifiedName& name) {
-  auto decls = FilterDeclarables<TypeAlias>(TryLookup(name));
-  if (decls.empty()) return base::nullopt;
-  return EnsureUnique(std::move(decls), name, "type")->type();
-}
-
-const Type* Declarations::LookupGlobalType(const QualifiedName& name) {
+const Type* Declarations::LookupGlobalType(const std::string& name) {
   TypeAlias* declaration = EnsureUnique(
       FilterDeclarables<TypeAlias>(LookupGlobalScope(name)), name, "type");
   return declaration->type();
@@ -127,39 +123,18 @@ base::Optional<Builtin*> Declarations::TryLookupBuiltin(
   return EnsureUnique(builtins, name.name, "builtin");
 }
 
-std::vector<GenericCallable*> Declarations::LookupGeneric(
-    const std::string& name) {
-  return EnsureNonempty(
-      FilterDeclarables<GenericCallable>(Lookup(QualifiedName(name))), name,
-      "generic callable");
+std::vector<Generic*> Declarations::LookupGeneric(const std::string& name) {
+  return EnsureNonempty(FilterDeclarables<Generic>(Lookup(QualifiedName(name))),
+                        name, "generic");
 }
 
-GenericCallable* Declarations::LookupUniqueGeneric(const QualifiedName& name) {
-  return EnsureUnique(FilterDeclarables<GenericCallable>(Lookup(name)), name,
-                      "generic callable");
-}
-
-GenericType* Declarations::LookupUniqueGenericType(const QualifiedName& name) {
-  return EnsureUnique(FilterDeclarables<GenericType>(Lookup(name)), name,
-                      "generic type");
-}
-
-GenericType* Declarations::LookupGlobalUniqueGenericType(
-    const std::string& name) {
-  return EnsureUnique(
-      FilterDeclarables<GenericType>(LookupGlobalScope(QualifiedName(name))),
-      name, "generic type");
-}
-
-base::Optional<GenericType*> Declarations::TryLookupGenericType(
-    const QualifiedName& name) {
-  std::vector<GenericType*> results = TryLookup<GenericType>(name);
-  if (results.empty()) return base::nullopt;
-  return EnsureUnique(results, name.name, "generic type");
+Generic* Declarations::LookupUniqueGeneric(const QualifiedName& name) {
+  return EnsureUnique(FilterDeclarables<Generic>(Lookup(name)), name,
+                      "generic");
 }
 
 Namespace* Declarations::DeclareNamespace(const std::string& name) {
-  return Declare(name, std::make_unique<Namespace>(name));
+  return Declare(name, std::unique_ptr<Namespace>(new Namespace(name)));
 }
 
 TypeAlias* Declarations::DeclareType(const Identifier* name, const Type* type) {
@@ -168,56 +143,53 @@ TypeAlias* Declarations::DeclareType(const Identifier* name, const Type* type) {
                                   new TypeAlias(type, true, name->pos)));
 }
 
-TypeAlias* Declarations::PredeclareTypeAlias(const Identifier* name,
-                                             TypeDeclaration* type,
-                                             bool redeclaration) {
+const TypeAlias* Declarations::PredeclareTypeAlias(const Identifier* name,
+                                                   TypeDeclaration* type,
+                                                   bool redeclaration) {
   CheckAlreadyDeclared<TypeAlias>(name->value, "type");
   std::unique_ptr<TypeAlias> alias_ptr(
       new TypeAlias(type, redeclaration, name->pos));
   return Declare(name->value, std::move(alias_ptr));
 }
 
-TorqueMacro* Declarations::CreateTorqueMacro(std::string external_name,
-                                             std::string readable_name,
-                                             bool exported_to_csa,
-                                             Signature signature,
-                                             base::Optional<Statement*> body,
-                                             bool is_user_defined) {
-  external_name = GlobalContext::MakeUniqueName(external_name);
+TorqueMacro* Declarations::CreateTorqueMacro(
+    std::string external_name, std::string readable_name, bool exported_to_csa,
+    Signature signature, bool transitioning, base::Optional<Statement*> body,
+    bool is_user_defined) {
+  // TODO(tebbi): Switch to more predictable names to improve incremental
+  // compilation.
+  external_name += "_" + std::to_string(GlobalContext::FreshId());
   return RegisterDeclarable(std::unique_ptr<TorqueMacro>(new TorqueMacro(
       std::move(external_name), std::move(readable_name), std::move(signature),
-      body, is_user_defined, exported_to_csa)));
+      transitioning, body, is_user_defined, exported_to_csa)));
 }
 
 ExternMacro* Declarations::CreateExternMacro(
-    std::string name, std::string external_assembler_name,
-    Signature signature) {
+    std::string name, std::string external_assembler_name, Signature signature,
+    bool transitioning) {
   return RegisterDeclarable(std::unique_ptr<ExternMacro>(
       new ExternMacro(std::move(name), std::move(external_assembler_name),
-                      std::move(signature))));
+                      std::move(signature), transitioning)));
 }
 
 Macro* Declarations::DeclareMacro(
     const std::string& name, bool accessible_from_csa,
     base::Optional<std::string> external_assembler_name,
-    const Signature& signature, base::Optional<Statement*> body,
-    base::Optional<std::string> op, bool is_user_defined) {
-  if (Macro* existing_macro =
-          TryLookupMacro(name, signature.GetExplicitTypes())) {
-    if (existing_macro->ParentScope() == CurrentScope::Get()) {
-      ReportError("cannot redeclare macro ", name,
-                  " with identical explicit parameters");
-    }
+    const Signature& signature, bool transitioning,
+    base::Optional<Statement*> body, base::Optional<std::string> op,
+    bool is_user_defined) {
+  if (TryLookupMacro(name, signature.GetExplicitTypes())) {
+    ReportError("cannot redeclare macro ", name,
+                " with identical explicit parameters");
   }
   Macro* macro;
   if (external_assembler_name) {
-    macro =
-        CreateExternMacro(name, std::move(*external_assembler_name), signature);
+    macro = CreateExternMacro(name, std::move(*external_assembler_name),
+                              signature, transitioning);
   } else {
-    macro = CreateTorqueMacro(name, name, accessible_from_csa, signature, body,
-                              is_user_defined);
+    macro = CreateTorqueMacro(name, name, accessible_from_csa, signature,
+                              transitioning, body, is_user_defined);
   }
-
   Declare(name, macro);
   if (op) {
     if (TryLookupMacro(*op, signature.GetExplicitTypes())) {
@@ -231,11 +203,11 @@ Macro* Declarations::DeclareMacro(
 
 Method* Declarations::CreateMethod(AggregateType* container_type,
                                    const std::string& name, Signature signature,
-                                   Statement* body) {
-  std::string generated_name = GlobalContext::MakeUniqueName(
-      "Method_" + container_type->SimpleName() + "_" + name);
-  Method* result = RegisterDeclarable(std::unique_ptr<Method>(new Method(
-      container_type, generated_name, name, std::move(signature), body)));
+                                   bool transitioning, Statement* body) {
+  std::string generated_name{container_type->GetGeneratedMethodName(name)};
+  Method* result = RegisterDeclarable(std::unique_ptr<Method>(
+      new Method(container_type, container_type->GetGeneratedMethodName(name),
+                 name, std::move(signature), transitioning, body)));
   container_type->RegisterMethod(result);
   return result;
 }
@@ -257,66 +229,61 @@ Intrinsic* Declarations::DeclareIntrinsic(const std::string& name,
 Builtin* Declarations::CreateBuiltin(std::string external_name,
                                      std::string readable_name,
                                      Builtin::Kind kind, Signature signature,
-
+                                     bool transitioning,
                                      base::Optional<Statement*> body) {
   return RegisterDeclarable(std::unique_ptr<Builtin>(
       new Builtin(std::move(external_name), std::move(readable_name), kind,
-                  std::move(signature), body)));
+                  std::move(signature), transitioning, body)));
 }
 
 Builtin* Declarations::DeclareBuiltin(const std::string& name,
                                       Builtin::Kind kind,
                                       const Signature& signature,
-
+                                      bool transitioning,
                                       base::Optional<Statement*> body) {
   CheckAlreadyDeclared<Builtin>(name, "builtin");
-  return Declare(name, CreateBuiltin(name, name, kind, signature, body));
+  return Declare(
+      name, CreateBuiltin(name, name, kind, signature, transitioning, body));
 }
 
 RuntimeFunction* Declarations::DeclareRuntimeFunction(
-    const std::string& name, const Signature& signature) {
+    const std::string& name, const Signature& signature, bool transitioning) {
   CheckAlreadyDeclared<RuntimeFunction>(name, "runtime function");
-  return Declare(name, RegisterDeclarable(std::unique_ptr<RuntimeFunction>(
-                           new RuntimeFunction(name, signature))));
+  return Declare(name,
+                 RegisterDeclarable(std::unique_ptr<RuntimeFunction>(
+                     new RuntimeFunction(name, signature, transitioning))));
 }
 
-ExternConstant* Declarations::DeclareExternConstant(Identifier* name,
-                                                    const Type* type,
-                                                    std::string value) {
+void Declarations::DeclareExternConstant(Identifier* name, const Type* type,
+                                         std::string value) {
   CheckAlreadyDeclared<Value>(name->value, "constant");
-  return Declare(name->value, std::unique_ptr<ExternConstant>(
-                                  new ExternConstant(name, type, value)));
+  ExternConstant* result = new ExternConstant(name, type, value);
+  Declare(name->value, std::unique_ptr<Declarable>(result));
 }
 
 NamespaceConstant* Declarations::DeclareNamespaceConstant(Identifier* name,
                                                           const Type* type,
                                                           Expression* body) {
   CheckAlreadyDeclared<Value>(name->value, "constant");
-  std::string external_name = GlobalContext::MakeUniqueName(name->value);
-  std::unique_ptr<NamespaceConstant> namespaceConstant(
-      new NamespaceConstant(name, std::move(external_name), type, body));
-  NamespaceConstant* result = namespaceConstant.get();
-  Declare(name->value, std::move(namespaceConstant));
+  std::string external_name =
+      name->value + "_" + std::to_string(GlobalContext::FreshId());
+  NamespaceConstant* result =
+      new NamespaceConstant(name, std::move(external_name), type, body);
+  Declare(name->value, std::unique_ptr<Declarable>(result));
   return result;
 }
 
-GenericCallable* Declarations::DeclareGenericCallable(
-    const std::string& name, GenericCallableDeclaration* ast_node) {
-  return Declare(name, std::unique_ptr<GenericCallable>(
-                           new GenericCallable(name, ast_node)));
-}
-
-GenericType* Declarations::DeclareGenericType(
-    const std::string& name, GenericTypeDeclaration* ast_node) {
-  return Declare(name,
-                 std::unique_ptr<GenericType>(new GenericType(name, ast_node)));
+Generic* Declarations::DeclareGeneric(const std::string& name,
+                                      GenericDeclaration* generic) {
+  return Declare(name, std::unique_ptr<Generic>(new Generic(name, generic)));
 }
 
 std::string Declarations::GetGeneratedCallableName(
     const std::string& name, const TypeVector& specialized_types) {
   std::string result = name;
   for (auto type : specialized_types) {
-    result += "_" + type->SimpleName();
+    std::string type_string = type->MangledName();
+    result += std::to_string(type_string.size()) + type_string;
   }
   return result;
 }

@@ -13,6 +13,5 @@ function f1() {
   return sum;
 }
 
-%PrepareFunctionForOptimization(f1);
 let result = f1(1, 1, 2, 3);
 assertEquals(7000, result);

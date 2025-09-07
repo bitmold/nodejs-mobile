@@ -5,8 +5,6 @@
 #ifndef V8_DEBUG_DEBUG_STACK_TRACE_ITERATOR_H_
 #define V8_DEBUG_DEBUG_STACK_TRACE_ITERATOR_H_
 
-#include <memory>
-
 #include "src/debug/debug-frames.h"
 #include "src/debug/debug-interface.h"
 #include "src/execution/frames.h"
@@ -31,6 +29,7 @@ class DebugStackTraceIterator final : public debug::StackTraceIterator {
   v8::Local<v8::Function> GetFunction() const override;
   std::unique_ptr<v8::debug::ScopeIterator> GetScopeIterator() const override;
 
+  bool Restart() override;
   v8::MaybeLocal<v8::Value> Evaluate(v8::Local<v8::String> source,
                                      bool throw_on_side_effect) override;
 

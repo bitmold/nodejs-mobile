@@ -5,7 +5,6 @@
 .p2align	4
 _aesni_encrypt:
 
-.byte	243,15,30,250
 	movups	(%rdi),%xmm2
 	movl	240(%rdx),%eax
 	movups	(%rdx),%xmm0
@@ -32,7 +31,6 @@ L$oop_enc1_1:
 .p2align	4
 _aesni_decrypt:
 
-.byte	243,15,30,250
 	movups	(%rdi),%xmm2
 	movl	240(%rdx),%eax
 	movups	(%rdx),%xmm0
@@ -520,7 +518,6 @@ L$dec_loop8_enter:
 .p2align	4
 _aesni_ecb_encrypt:
 
-.byte	243,15,30,250
 	andq	$-16,%rdx
 	jz	L$ecb_ret
 
@@ -864,8 +861,6 @@ L$ecb_ret:
 
 .p2align	4
 _aesni_ccm64_encrypt_blocks:
-
-.byte	243,15,30,250
 	movl	240(%rcx),%eax
 	movdqu	(%r8),%xmm6
 	movdqa	L$increment64(%rip),%xmm9
@@ -925,13 +920,10 @@ L$ccm64_enc2_loop:
 	pxor	%xmm6,%xmm6
 	.byte	0xf3,0xc3
 
-
 .globl	_aesni_ccm64_decrypt_blocks
 
 .p2align	4
 _aesni_ccm64_decrypt_blocks:
-
-.byte	243,15,30,250
 	movl	240(%rcx),%eax
 	movups	(%r8),%xmm6
 	movdqu	(%r9),%xmm3
@@ -1025,13 +1017,11 @@ L$oop_enc1_6:
 	pxor	%xmm6,%xmm6
 	.byte	0xf3,0xc3
 
-
 .globl	_aesni_ctr32_encrypt_blocks
 
 .p2align	4
 _aesni_ctr32_encrypt_blocks:
 
-.byte	243,15,30,250
 	cmpq	$1,%rdx
 	jne	L$ctr32_bulk
 
@@ -1610,7 +1600,6 @@ L$ctr32_epilogue:
 .p2align	4
 _aesni_xts_encrypt:
 
-.byte	243,15,30,250
 	leaq	(%rsp),%r11
 
 	pushq	%rbp
@@ -2081,7 +2070,6 @@ L$xts_enc_epilogue:
 .p2align	4
 _aesni_xts_decrypt:
 
-.byte	243,15,30,250
 	leaq	(%rsp),%r11
 
 	pushq	%rbp
@@ -2589,7 +2577,6 @@ L$xts_dec_epilogue:
 .p2align	5
 _aesni_ocb_encrypt:
 
-.byte	243,15,30,250
 	leaq	(%rsp),%rax
 	pushq	%rbx
 
@@ -2798,7 +2785,6 @@ L$ocb_enc_epilogue:
 
 .p2align	5
 __ocb_encrypt6:
-
 	pxor	%xmm9,%xmm15
 	movdqu	(%rbx,%r12,1),%xmm11
 	movdqa	%xmm10,%xmm12
@@ -2899,10 +2885,8 @@ L$ocb_enc_loop6:
 
 
 
-
 .p2align	5
 __ocb_encrypt4:
-
 	pxor	%xmm9,%xmm15
 	movdqu	(%rbx,%r12,1),%xmm11
 	movdqa	%xmm10,%xmm12
@@ -2970,10 +2954,8 @@ L$ocb_enc_loop4:
 
 
 
-
 .p2align	5
 __ocb_encrypt1:
-
 	pxor	%xmm15,%xmm7
 	pxor	%xmm9,%xmm7
 	pxor	%xmm2,%xmm8
@@ -3006,13 +2988,11 @@ L$ocb_enc_loop1:
 	.byte	0xf3,0xc3
 
 
-
 .globl	_aesni_ocb_decrypt
 
 .p2align	5
 _aesni_ocb_decrypt:
 
-.byte	243,15,30,250
 	leaq	(%rsp),%rax
 	pushq	%rbx
 
@@ -3243,7 +3223,6 @@ L$ocb_dec_epilogue:
 
 .p2align	5
 __ocb_decrypt6:
-
 	pxor	%xmm9,%xmm15
 	movdqu	(%rbx,%r12,1),%xmm11
 	movdqa	%xmm10,%xmm12
@@ -3338,10 +3317,8 @@ L$ocb_dec_loop6:
 
 
 
-
 .p2align	5
 __ocb_decrypt4:
-
 	pxor	%xmm9,%xmm15
 	movdqu	(%rbx,%r12,1),%xmm11
 	movdqa	%xmm10,%xmm12
@@ -3405,10 +3382,8 @@ L$ocb_dec_loop4:
 
 
 
-
 .p2align	5
 __ocb_decrypt1:
-
 	pxor	%xmm15,%xmm7
 	pxor	%xmm9,%xmm7
 	pxor	%xmm7,%xmm2
@@ -3439,13 +3414,11 @@ L$ocb_dec_loop1:
 .byte	102,15,56,223,215
 	.byte	0xf3,0xc3
 
-
 .globl	_aesni_cbc_encrypt
 
 .p2align	4
 _aesni_cbc_encrypt:
 
-.byte	243,15,30,250
 	testq	%rdx,%rdx
 	jz	L$cbc_ret
 
@@ -4378,6 +4351,7 @@ L$enc_key_ret:
 	addq	$8,%rsp
 
 	.byte	0xf3,0xc3
+
 L$SEH_end_set_encrypt_key:
 
 .p2align	4
@@ -4448,7 +4422,6 @@ L$key_expansion_256b:
 	shufps	$170,%xmm1,%xmm1
 	xorps	%xmm1,%xmm2
 	.byte	0xf3,0xc3
-
 
 
 .p2align	6

@@ -58,9 +58,6 @@ class TestCase(testcase.D8TestCase):
 
   def _parse_source_env(self, source):
     env_match = ENV_PATTERN.search(source)
-    # https://crbug.com/v8/8845
-    if 'LC_ALL' in os.environ:
-      del os.environ['LC_ALL']
     env = {}
     if env_match:
       for env_pair in env_match.group(1).strip().split():
@@ -72,13 +69,11 @@ class TestCase(testcase.D8TestCase):
     return self._env
 
   def _get_files_params(self):
-    files = [
-      os.path.join(self.suite.root, f) for f in [
+    files = map(lambda f: os.path.join(self.suite.root, f), [
         'assert.js',
         'utils.js',
         self.path + self._get_suffix(),
-      ]
-    ]
+    ])
 
     if self._test_config.isolates:
       files += ['--isolate'] + files

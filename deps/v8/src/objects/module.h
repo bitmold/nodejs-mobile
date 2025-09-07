@@ -5,7 +5,6 @@
 #ifndef V8_OBJECTS_MODULE_H_
 #define V8_OBJECTS_MODULE_H_
 
-#include "include/v8-script.h"
 #include "src/objects/fixed-array.h"
 #include "src/objects/js-objects.h"
 #include "src/objects/objects.h"
@@ -21,31 +20,49 @@ template <typename T>
 class Handle;
 class Isolate;
 class JSModuleNamespace;
-class SourceTextModuleDescriptor;
-class SourceTextModuleInfo;
-class SourceTextModuleInfoEntry;
+class ModuleDescriptor;
+class ModuleInfo;
+class ModuleInfoEntry;
 class String;
 class Zone;
 
-#include "torque-generated/src/objects/module-tq.inc"
-
-// Module is the base class for ECMAScript module types, roughly corresponding
-// to Abstract Module Record.
-// https://tc39.github.io/ecma262/#sec-abstract-module-records
-class Module : public TorqueGeneratedModule<Module, HeapObject> {
+// The runtime representation of an ECMAScript module.
+class Module : public Struct {
  public:
   NEVER_READ_ONLY_SPACE
+  DECL_CAST(Module)
   DECL_VERIFIER(Module)
   DECL_PRINTER(Module)
 
+  // The code representing this module, or an abstraction thereof.
+  // This is either a SharedFunctionInfo, a JSFunction, a JSGeneratorObject, or
+  // a ModuleInfo, depending on the state (status) the module is in. See
+  // Module::ModuleVerify() for the precise invariant.
+  DECL_ACCESSORS(code, Object)
+
+  // Arrays of cells corresponding to regular exports and regular imports.
+  // A cell's position in the array is determined by the cell index of the
+  // associated module entry (which coincides with the variable index of the
+  // associated variable).
+  DECL_ACCESSORS(regular_exports, FixedArray)
+  DECL_ACCESSORS(regular_imports, FixedArray)
+
+  // The complete export table, mapping an export name to its cell.
+  // TODO(neis): We may want to remove the regular exports from the table.
+  DECL_ACCESSORS(exports, ObjectHashTable)
+
+  // Hash for this object (a random non-zero Smi).
+  DECL_INT_ACCESSORS(hash)
+
+  // Status.
+  DECL_INT_ACCESSORS(status)
   enum Status {
     // Order matters!
-    kUnlinked,
-    kPreLinking,
-    kLinking,
-    kLinked,
+    kUninstantiated,
+    kPreInstantiating,
+    kInstantiating,
+    kInstantiated,
     kEvaluating,
-    kEvaluatingAsync,
     kEvaluated,
     kErrored
   };
@@ -53,19 +70,28 @@ class Module : public TorqueGeneratedModule<Module, HeapObject> {
   // The exception in the case {status} is kErrored.
   Object GetException();
 
-  // Returns if this module or any transitively requested module is [[Async]],
-  // i.e. has a top-level await.
-  V8_WARN_UNUSED_RESULT bool IsGraphAsync(Isolate* isolate) const;
+  // The shared function info in case {status} is not kEvaluating, kEvaluated or
+  // kErrored.
+  SharedFunctionInfo GetSharedFunctionInfo() const;
 
-  // While deprecating v8::ResolveCallback in v8.h we still need to support the
-  // version of the API that uses it, but we can't directly reference the
-  // deprecated version because of the enusing build warnings.  So, we declare
-  // this matching typedef for temporary internal use.
-  // TODO(v8:10958) Delete this typedef and all references to it once
-  // v8::ResolveCallback is removed.
-  typedef MaybeLocal<v8::Module> (*DeprecatedResolveCallback)(
-      Local<v8::Context> context, Local<v8::String> specifier,
-      Local<v8::Module> referrer);
+  // The namespace object (or undefined).
+  DECL_ACCESSORS(module_namespace, HeapObject)
+
+  // Modules imported or re-exported by this module.
+  // Corresponds 1-to-1 to the module specifier strings in
+  // ModuleInfo::module_requests.
+  DECL_ACCESSORS(requested_modules, FixedArray)
+
+  // [script]: Script from which the module originates.
+  DECL_ACCESSORS(script, Script)
+
+  // The value of import.meta inside of this module.
+  // Lazily initialized on first access. It's the hole before first access and
+  // a JSObject afterwards.
+  DECL_ACCESSORS(import_meta, Object)
+
+  // Get the ModuleInfo associated with the code.
+  inline ModuleInfo info() const;
 
   // Implementation of spec operation ModuleDeclarationInstantiation.
   // Returns false if an exception occurred during instantiation, true
@@ -73,25 +99,69 @@ class Module : public TorqueGeneratedModule<Module, HeapObject> {
   // exception is propagated.)
   static V8_WARN_UNUSED_RESULT bool Instantiate(
       Isolate* isolate, Handle<Module> module, v8::Local<v8::Context> context,
-      v8::Module::ResolveModuleCallback callback,
-      DeprecatedResolveCallback callback_without_import_assertions);
+      v8::Module::ResolveCallback callback);
 
   // Implementation of spec operation ModuleEvaluation.
   static V8_WARN_UNUSED_RESULT MaybeHandle<Object> Evaluate(
       Isolate* isolate, Handle<Module> module);
+
+  Cell GetCell(int cell_index);
+  static Handle<Object> LoadVariable(Isolate* isolate, Handle<Module> module,
+                                     int cell_index);
+  static void StoreVariable(Handle<Module> module, int cell_index,
+                            Handle<Object> value);
+
+  static int ImportIndex(int cell_index);
+  static int ExportIndex(int cell_index);
+
+  // Get the namespace object for [module_request] of [module].  If it doesn't
+  // exist yet, it is created.
+  static Handle<JSModuleNamespace> GetModuleNamespace(Isolate* isolate,
+                                                      Handle<Module> module,
+                                                      int module_request);
 
   // Get the namespace object for [module].  If it doesn't exist yet, it is
   // created.
   static Handle<JSModuleNamespace> GetModuleNamespace(Isolate* isolate,
                                                       Handle<Module> module);
 
-  using BodyDescriptor =
-      FixedBodyDescriptor<kExportsOffset, kHeaderSize, kHeaderSize>;
+// Layout description.
+#define MODULE_FIELDS(V)                  \
+  V(kCodeOffset, kTaggedSize)             \
+  V(kExportsOffset, kTaggedSize)          \
+  V(kRegularExportsOffset, kTaggedSize)   \
+  V(kRegularImportsOffset, kTaggedSize)   \
+  V(kHashOffset, kTaggedSize)             \
+  V(kModuleNamespaceOffset, kTaggedSize)  \
+  V(kRequestedModulesOffset, kTaggedSize) \
+  V(kStatusOffset, kTaggedSize)           \
+  V(kDfsIndexOffset, kTaggedSize)         \
+  V(kDfsAncestorIndexOffset, kTaggedSize) \
+  V(kExceptionOffset, kTaggedSize)        \
+  V(kScriptOffset, kTaggedSize)           \
+  V(kImportMetaOffset, kTaggedSize)       \
+  /* Total size. */                       \
+  V(kSize, 0)
 
-  struct Hash;
+  DEFINE_FIELD_OFFSET_CONSTANTS(Struct::kHeaderSize, MODULE_FIELDS)
+#undef MODULE_FIELDS
 
- protected:
+ private:
   friend class Factory;
+
+  DECL_ACCESSORS(exception, Object)
+
+  // TODO(neis): Don't store those in the module object?
+  DECL_INT_ACCESSORS(dfs_index)
+  DECL_INT_ACCESSORS(dfs_ancestor_index)
+
+  // Helpers for Instantiate and Evaluate.
+
+  static void CreateExport(Isolate* isolate, Handle<Module> module,
+                           int cell_index, Handle<FixedArray> names);
+  static void CreateIndirectExport(Isolate* isolate, Handle<Module> module,
+                                   Handle<String> name,
+                                   Handle<ModuleInfoEntry> entry);
 
   // The [must_resolve] argument indicates whether or not an exception should be
   // thrown in case the module does not provide an export named [name]
@@ -106,40 +176,61 @@ class Module : public TorqueGeneratedModule<Module, HeapObject> {
       Isolate* isolate, Handle<Module> module, Handle<String> module_specifier,
       Handle<String> export_name, MessageLocation loc, bool must_resolve,
       ResolveSet* resolve_set);
+  static V8_WARN_UNUSED_RESULT MaybeHandle<Cell> ResolveImport(
+      Isolate* isolate, Handle<Module> module, Handle<String> name,
+      int module_request, MessageLocation loc, bool must_resolve,
+      ResolveSet* resolve_set);
+
+  static V8_WARN_UNUSED_RESULT MaybeHandle<Cell> ResolveExportUsingStarExports(
+      Isolate* isolate, Handle<Module> module, Handle<String> module_specifier,
+      Handle<String> export_name, MessageLocation loc, bool must_resolve,
+      ResolveSet* resolve_set);
 
   static V8_WARN_UNUSED_RESULT bool PrepareInstantiate(
       Isolate* isolate, Handle<Module> module, v8::Local<v8::Context> context,
-      v8::Module::ResolveModuleCallback callback,
-      DeprecatedResolveCallback callback_without_import_assertions);
+      v8::Module::ResolveCallback callback);
   static V8_WARN_UNUSED_RESULT bool FinishInstantiate(
       Isolate* isolate, Handle<Module> module,
-      ZoneForwardList<Handle<SourceTextModule>>* stack, unsigned* dfs_index,
-      Zone* zone);
+      ZoneForwardList<Handle<Module>>* stack, unsigned* dfs_index, Zone* zone);
+  static V8_WARN_UNUSED_RESULT bool RunInitializationCode(
+      Isolate* isolate, Handle<Module> module);
 
-  // Set module's status back to kUnlinked and reset other internal state.
+  static V8_WARN_UNUSED_RESULT MaybeHandle<Object> Evaluate(
+      Isolate* isolate, Handle<Module> module,
+      ZoneForwardList<Handle<Module>>* stack, unsigned* dfs_index);
+
+  static V8_WARN_UNUSED_RESULT bool MaybeTransitionComponent(
+      Isolate* isolate, Handle<Module> module,
+      ZoneForwardList<Handle<Module>>* stack, Status new_status);
+
+  // Set module's status back to kUninstantiated and reset other internal state.
   // This is used when instantiation fails.
   static void Reset(Isolate* isolate, Handle<Module> module);
   static void ResetGraph(Isolate* isolate, Handle<Module> module);
 
-  // To set status to kErrored, RecordError or RecordErrorUsingPendingException
-  // should be used.
+  // To set status to kErrored, RecordError should be used.
   void SetStatus(Status status);
-  static void RecordErrorUsingPendingException(Isolate* isolate,
-                                               Handle<Module>);
-  static void RecordError(Isolate* isolate, Handle<Module> module,
-                          Handle<Object> error);
+  void RecordError(Isolate* isolate);
 
-  TQ_OBJECT_CONSTRUCTORS(Module)
+#ifdef DEBUG
+  // For --trace-module-status.
+  void PrintStatusTransition(Status new_status);
+#endif  // DEBUG
+
+  OBJECT_CONSTRUCTORS(Module, Struct);
 };
 
 // When importing a module namespace (import * as foo from "bar"), a
 // JSModuleNamespace object (representing module "bar") is created and bound to
 // the declared variable (foo).  A module can have at most one namespace object.
-class JSModuleNamespace
-    : public TorqueGeneratedJSModuleNamespace<JSModuleNamespace,
-                                              JSSpecialObject> {
+class JSModuleNamespace : public JSObject {
  public:
+  DECL_CAST(JSModuleNamespace)
   DECL_PRINTER(JSModuleNamespace)
+  DECL_VERIFIER(JSModuleNamespace)
+
+  // The actual module whose namespace is being represented.
+  DECL_ACCESSORS(module, Module)
 
   // Retrieve the value exported by [module] under the given [name]. If there is
   // no such export, return Just(undefined). If the export is uninitialized,
@@ -153,32 +244,99 @@ class JSModuleNamespace
   static V8_WARN_UNUSED_RESULT Maybe<PropertyAttributes> GetPropertyAttributes(
       LookupIterator* it);
 
-  static V8_WARN_UNUSED_RESULT Maybe<bool> DefineOwnProperty(
-      Isolate* isolate, Handle<JSModuleNamespace> o, Handle<Object> key,
-      PropertyDescriptor* desc, Maybe<ShouldThrow> should_throw);
-
   // In-object fields.
   enum {
     kToStringTagFieldIndex,
     kInObjectFieldCount,
   };
 
-  // We need to include in-object fields
-  // TODO(v8:8944): improve handling of in-object fields
-  static constexpr int kSize =
-      kHeaderSize + (kTaggedSize * kInObjectFieldCount);
+// Layout description.
+#define JS_MODULE_NAMESPACE_FIELDS(V)                        \
+  V(kModuleOffset, kTaggedSize)                              \
+  /* Header size. */                                         \
+  V(kHeaderSize, 0)                                          \
+  V(kInObjectFieldsOffset, kTaggedSize* kInObjectFieldCount) \
+  /* Total size. */                                          \
+  V(kSize, 0)
 
-  TQ_OBJECT_CONSTRUCTORS(JSModuleNamespace)
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                JS_MODULE_NAMESPACE_FIELDS)
+#undef JS_MODULE_NAMESPACE_FIELDS
+
+  OBJECT_CONSTRUCTORS(JSModuleNamespace, JSObject);
 };
 
-class ScriptOrModule
-    : public TorqueGeneratedScriptOrModule<ScriptOrModule, Struct> {
+// ModuleInfo is to ModuleDescriptor what ScopeInfo is to Scope.
+class ModuleInfo : public FixedArray {
  public:
-  DECL_PRINTER(ScriptOrModule)
+  DECL_CAST(ModuleInfo)
 
-  using BodyDescriptor = StructBodyDescriptor;
+  static Handle<ModuleInfo> New(Isolate* isolate, Zone* zone,
+                                ModuleDescriptor* descr);
 
-  TQ_OBJECT_CONSTRUCTORS(ScriptOrModule)
+  inline FixedArray module_requests() const;
+  inline FixedArray special_exports() const;
+  inline FixedArray regular_exports() const;
+  inline FixedArray regular_imports() const;
+  inline FixedArray namespace_imports() const;
+  inline FixedArray module_request_positions() const;
+
+  // Accessors for [regular_exports].
+  int RegularExportCount() const;
+  String RegularExportLocalName(int i) const;
+  int RegularExportCellIndex(int i) const;
+  FixedArray RegularExportExportNames(int i) const;
+
+#ifdef DEBUG
+  inline bool Equals(ModuleInfo other) const;
+#endif
+
+ private:
+  friend class Factory;
+  friend class ModuleDescriptor;
+  enum {
+    kModuleRequestsIndex,
+    kSpecialExportsIndex,
+    kRegularExportsIndex,
+    kNamespaceImportsIndex,
+    kRegularImportsIndex,
+    kModuleRequestPositionsIndex,
+    kLength
+  };
+  enum {
+    kRegularExportLocalNameOffset,
+    kRegularExportCellIndexOffset,
+    kRegularExportExportNamesOffset,
+    kRegularExportLength
+  };
+  OBJECT_CONSTRUCTORS(ModuleInfo, FixedArray);
+};
+
+class ModuleInfoEntry : public Struct {
+ public:
+  DECL_CAST(ModuleInfoEntry)
+  DECL_PRINTER(ModuleInfoEntry)
+  DECL_VERIFIER(ModuleInfoEntry)
+
+  DECL_ACCESSORS(export_name, Object)
+  DECL_ACCESSORS(local_name, Object)
+  DECL_ACCESSORS(import_name, Object)
+  DECL_INT_ACCESSORS(module_request)
+  DECL_INT_ACCESSORS(cell_index)
+  DECL_INT_ACCESSORS(beg_pos)
+  DECL_INT_ACCESSORS(end_pos)
+
+  static Handle<ModuleInfoEntry> New(Isolate* isolate,
+                                     Handle<Object> export_name,
+                                     Handle<Object> local_name,
+                                     Handle<Object> import_name,
+                                     int module_request, int cell_index,
+                                     int beg_pos, int end_pos);
+
+  DEFINE_FIELD_OFFSET_CONSTANTS(Struct::kHeaderSize,
+                                TORQUE_GENERATED_MODULE_INFO_ENTRY_FIELDS)
+
+  OBJECT_CONSTRUCTORS(ModuleInfoEntry, Struct);
 };
 
 }  // namespace internal

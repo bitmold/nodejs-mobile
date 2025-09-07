@@ -2,17 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// The test needs --no-liftoff because we can't serialize and deserialize
-// Liftoff code.
-// Flags: --allow-natives-syntax --throws --no-liftoff
+// Flags: --allow-natives-syntax --throws
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 let kTableSize = 3;
 
 var builder = new WasmModuleBuilder();
 var sig_index1 = builder.addType(kSig_i_v);
 builder.addFunction('main', kSig_i_ii).addBody([
-    kExprLocalGet,
+    kExprGetLocal,
     0,
     kExprCallIndirect,
     sig_index1,

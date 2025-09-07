@@ -38,15 +38,11 @@ CurrencyAmount& CurrencyAmount::operator=(const CurrencyAmount& other) {
     return *this;
 }
 
-CurrencyAmount* CurrencyAmount::clone() const {
+UObject* CurrencyAmount::clone() const {
     return new CurrencyAmount(*this);
 }
 
 CurrencyAmount::~CurrencyAmount() {
-}
-
-const CurrencyUnit& CurrencyAmount::getCurrency() const {
-    return static_cast<const CurrencyUnit&>(getUnit());
 }
 
 UOBJECT_DEFINE_RTTI_IMPLEMENTATION(CurrencyAmount)

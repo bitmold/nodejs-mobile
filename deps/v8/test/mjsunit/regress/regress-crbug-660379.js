@@ -13,10 +13,9 @@
     try {
       g();  // Right at the end of try.
     } catch (e) {
-      assertEquals('boom', e);
+      assertEquals("boom", e)
     }
-  };
-  %PrepareFunctionForOptimization(f);
+  }
   assertDoesNotThrow(f);
   assertDoesNotThrow(f);
   %OptimizeFunctionOnNextCall(f);
@@ -35,8 +34,7 @@
     } catch (e) {
       assertUnreachable();
     }
-  };
-  %PrepareFunctionForOptimization(f);
+  }
   assertThrows(f);
   assertThrows(f);
   %OptimizeFunctionOnNextCall(f);

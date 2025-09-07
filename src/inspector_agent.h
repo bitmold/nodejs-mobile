@@ -48,7 +48,7 @@ class Agent {
   // Create client_, may create io_ if option enabled
   bool Start(const std::string& path,
              const DebugOptions& options,
-             std::shared_ptr<ExclusiveAccess<HostPort>> host_port,
+             std::shared_ptr<HostPort> host_port,
              bool is_main);
   // Stop and destroy io_
   void Stop();
@@ -59,6 +59,8 @@ class Agent {
   // --inspect command line flag) or if inspector JS API had been used.
   bool IsActive();
 
+  // Option is set to wait for session connection
+  bool WillWaitForConnect();
   // Blocks till frontend connects and sends "runIfWaitingForDebugger"
   void WaitForConnect();
   // Blocks till all the sessions with "WaitForDisconnectOnShutdown" disconnect
@@ -82,18 +84,11 @@ class Agent {
 
   void SetParentHandle(std::unique_ptr<ParentInspectorHandle> parent_handle);
   std::unique_ptr<ParentInspectorHandle> GetParentHandle(
-      uint64_t thread_id, const std::string& url, const std::string& name);
+      int thread_id, const std::string& url);
 
-  // Called to create inspector sessions that can be used from the same thread.
+  // Called to create inspector sessions that can be used from the main thread.
   // The inspector responds by using the delegate to send messages back.
   std::unique_ptr<InspectorSession> Connect(
-      std::unique_ptr<InspectorSessionDelegate> delegate,
-      bool prevent_shutdown);
-
-  // Called from the worker to create inspector sessions that is connected
-  // to the main thread.
-  // The inspector responds by using the delegate to send messages back.
-  std::unique_ptr<InspectorSession> ConnectToMainThread(
       std::unique_ptr<InspectorSessionDelegate> delegate,
       bool prevent_shutdown);
 
@@ -108,16 +103,15 @@ class Agent {
   void RequestIoThreadStart();
 
   const DebugOptions& options() { return debug_options_; }
-  std::shared_ptr<ExclusiveAccess<HostPort>> host_port() { return host_port_; }
+  std::shared_ptr<HostPort> host_port() { return host_port_; }
   void ContextCreated(v8::Local<v8::Context> context, const ContextInfo& info);
 
   // Interface for interacting with inspectors in worker threads
   std::shared_ptr<WorkerManager> GetWorkerManager();
 
-  inline Environment* env() const { return parent_env_; }
-
  private:
-  void ToggleAsyncHook(v8::Isolate* isolate, v8::Local<v8::Function> fn);
+  void ToggleAsyncHook(v8::Isolate* isolate,
+                       const v8::Global<v8::Function>& fn);
 
   node::Environment* parent_env_;
   // Encapsulates majority of the Inspector functionality
@@ -132,10 +126,12 @@ class Agent {
   // pointer which is meant to store the actual host and port of the inspector
   // server.
   DebugOptions debug_options_;
-  std::shared_ptr<ExclusiveAccess<HostPort>> host_port_;
+  std::shared_ptr<HostPort> host_port_;
 
   bool pending_enable_async_hook_ = false;
   bool pending_disable_async_hook_ = false;
+  v8::Global<v8::Function> enable_async_hook_function_;
+  v8::Global<v8::Function> disable_async_hook_function_;
 };
 
 }  // namespace inspector

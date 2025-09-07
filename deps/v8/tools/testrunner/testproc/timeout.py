@@ -14,15 +14,15 @@ class TimeoutProc(base.TestProcObserver):
     self._start = time.time()
 
   def _on_next_test(self, test):
-    self.__on_event()
+    self._on_event()
 
   def _on_result_for(self, test, result):
-    self.__on_event()
+    self._on_event()
 
   def _on_heartbeat(self):
-    self.__on_event()
+    self._on_event()
 
-  def __on_event(self):
+  def _on_event(self):
     if not self.is_stopped:
       if time.time() - self._start > self._duration_sec:
         print('>>> Total timeout reached.')

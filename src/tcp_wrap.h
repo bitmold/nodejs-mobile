@@ -25,12 +25,10 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include "async_wrap.h"
+#include "env.h"
 #include "connection_wrap.h"
 
 namespace node {
-
-class ExternalReferenceRegistry;
-class Environment;
 
 class TCPWrap : public ConnectionWrap<TCPWrap, uv_tcp_t> {
  public:
@@ -46,11 +44,10 @@ class TCPWrap : public ConnectionWrap<TCPWrap, uv_tcp_t> {
                          v8::Local<v8::Value> unused,
                          v8::Local<v8::Context> context,
                          void* priv);
-  static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
 
   SET_NO_MEMORY_INFO()
   SET_SELF_SIZE(TCPWrap)
-  const char* MemoryInfoName() const override {
+  std::string MemoryInfoName() const override {
     switch (provider_type()) {
       case ProviderType::PROVIDER_TCPWRAP:
         return "TCPSocketWrap";
@@ -88,8 +85,6 @@ class TCPWrap : public ConnectionWrap<TCPWrap, uv_tcp_t> {
       const v8::FunctionCallbackInfo<v8::Value>& args,
       int family,
       std::function<int(const char* ip_address, int port, T* addr)> uv_ip_addr);
-  static void Reset(const v8::FunctionCallbackInfo<v8::Value>& args);
-  int Reset(v8::Local<v8::Value> close_callback = v8::Local<v8::Value>());
 
 #ifdef _WIN32
   static void SetSimultaneousAccepts(

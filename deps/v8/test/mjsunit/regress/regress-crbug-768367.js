@@ -6,10 +6,8 @@
 
 const o = {};
 
-function foo() {
-  return o[4294967295];
-};
-%PrepareFunctionForOptimization(foo);
+function foo() { return o[4294967295]; }
+
 assertEquals(undefined, foo());
 assertEquals(undefined, foo());
 %OptimizeFunctionOnNextCall(foo);

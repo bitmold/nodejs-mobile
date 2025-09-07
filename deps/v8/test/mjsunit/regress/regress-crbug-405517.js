@@ -5,11 +5,11 @@
 // Flags: --allow-natives-syntax --gc-interval=203
 
 function f() {
-  var e = [0];
-  Object.preventExtensions(e);
-  for (var i = 0; i < 4; i++) e.shift();
-};
-%PrepareFunctionForOptimization(f);
+ var e = [0];
+ Object.preventExtensions(e);
+ for (var i = 0; i < 4; i++) e.shift();
+}
+
 f();
 f();
 %OptimizeFunctionOnNextCall(f);

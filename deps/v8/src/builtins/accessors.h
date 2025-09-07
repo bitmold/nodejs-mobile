@@ -5,8 +5,7 @@
 #ifndef V8_BUILTINS_ACCESSORS_H_
 #define V8_BUILTINS_ACCESSORS_H_
 
-#include "include/v8-local-handle.h"
-#include "src/base/bit-field.h"
+#include "include/v8.h"
 #include "src/common/globals.h"
 #include "src/objects/property-details.h"
 #include "src/utils/allocation.h"
@@ -44,12 +43,7 @@ class JavaScriptFrame;
     kHasSideEffectToReceiver)                                                 \
   V(_, function_prototype, FunctionPrototype, kHasNoSideEffect,               \
     kHasSideEffectToReceiver)                                                 \
-  V(_, string_length, StringLength, kHasNoSideEffect,                         \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, wrapped_function_length, WrappedFunctionLength, kHasNoSideEffect,      \
-    kHasSideEffectToReceiver)                                                 \
-  V(_, wrapped_function_name, WrappedFunctionName, kHasNoSideEffect,          \
-    kHasSideEffectToReceiver)
+  V(_, string_length, StringLength, kHasNoSideEffect, kHasSideEffectToReceiver)
 
 #define ACCESSOR_SETTER_LIST(V) \
   V(ArrayLengthSetter)          \
@@ -105,8 +99,8 @@ class Accessors : public AllStatic {
                                       FieldIndex* field_index);
 
   static MaybeHandle<Object> ReplaceAccessorWithDataProperty(
-      Isolate* isolate, Handle<Object> receiver, Handle<JSObject> holder,
-      Handle<Name> name, Handle<Object> value);
+      Handle<Object> receiver, Handle<JSObject> holder, Handle<Name> name,
+      Handle<Object> value);
 
   // Create an AccessorInfo. The setter is optional (can be nullptr).
   //

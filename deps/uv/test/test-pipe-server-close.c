@@ -68,7 +68,7 @@ TEST_IMPL(pipe_server_close) {
   int r;
 
   loop = uv_default_loop();
-  ASSERT_NOT_NULL(loop);
+  ASSERT(loop != NULL);
 
   r = uv_pipe_init(loop, &pipe_server, 0);
   ASSERT(r == 0);

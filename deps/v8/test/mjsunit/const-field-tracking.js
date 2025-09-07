@@ -101,8 +101,7 @@ function TestLoadFromConstantFieldOfAPrototype(the_value, other_value) {
   function warmup() { return new O().v; }
   %EnsureFeedbackVectorForFunction(warmup);
   warmup(); warmup(); warmup();
-  if (!%IsDictPropertyConstTrackingEnabled())
-    assertTrue(%HasFastProperties(O.prototype));
+  assertTrue(%HasFastProperties(O.prototype));
 
   // The parameter object is not constant but all the values have the same
   // map and therefore the compiler knows the prototype object and can

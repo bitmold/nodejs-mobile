@@ -12,8 +12,7 @@ function CallFunc(a) {
 }
 function CallFuncWithPrototype() {
   CallFunc(prototype);
-};
-%PrepareFunctionForOptimization(CallFuncWithPrototype);
+}
 CallFunc([]);
 CallFunc([]);
 %OptimizeFunctionOnNextCall(CallFuncWithPrototype);

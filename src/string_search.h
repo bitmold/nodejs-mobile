@@ -32,7 +32,7 @@ class Vector {
 
   // Returns true if the Vector is front-to-back, false if back-to-front.
   // In the latter case, v[0] corresponds to the *end* of the memory range.
-  bool forward() const { return is_forward_; }
+  size_t forward() const { return is_forward_; }
 
   // Access individual vector elements - checks bounds in debug mode.
   T& operator[](size_t index) const {
@@ -100,29 +100,17 @@ class StringSearch : private StringSearchBase {
     CHECK_GT(pattern_length, 0);
     if (pattern_length < kBMMinPatternLength) {
       if (pattern_length == 1) {
-        strategy_ = SearchStrategy::kSingleChar;
+        strategy_ = &StringSearch::SingleCharSearch;
         return;
       }
-      strategy_ = SearchStrategy::kLinear;
+      strategy_ = &StringSearch::LinearSearch;
       return;
     }
-    strategy_ = SearchStrategy::kInitial;
+    strategy_ = &StringSearch::InitialSearch;
   }
 
   size_t Search(Vector subject, size_t index) {
-    switch (strategy_) {
-      case kBoyerMooreHorspool:
-        return BoyerMooreHorspoolSearch(subject, index);
-      case kBoyerMoore:
-        return BoyerMooreSearch(subject, index);
-      case kInitial:
-        return InitialSearch(subject, index);
-      case kLinear:
-        return LinearSearch(subject, index);
-      case kSingleChar:
-        return SingleCharSearch(subject, index);
-    }
-    UNREACHABLE();
+    return (this->*strategy_)(subject, index);
   }
 
   static inline int AlphabetSize() {
@@ -161,17 +149,10 @@ class StringSearch : private StringSearchBase {
     return bad_char_occurrence[equiv_class];
   }
 
-  enum SearchStrategy {
-    kBoyerMooreHorspool,
-    kBoyerMoore,
-    kInitial,
-    kLinear,
-    kSingleChar,
-  };
-
   // The pattern to search for.
   Vector pattern_;
-  SearchStrategy strategy_;
+  // Pointer to implementation of the search.
+  SearchFunction strategy_;
   // Cache value of Max(0, pattern_length() - kBMMaxShift)
   size_t start_;
 };
@@ -458,7 +439,7 @@ size_t StringSearch<Char>::BoyerMooreHorspoolSearch(
   const size_t subject_length = subject.length();
   const size_t pattern_length = pattern_.length();
   int* char_occurrences = bad_char_shift_table_;
-  int64_t badness = -static_cast<int64_t>(pattern_length);
+  int64_t badness = -pattern_length;
 
   // How bad we are doing without a good-suffix table.
   Char last_char = pattern_[pattern_length - 1];
@@ -495,7 +476,7 @@ size_t StringSearch<Char>::BoyerMooreHorspoolSearch(
     badness += (pattern_length - j) - last_char_shift;
     if (badness > 0) {
       PopulateBoyerMooreTable();
-      strategy_ = SearchStrategy::kBoyerMoore;
+      strategy_ = &StringSearch::BoyerMooreSearch;
       return BoyerMooreSearch(subject, index);
     }
   }
@@ -567,7 +548,7 @@ size_t StringSearch<Char>::InitialSearch(
       badness += j;
     } else {
       PopulateBoyerMooreHorspoolTable();
-      strategy_ = SearchStrategy::kBoyerMooreHorspool;
+      strategy_ = &StringSearch::BoyerMooreHorspoolSearch;
       return BoyerMooreHorspoolSearch(subject, i);
     }
   }

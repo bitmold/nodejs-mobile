@@ -73,7 +73,7 @@ class Message : public BaseJsonAccessor {
     value_ = JsonValue::From(JsonObject{});
     set_jsonrpc("2.0");
   }
-  explicit Message(JsonValue value) : value_(std::move(value)) {
+  explicit Message(JsonValue& value) : value_(std::move(value)) {
     CHECK(value_.tag == JsonValue::OBJECT);
   }
 
@@ -82,8 +82,8 @@ class Message : public BaseJsonAccessor {
   JSON_STRING_ACCESSORS(jsonrpc)
 
  protected:
-  const JsonObject& object() const override { return value_.ToObject(); }
-  JsonObject& object() override { return value_.ToObject(); }
+  const JsonObject& object() const { return value_.ToObject(); }
+  JsonObject& object() { return value_.ToObject(); }
 
  private:
   JsonValue value_;
@@ -96,8 +96,8 @@ class NestedJsonAccessor : public BaseJsonAccessor {
  public:
   explicit NestedJsonAccessor(JsonObject& object) : object_(object) {}
 
-  const JsonObject& object() const override { return object_; }
-  JsonObject& object() override { return object_; }
+  const JsonObject& object() const { return object_; }
+  JsonObject& object() { return object_; }
 
  private:
   JsonObject& object_;
@@ -241,7 +241,7 @@ class Location : public NestedJsonAccessor {
   JSON_OBJECT_ACCESSORS(Range, range)
 
   void SetTo(SourcePosition position) {
-    set_uri(SourceFileMap::AbsolutePath(position.source));
+    set_uri(SourceFileMap::GetSource(position.source));
     range().start().set_line(position.start.line);
     range().start().set_character(position.start.column);
     range().end().set_line(position.end.line);
@@ -323,7 +323,7 @@ class SymbolInformation : public NestedJsonAccessor {
 template <class T>
 class Request : public Message {
  public:
-  explicit Request(JsonValue value) : Message(std::move(value)) {}
+  explicit Request(JsonValue& value) : Message(value) {}
   Request() : Message() {}
 
   JSON_INT_ACCESSORS(id)
@@ -341,7 +341,7 @@ using DocumentSymbolRequest = Request<DocumentSymbolParams>;
 template <class T>
 class Response : public Message {
  public:
-  explicit Response(JsonValue value) : Message(std::move(value)) {}
+  explicit Response(JsonValue& value) : Message(value) {}
   Response() : Message() {}
 
   JSON_INT_ACCESSORS(id)
@@ -355,7 +355,7 @@ using GotoDefinitionResponse = Response<Location>;
 template <class T>
 class ResponseArrayResult : public Message {
  public:
-  explicit ResponseArrayResult(JsonValue value) : Message(std::move(value)) {}
+  explicit ResponseArrayResult(JsonValue& value) : Message(value) {}
   ResponseArrayResult() : Message() {}
 
   JSON_INT_ACCESSORS(id)

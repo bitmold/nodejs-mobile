@@ -6,9 +6,9 @@
 #define V8_DIAGNOSTICS_EH_FRAME_H_
 
 #include "src/base/compiler-specific.h"
-#include "src/base/memory.h"
-#include "src/codegen/register.h"
+#include "src/codegen/register-arch.h"
 #include "src/common/globals.h"
+#include "src/common/v8memory.h"
 #include "src/zone/zone-containers.h"
 
 namespace v8 {
@@ -24,7 +24,6 @@ class V8_EXPORT_PRIVATE EhFrameConstants final
     kAdvanceLoc1 = 0x02,
     kAdvanceLoc2 = 0x03,
     kAdvanceLoc4 = 0x04,
-    kRestoreExtended = 0x06,
     kSameValue = 0x08,
     kDefCfa = 0x0c,
     kDefCfaRegister = 0x0d,
@@ -72,15 +71,13 @@ class V8_EXPORT_PRIVATE EhFrameConstants final
 class V8_EXPORT_PRIVATE EhFrameWriter {
  public:
   explicit EhFrameWriter(Zone* zone);
-  EhFrameWriter(const EhFrameWriter&) = delete;
-  EhFrameWriter& operator=(const EhFrameWriter&) = delete;
 
   // The empty frame is a hack to trigger fp-based unwinding in Linux perf
   // compiled with libunwind support when processing DWARF-based call graphs.
   //
   // It is effectively a valid eh_frame_hdr with an empty look up table.
   //
-  static void WriteEmptyEhFrame(std::ostream& stream);
+  static void WriteEmptyEhFrame(std::ostream& stream);  // NOLINT
 
   // Write the CIE and FDE header. Call it before any other method.
   void Initialize();
@@ -105,17 +102,11 @@ class V8_EXPORT_PRIVATE EhFrameWriter {
     RecordRegisterSavedToStack(RegisterToDwarfCode(name), offset);
   }
 
-  // Directly accepts a DWARF register code, needed for
-  // handling pseudo-registers on some platforms.
-  void RecordRegisterSavedToStack(int dwarf_register_code, int offset);
-
   // The register has not been modified from the previous frame.
   void RecordRegisterNotModified(Register name);
-  void RecordRegisterNotModified(int dwarf_register_code);
 
   // The register follows the rule defined in the CIE.
   void RecordRegisterFollowsInitialRule(Register name);
-  void RecordRegisterFollowsInitialRule(int dwarf_register_code);
 
   void Finish(int code_size);
 
@@ -153,11 +144,11 @@ class V8_EXPORT_PRIVATE EhFrameWriter {
   }
   void PatchInt32(int base_offset, uint32_t value) {
     DCHECK_EQ(
-        base::ReadUnalignedValue<uint32_t>(
-            reinterpret_cast<Address>(eh_frame_buffer_.data()) + base_offset),
+        ReadUnalignedUInt32(reinterpret_cast<Address>(eh_frame_buffer_.data()) +
+                            base_offset),
         kInt32Placeholder);
     DCHECK_LT(base_offset + kInt32Size, eh_frame_offset());
-    base::WriteUnalignedValue<uint32_t>(
+    WriteUnalignedUInt32(
         reinterpret_cast<Address>(eh_frame_buffer_.data()) + base_offset,
         value);
   }
@@ -177,6 +168,10 @@ class V8_EXPORT_PRIVATE EhFrameWriter {
 
   // Write nops until the size reaches a multiple of 8 bytes.
   void WritePaddingToAlignedSize(int unpadded_size);
+
+  // Internal version that directly accepts a DWARF register code, needed for
+  // handling pseudo-registers on some platforms.
+  void RecordRegisterSavedToStack(int register_code, int offset);
 
   int GetProcedureAddressOffset() const {
     return fde_offset() + EhFrameConstants::kProcedureAddressOffsetInFde;
@@ -208,6 +203,8 @@ class V8_EXPORT_PRIVATE EhFrameWriter {
   Register base_register_;
   int base_offset_;
   ZoneVector<byte> eh_frame_buffer_;
+
+  DISALLOW_COPY_AND_ASSIGN(EhFrameWriter);
 };
 
 class V8_EXPORT_PRIVATE EhFrameIterator {
@@ -219,9 +216,7 @@ class V8_EXPORT_PRIVATE EhFrameIterator {
 
   void SkipCie() {
     DCHECK_EQ(next_, start_);
-    next_ +=
-        base::ReadUnalignedValue<uint32_t>(reinterpret_cast<Address>(next_)) +
-        kInt32Size;
+    next_ += ReadUnalignedUInt32(reinterpret_cast<Address>(next_)) + kInt32Size;
   }
 
   void SkipToFdeDirectives() {
@@ -272,7 +267,7 @@ class V8_EXPORT_PRIVATE EhFrameIterator {
   T GetNextValue() {
     T result;
     DCHECK_LE(next_ + sizeof(result), end_);
-    result = base::ReadUnalignedValue<T>(reinterpret_cast<Address>(next_));
+    result = ReadUnalignedValue<T>(reinterpret_cast<Address>(next_));
     next_ += sizeof(result);
     return result;
   }
@@ -290,19 +285,19 @@ class EhFrameDisassembler final {
       : start_(start), end_(end) {
     DCHECK_LT(start, end);
   }
-  EhFrameDisassembler(const EhFrameDisassembler&) = delete;
-  EhFrameDisassembler& operator=(const EhFrameDisassembler&) = delete;
 
-  void DisassembleToStream(std::ostream& stream);
+  void DisassembleToStream(std::ostream& stream);  // NOLINT
 
  private:
-  static void DumpDwarfDirectives(std::ostream& stream, const byte* start,
-                                  const byte* end);
+  static void DumpDwarfDirectives(std::ostream& stream,  // NOLINT
+                                  const byte* start, const byte* end);
 
   static const char* DwarfRegisterCodeToString(int code);
 
   const byte* start_;
   const byte* end_;
+
+  DISALLOW_COPY_AND_ASSIGN(EhFrameDisassembler);
 };
 
 #endif

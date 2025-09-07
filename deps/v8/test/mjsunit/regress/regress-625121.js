@@ -5,7 +5,6 @@
 // Flags: --allow-natives-syntax
 
 function test(f) {
-  %PrepareFunctionForOptimization(f);
   f(0);
   f(NaN);
   %OptimizeFunctionOnNextCall(f);

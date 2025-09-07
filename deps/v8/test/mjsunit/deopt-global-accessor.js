@@ -10,18 +10,14 @@ x = 3;
 
 function f() {
   return x;
-};
-%PrepareFunctionForOptimization(f);
+}
+
 f();
 f();
 f();
 %OptimizeFunctionOnNextCall(f);
 f();
 
-Object.defineProperty(this, 'x', {
-  get: function() {
-    return 100;
-  }
-});
+Object.defineProperty(this, "x", {get:function() { return 100; }});
 
 assertEquals(100, f());

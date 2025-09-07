@@ -160,28 +160,28 @@ TEST(TrailingJunk) {
 
 
 TEST(NonStrDecimalLiteral) {
-  CHECK(std::isnan(StringToDouble(" ", NO_CONVERSION_FLAGS,
-                                  std::numeric_limits<double>::quiet_NaN())));
-  CHECK(std::isnan(StringToDouble("", NO_CONVERSION_FLAGS,
-                                  std::numeric_limits<double>::quiet_NaN())));
-  CHECK(std::isnan(StringToDouble(" ", NO_CONVERSION_FLAGS,
-                                  std::numeric_limits<double>::quiet_NaN())));
-  CHECK_EQ(0.0, StringToDouble("", NO_CONVERSION_FLAGS));
-  CHECK_EQ(0.0, StringToDouble(" ", NO_CONVERSION_FLAGS));
+  CHECK(std::isnan(
+      StringToDouble(" ", NO_FLAGS, std::numeric_limits<double>::quiet_NaN())));
+  CHECK(std::isnan(
+      StringToDouble("", NO_FLAGS, std::numeric_limits<double>::quiet_NaN())));
+  CHECK(std::isnan(
+      StringToDouble(" ", NO_FLAGS, std::numeric_limits<double>::quiet_NaN())));
+  CHECK_EQ(0.0, StringToDouble("", NO_FLAGS));
+  CHECK_EQ(0.0, StringToDouble(" ", NO_FLAGS));
 }
 
 
 TEST(IntegerStrLiteral) {
-  CHECK_EQ(0.0, StringToDouble("0.0", NO_CONVERSION_FLAGS));
-  CHECK_EQ(0.0, StringToDouble("0", NO_CONVERSION_FLAGS));
-  CHECK_EQ(0.0, StringToDouble("00", NO_CONVERSION_FLAGS));
-  CHECK_EQ(0.0, StringToDouble("000", NO_CONVERSION_FLAGS));
-  CHECK_EQ(1.0, StringToDouble("1", NO_CONVERSION_FLAGS));
-  CHECK_EQ(-1.0, StringToDouble("-1", NO_CONVERSION_FLAGS));
-  CHECK_EQ(-1.0, StringToDouble("  -1  ", NO_CONVERSION_FLAGS));
-  CHECK_EQ(1.0, StringToDouble("  +1  ", NO_CONVERSION_FLAGS));
-  CHECK(std::isnan(StringToDouble("  -  1  ", NO_CONVERSION_FLAGS)));
-  CHECK(std::isnan(StringToDouble("  +  1  ", NO_CONVERSION_FLAGS)));
+  CHECK_EQ(0.0, StringToDouble("0.0", NO_FLAGS));
+  CHECK_EQ(0.0, StringToDouble("0", NO_FLAGS));
+  CHECK_EQ(0.0, StringToDouble("00", NO_FLAGS));
+  CHECK_EQ(0.0, StringToDouble("000", NO_FLAGS));
+  CHECK_EQ(1.0, StringToDouble("1", NO_FLAGS));
+  CHECK_EQ(-1.0, StringToDouble("-1", NO_FLAGS));
+  CHECK_EQ(-1.0, StringToDouble("  -1  ", NO_FLAGS));
+  CHECK_EQ(1.0, StringToDouble("  +1  ", NO_FLAGS));
+  CHECK(std::isnan(StringToDouble("  -  1  ", NO_FLAGS)));
+  CHECK(std::isnan(StringToDouble("  +  1  ", NO_FLAGS)));
 
   CHECK_EQ(0.0, StringToDouble("0e0", ALLOW_HEX | ALLOW_IMPLICIT_OCTAL));
   CHECK_EQ(0.0, StringToDouble("0e1", ALLOW_HEX | ALLOW_IMPLICIT_OCTAL));
@@ -195,11 +195,11 @@ TEST(IntegerStrLiteral) {
 TEST(LongNumberStr) {
   CHECK_EQ(1e10, StringToDouble("1"
                                 "0000000000",
-                                NO_CONVERSION_FLAGS));
+                                NO_FLAGS));
   CHECK_EQ(1e20, StringToDouble("1"
                                 "0000000000"
                                 "0000000000",
-                                NO_CONVERSION_FLAGS));
+                                NO_FLAGS));
 
   CHECK_EQ(1e60, StringToDouble("1"
                                 "0000000000"
@@ -208,21 +208,21 @@ TEST(LongNumberStr) {
                                 "0000000000"
                                 "0000000000"
                                 "0000000000",
-                                NO_CONVERSION_FLAGS));
+                                NO_FLAGS));
 
   CHECK_EQ(1e-2, StringToDouble("."
                                 "0"
                                 "1",
-                                NO_CONVERSION_FLAGS));
+                                NO_FLAGS));
   CHECK_EQ(1e-11, StringToDouble("."
                                  "0000000000"
                                  "1",
-                                 NO_CONVERSION_FLAGS));
+                                 NO_FLAGS));
   CHECK_EQ(1e-21, StringToDouble("."
                                  "0000000000"
                                  "0000000000"
                                  "1",
-                                 NO_CONVERSION_FLAGS));
+                                 NO_FLAGS));
 
   CHECK_EQ(1e-61, StringToDouble("."
                                  "0000000000"
@@ -232,16 +232,16 @@ TEST(LongNumberStr) {
                                  "0000000000"
                                  "0000000000"
                                  "1",
-                                 NO_CONVERSION_FLAGS));
+                                 NO_FLAGS));
 
   // x = 24414062505131248.0 and y = 24414062505131252.0 are representable in
   // double. Check chat z = (x + y) / 2 is rounded to x...
   CHECK_EQ(24414062505131248.0,
-           StringToDouble("24414062505131250.0", NO_CONVERSION_FLAGS));
+           StringToDouble("24414062505131250.0", NO_FLAGS));
 
   // ... and z = (x + y) / 2 + delta is rounded to y.
   CHECK_EQ(24414062505131252.0,
-           StringToDouble("24414062505131250.000000001", NO_CONVERSION_FLAGS));
+           StringToDouble("24414062505131250.000000001", NO_FLAGS));
 }
 
 
@@ -261,14 +261,12 @@ TEST(MaximumSignificantDigits) {
       "847003580761626016356864581135848683152156368691976240370422601"
       "6998291015625000000000000000000000000000000000e-308";
 
-  CHECK_EQ(4.4501477170144017780491e-308,
-           StringToDouble(num, NO_CONVERSION_FLAGS));
+  CHECK_EQ(4.4501477170144017780491e-308, StringToDouble(num, NO_FLAGS));
 
   // Changes the result of strtod (at least in glibc implementation).
   num[sizeof(num) - 8] = '1';
 
-  CHECK_EQ(4.4501477170144022721148e-308,
-           StringToDouble(num, NO_CONVERSION_FLAGS));
+  CHECK_EQ(4.4501477170144022721148e-308, StringToDouble(num, NO_FLAGS));
 }
 
 
@@ -289,38 +287,36 @@ TEST(MinimumExponent) {
   "470035807616260163568645811358486831521563686919762403704226016"
   "998291015625000000000000000000000000000000000e-1108";
 
-  CHECK_EQ(4.4501477170144017780491e-308,
-           StringToDouble(num, NO_CONVERSION_FLAGS));
+  CHECK_EQ(4.4501477170144017780491e-308, StringToDouble(num, NO_FLAGS));
 
   // Changes the result of strtod (at least in glibc implementation).
   num[sizeof(num) - 8] = '1';
 
-  CHECK_EQ(4.4501477170144022721148e-308,
-           StringToDouble(num, NO_CONVERSION_FLAGS));
+  CHECK_EQ(4.4501477170144022721148e-308, StringToDouble(num, NO_FLAGS));
 }
 
 
 TEST(MaximumExponent) {
   char num[] = "0.16e309";
 
-  CHECK_EQ(1.59999999999999997765e+308,
-           StringToDouble(num, NO_CONVERSION_FLAGS));
+  CHECK_EQ(1.59999999999999997765e+308, StringToDouble(num, NO_FLAGS));
 }
 
 
 TEST(ExponentNumberStr) {
-  CHECK_EQ(1e1, StringToDouble("1e1", NO_CONVERSION_FLAGS));
-  CHECK_EQ(1e1, StringToDouble("1e+1", NO_CONVERSION_FLAGS));
-  CHECK_EQ(1e-1, StringToDouble("1e-1", NO_CONVERSION_FLAGS));
-  CHECK_EQ(1e100, StringToDouble("1e+100", NO_CONVERSION_FLAGS));
-  CHECK_EQ(1e-100, StringToDouble("1e-100", NO_CONVERSION_FLAGS));
-  CHECK_EQ(1e-106, StringToDouble(".000001e-100", NO_CONVERSION_FLAGS));
+  CHECK_EQ(1e1, StringToDouble("1e1", NO_FLAGS));
+  CHECK_EQ(1e1, StringToDouble("1e+1", NO_FLAGS));
+  CHECK_EQ(1e-1, StringToDouble("1e-1", NO_FLAGS));
+  CHECK_EQ(1e100, StringToDouble("1e+100", NO_FLAGS));
+  CHECK_EQ(1e-100, StringToDouble("1e-100", NO_FLAGS));
+  CHECK_EQ(1e-106, StringToDouble(".000001e-100", NO_FLAGS));
 }
 
-using OneBit1 = base::BitField<uint32_t, 0, 1>;
-using OneBit2 = base::BitField<uint32_t, 7, 1>;
-using EightBit1 = base::BitField<uint32_t, 0, 8>;
-using EightBit2 = base::BitField<uint32_t, 13, 8>;
+
+class OneBit1: public BitField<uint32_t, 0, 1> {};
+class OneBit2: public BitField<uint32_t, 7, 1> {};
+class EightBit1: public BitField<uint32_t, 0, 8> {};
+class EightBit2: public BitField<uint32_t, 13, 8> {};
 
 TEST(BitField) {
   uint32_t x;
@@ -355,19 +351,20 @@ TEST(BitField) {
   CHECK(!EightBit2::is_valid(256));
 }
 
-using UpperBits = base::BitField64<int, 61, 3>;
-using MiddleBits = base::BitField64<int, 31, 2>;
+
+class UpperBits: public BitField64<int, 61, 3> {};
+class MiddleBits: public BitField64<int, 31, 2> {};
 
 TEST(BitField64) {
   uint64_t x;
 
   // Test most significant bits.
-  x = 0xE000'0000'0000'0000;
+  x = V8_2PART_UINT64_C(0xE0000000, 00000000);
   CHECK(x == UpperBits::encode(7));
   CHECK_EQ(7, UpperBits::decode(x));
 
   // Test the 32/64-bit boundary bits.
-  x = 0x0000'0001'8000'0000;
+  x = V8_2PART_UINT64_C(0x00000001, 80000000);
   CHECK(x == MiddleBits::encode(3));
   CHECK_EQ(3, MiddleBits::decode(x));
 }

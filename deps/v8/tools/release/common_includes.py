@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 # Copyright 2013 the V8 project authors. All rights reserved.
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are
@@ -26,9 +26,12 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# for py2/py3 compatibility
+from __future__ import print_function
+
 import argparse
 import datetime
-from distutils.version import LooseVersion
+import httplib
 import glob
 import imp
 import json
@@ -40,14 +43,12 @@ import sys
 import textwrap
 import time
 import urllib
+import urllib2
 
 from git_recipes import GitRecipesMixin
 from git_recipes import GitFailedException
 
-import http.client as httplib
-import urllib.request as urllib2
-
-
+CHANGELOG_FILE = "ChangeLog"
 DAY_IN_SECONDS = 24 * 60 * 60
 PUSH_MSG_GIT_RE = re.compile(r".* \(based on (?P<git_rev>[a-fA-F0-9]+)\)$")
 PUSH_MSG_NEW_RE = re.compile(r"^Version \d+\.\d+\.\d+$")
@@ -92,6 +93,109 @@ def MSub(rexp, replacement, text):
   return re.sub(rexp, replacement, text, flags=re.MULTILINE)
 
 
+def Fill80(line):
+  # Replace tabs and remove surrounding space.
+  line = re.sub(r"\t", r"        ", line.strip())
+
+  # Format with 8 characters indentation and line width 80.
+  return textwrap.fill(line, width=80, initial_indent="        ",
+                       subsequent_indent="        ")
+
+
+def MakeComment(text):
+  return MSub(r"^( ?)", "#", text)
+
+
+def StripComments(text):
+  # Use split not splitlines to keep terminal newlines.
+  return "\n".join(filter(lambda x: not x.startswith("#"), text.split("\n")))
+
+
+def MakeChangeLogBody(commit_messages, auto_format=False):
+  result = ""
+  added_titles = set()
+  for (title, body, author) in commit_messages:
+    # TODO(machenbach): Better check for reverts. A revert should remove the
+    # original CL from the actual log entry.
+    title = title.strip()
+    if auto_format:
+      # Only add commits that set the LOG flag correctly.
+      log_exp = r"^[ \t]*LOG[ \t]*=[ \t]*(?:(?:Y(?:ES)?)|TRUE)"
+      if not re.search(log_exp, body, flags=re.I | re.M):
+        continue
+      # Never include reverts.
+      if title.startswith("Revert "):
+        continue
+      # Don't include duplicates.
+      if title in added_titles:
+        continue
+
+    # Add and format the commit's title and bug reference. Move dot to the end.
+    added_titles.add(title)
+    raw_title = re.sub(r"(\.|\?|!)$", "", title)
+    bug_reference = MakeChangeLogBugReference(body)
+    space = " " if bug_reference else ""
+    result += "%s\n" % Fill80("%s%s%s." % (raw_title, space, bug_reference))
+
+    # Append the commit's author for reference if not in auto-format mode.
+    if not auto_format:
+      result += "%s\n" % Fill80("(%s)" % author.strip())
+
+    result += "\n"
+  return result
+
+
+def MakeChangeLogBugReference(body):
+  """Grep for "BUG=xxxx" lines in the commit message and convert them to
+  "(issue xxxx)".
+  """
+  crbugs = []
+  v8bugs = []
+
+  def AddIssues(text):
+    ref = re.match(r"^BUG[ \t]*=[ \t]*(.+)$", text.strip())
+    if not ref:
+      return
+    for bug in ref.group(1).split(","):
+      bug = bug.strip()
+      match = re.match(r"^v8:(\d+)$", bug)
+      if match: v8bugs.append(int(match.group(1)))
+      else:
+        match = re.match(r"^(?:chromium:)?(\d+)$", bug)
+        if match: crbugs.append(int(match.group(1)))
+
+  # Add issues to crbugs and v8bugs.
+  map(AddIssues, body.splitlines())
+
+  # Filter duplicates, sort, stringify.
+  crbugs = map(str, sorted(set(crbugs)))
+  v8bugs = map(str, sorted(set(v8bugs)))
+
+  bug_groups = []
+  def FormatIssues(prefix, bugs):
+    if len(bugs) > 0:
+      plural = "s" if len(bugs) > 1 else ""
+      bug_groups.append("%sissue%s %s" % (prefix, plural, ", ".join(bugs)))
+
+  FormatIssues("", v8bugs)
+  FormatIssues("Chromium ", crbugs)
+
+  if len(bug_groups) > 0:
+    return "(%s)" % ", ".join(bug_groups)
+  else:
+    return ""
+
+
+def SortingKey(version):
+  """Key for sorting version number strings: '3.11' > '3.2.1.1'"""
+  version_keys = map(int, version.split("."))
+  # Fill up to full version numbers to normalize comparison.
+  while len(version_keys) < 4:  # pragma: no cover
+    version_keys.append(0)
+  # Fill digits.
+  return ".".join(map("{0:04d}".format, version_keys))
+
+
 # Some commands don't like the pipe, e.g. calling vi from within the script or
 # from subscripts like git cl upload.
 def Command(cmd, args="", prefix="", pipe=True, cwd=None):
@@ -103,7 +207,7 @@ def Command(cmd, args="", prefix="", pipe=True, cwd=None):
   sys.stdout.flush()
   try:
     if pipe:
-      return subprocess.check_output(cmd_line, shell=True, cwd=cwd).decode('utf-8')
+      return subprocess.check_output(cmd_line, shell=True, cwd=cwd)
     else:
       return subprocess.check_call(cmd_line, shell=True, cwd=cwd)
   except subprocess.CalledProcessError:
@@ -178,6 +282,9 @@ class SideEffectHandler(object):  # pragma: no cover
   def Sleep(self, seconds):
     time.sleep(seconds)
 
+  def GetDate(self):
+    return datetime.date.today().strftime("%Y-%m-%d")
+
   def GetUTCStamp(self):
     return time.mktime(datetime.datetime.utcnow().timetuple())
 
@@ -204,13 +311,13 @@ class VCInterface(object):
   def GetBranches(self):
     raise NotImplementedError()
 
-  def MainBranch(self):
+  def MasterBranch(self):
     raise NotImplementedError()
 
   def CandidateBranch(self):
     raise NotImplementedError()
 
-  def RemoteMainBranch(self):
+  def RemoteMasterBranch(self):
     raise NotImplementedError()
 
   def RemoteCandidateBranch(self):
@@ -246,16 +353,16 @@ class GitInterface(VCInterface):
         lambda s: re.match(r"^branch\-heads/\d+\.\d+$", s),
         self.step.GitRemotes())
     # Remove 'branch-heads/' prefix.
-    return [b[13:] for b in branches]
+    return map(lambda s: s[13:], branches)
 
-  def MainBranch(self):
-    return "main"
+  def MasterBranch(self):
+    return "master"
 
   def CandidateBranch(self):
     return "candidates"
 
-  def RemoteMainBranch(self):
-    return "origin/main"
+  def RemoteMasterBranch(self):
+    return "origin/master"
 
   def RemoteCandidateBranch(self):
     return "origin/candidates"
@@ -265,7 +372,7 @@ class GitInterface(VCInterface):
     # want.
     if name.startswith('refs/'):
       return name
-    if name in ["candidates", "main"]:
+    if name in ["candidates", "master"]:
       return "refs/remotes/origin/%s" % name
     try:
       # Check if branch is in heads.
@@ -420,6 +527,9 @@ class Step(GitRecipesMixin):
     cmd = lambda: self._side_effect_handler.ReadURL(url, params)
     return self.Retry(cmd, retry_on, wait_plan)
 
+  def GetDate(self):
+    return self._side_effect_handler.GetDate()
+
   def Die(self, msg=""):
     if msg != "":
       print("Error: %s" % msg)
@@ -464,8 +574,8 @@ class Step(GitRecipesMixin):
     if not self.GitIsWorkdirClean():  # pragma: no cover
       self.Die("Workspace is not clean. Please commit or undo your changes.")
 
-    # Checkout main in case the script was left on a work branch.
-    self.GitCheckout('origin/main')
+    # Checkout master in case the script was left on a work branch.
+    self.GitCheckout('origin/master')
 
     # Fetch unfetched revisions.
     self.vc.Fetch()
@@ -475,7 +585,7 @@ class Step(GitRecipesMixin):
     self.DeleteBranch(self._config["BRANCHNAME"])
 
   def CommonCleanup(self):
-    self.GitCheckout('origin/main')
+    self.GitCheckout('origin/master')
     self.GitDeleteBranch(self._config["BRANCHNAME"])
 
     # Clean up all temporary files.
@@ -501,7 +611,7 @@ class Step(GitRecipesMixin):
   def WaitForLGTM(self):
     print ("Please wait for an LGTM, then type \"LGTM<Return>\" to commit "
            "your change. (If you need to iterate on the patch or double check "
-           "that it's sensible, do so in another shell, but remember to not "
+           "that it's sane, do so in another shell, but remember to not "
            "change the headline of the uploaded CL.")
     answer = ""
     while answer != "LGTM":
@@ -547,7 +657,7 @@ class Step(GitRecipesMixin):
                          int(time_now - max_age)).strip()
 
     # Filter out revisions who's tag is off by one or more commits.
-    return list(filter(self.GetVersionTag, revisions.splitlines()))
+    return filter(lambda r: self.GetVersionTag(r), revisions.splitlines())
 
   def GetLatestVersion(self):
     # Use cached version if available.
@@ -561,7 +671,7 @@ class Step(GitRecipesMixin):
     only_version_tags = NormalizeVersionTags(all_tags)
 
     version = sorted(only_version_tags,
-                     key=LooseVersion, reverse=True)[0]
+                     key=SortingKey, reverse=True)[0]
     self["latest_version"] = version
     return version
 
@@ -595,13 +705,13 @@ class Step(GitRecipesMixin):
     if match:
       # Legacy: In the old process there's one level of indirection. The
       # version is on the candidates branch and points to the real release
-      # base on main through the commit message.
+      # base on master through the commit message.
       return match.group("git_rev")
     match = PUSH_MSG_NEW_RE.match(title)
     if match:
-      # This is a new-style v8 version branched from main. The commit
+      # This is a new-style v8 version branched from master. The commit
       # "latest_hash" is the version-file change. Its parent is the release
-      # base on main.
+      # base on master.
       return self.GitLog(n=1, format="%H", git_hash="%s^" % latest_hash)
 
     self.Die("Unknown latest release: %s" % latest_hash)
@@ -679,7 +789,7 @@ class UploadStep(Step):
 
     self.GitUpload(reviewer, self._options.force_upload,
                    bypass_hooks=self._options.bypass_upload_hooks,
-                   tbr_reviewer=tbr_reviewer)
+                   cc=self._options.cc, tbr_reviewer=tbr_reviewer)
 
 
 def MakeStep(step_class=Step, number=0, state=None, config=None,

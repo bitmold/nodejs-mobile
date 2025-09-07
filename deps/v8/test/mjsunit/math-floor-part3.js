@@ -32,7 +32,6 @@ var test_id = 0;
 function testFloor(expect, input) {
   var test = new Function('n',
                           '"' + (test_id++) + '";return Math.floor(n)');
-  %PrepareFunctionForOptimization(test);
   assertEquals(expect, test(input));
   assertEquals(expect, test(input));
   assertEquals(expect, test(input));
@@ -42,7 +41,6 @@ function testFloor(expect, input) {
   var test_double_input = new Function(
       'n',
       '"' + (test_id++) + '";return Math.floor(+n)');
-  %PrepareFunctionForOptimization(test_double_input);
   assertEquals(expect, test_double_input(input));
   assertEquals(expect, test_double_input(input));
   assertEquals(expect, test_double_input(input));
@@ -52,7 +50,6 @@ function testFloor(expect, input) {
   var test_double_output = new Function(
       'n',
       '"' + (test_id++) + '";return Math.floor(n) + -0.0');
-  %PrepareFunctionForOptimization(test_double_output);
   assertEquals(expect, test_double_output(input));
   assertEquals(expect, test_double_output(input));
   assertEquals(expect, test_double_output(input));
@@ -62,7 +59,6 @@ function testFloor(expect, input) {
   var test_via_ceil = new Function(
       'n',
       '"' + (test_id++) + '";return -Math.ceil(-n)');
-  %PrepareFunctionForOptimization(test_via_ceil);
   assertEquals(expect, test_via_ceil(input));
   assertEquals(expect, test_via_ceil(input));
   assertEquals(expect, test_via_ceil(input));
@@ -73,7 +69,6 @@ function testFloor(expect, input) {
     var test_via_trunc = new Function(
         'n',
         '"' + (test_id++) + '";return Math.trunc(n)');
-    %PrepareFunctionForOptimization(test_via_trunc);
     assertEquals(expect, test_via_trunc(input));
     assertEquals(expect, test_via_trunc(input));
     assertEquals(expect, test_via_trunc(input));

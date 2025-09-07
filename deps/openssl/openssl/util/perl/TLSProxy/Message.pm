@@ -1,6 +1,6 @@
-# Copyright 2016-2021 The OpenSSL Project Authors. All Rights Reserved.
+# Copyright 2016-2019 The OpenSSL Project Authors. All Rights Reserved.
 #
-# Licensed under the Apache License 2.0 (the "License").  You may not use
+# Licensed under the OpenSSL license (the "License").  You may not use
 # this file except in compliance with the License.  You can obtain a copy
 # in the file LICENSE in the source distribution or at
 # https://www.openssl.org/source/license.html
@@ -127,11 +127,6 @@ use constant {
     CIPHER_ADH_AES_128_SHA => 0x0034,
     CIPHER_TLS13_AES_128_GCM_SHA256 => 0x1301,
     CIPHER_TLS13_AES_256_GCM_SHA384 => 0x1302
-};
-
-use constant {
-    CLIENT => 0,
-    SERVER => 1
 };
 
 my $payload = "";
@@ -343,15 +338,6 @@ sub create_message
             [@message_frag_lens]
         );
         $message->parse();
-    } elsif ($mt == MT_CERTIFICATE_REQUEST) {
-        $message = TLSProxy::CertificateRequest->new(
-            $server,
-            $data,
-            [@message_rec_list],
-            $startoffset,
-            [@message_frag_lens]
-        );
-        $message->parse();
     } elsif ($mt == MT_CERTIFICATE_VERIFY) {
         $message = TLSProxy::CertificateVerify->new(
             $server,
@@ -448,7 +434,7 @@ sub ciphersuite
 }
 
 #Update all the underlying records with the modified data from this message
-#Note: Only supports TLSv1.3 and ETM encryption
+#Note: Only supports re-encrypting for TLSv1.3
 sub repack
 {
     my $self = shift;
@@ -490,38 +476,15 @@ sub repack
         # (If a length override is ever needed to construct invalid packets,
         #  use an explicit override field instead.)
         $rec->decrypt_len(length($rec->decrypt_data));
-        # Only support re-encryption for TLSv1.3 and ETM.
-        if ($rec->encrypted()) {
-            if (TLSProxy::Proxy->is_tls13()) {
-                #Add content type (1 byte) and 16 tag bytes
-                $rec->data($rec->decrypt_data
-                    .pack("C", TLSProxy::Record::RT_HANDSHAKE).("\0"x16));
-            } elsif ($rec->etm()) {
-                my $data = $rec->decrypt_data;
-                #Add padding
-                my $padval = length($data) % 16;
-                $padval = 15 - $padval;
-                for (0..$padval) {
-                    $data .= pack("C", $padval);
-                }
-
-                #Add MAC. Assumed to be 20 bytes
-                foreach my $macval (0..19) {
-                    $data .= pack("C", $macval);
-                }
-
-                if ($rec->version() >= TLSProxy::Record::VERS_TLS_1_1) {
-                    #Explicit IV
-                    $data = ("\0"x16).$data;
-                }
-                $rec->data($data);
-            } else {
-                die "Unsupported encryption: No ETM";
-            }
+        $rec->len($rec->len + length($msgdata) - $old_length);
+        # Only support re-encryption for TLSv1.3.
+        if (TLSProxy::Proxy->is_tls13() && $rec->encrypted()) {
+            #Add content type (1 byte) and 16 tag bytes
+            $rec->data($rec->decrypt_data
+                .pack("C", TLSProxy::Record::RT_HANDSHAKE).("\0"x16));
         } else {
             $rec->data($rec->decrypt_data);
         }
-        $rec->len(length($rec->data));
 
         #Update the fragment len in case we changed it above
         ${$self->message_frag_lens}[0] = length($msgdata)

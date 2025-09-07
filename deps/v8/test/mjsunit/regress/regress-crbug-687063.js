@@ -19,10 +19,9 @@ function foo() {
       return undefined;
     }
   });
-
   return lhs < rhs;
-};
-%PrepareFunctionForOptimization(foo);
+}
+
 assertThrows(foo, TypeError);
 assertEquals([Symbol.toPrimitive, 'valueOf', 'toString'], actual);
 assertThrows(foo, TypeError);

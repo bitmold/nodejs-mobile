@@ -3,11 +3,7 @@
 // found in the LICENSE file.
 
 // Flags: --allow-natives-syntax --turbo-inline-array-builtins --opt
-// Flags: --no-always-opt --no-lazy-feedback-allocation
-
-// TODO(v8:10195): Fix these tests s.t. we assert deoptimization occurs when
-// expected (e.g. in a %DeoptimizeNow call), then remove
-// --no-lazy-feedback-allocation.
+// Flags: --no-always-opt
 
 // Early exit from some functions properly.
 (() => {
@@ -19,7 +15,6 @@
       return v > 2;
     });
   }
-  %PrepareFunctionForOptimization(earlyExit);
   assertTrue(earlyExit());
   earlyExit();
   %OptimizeFunctionOnNextCall(earlyExit);
@@ -40,7 +35,6 @@
        return v > 7;
      });
   }
-  %PrepareFunctionForOptimization(softyPlusEarlyExit);
   assertTrue(softyPlusEarlyExit(false));
   softyPlusEarlyExit(false);
   %OptimizeFunctionOnNextCall(softyPlusEarlyExit);
@@ -64,7 +58,6 @@
        return v > 7;
      });
   }
-  %PrepareFunctionForOptimization(softyPlusEarlyExit);
   assertTrue(softyPlusEarlyExit(false));
   assertArrayEquals([1, 2, 3, 4, 5, 6, 7, 8], called_values);
   softyPlusEarlyExit(false);
@@ -88,7 +81,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(eagerDeoptInCalled);
   eagerDeoptInCalled();
   eagerDeoptInCalled();
   %OptimizeFunctionOnNextCall(eagerDeoptInCalled);
@@ -110,7 +102,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(eagerDeoptInCalled);
   assertFalse(eagerDeoptInCalled());
   assertArrayEquals([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], called_values);
   eagerDeoptInCalled();
@@ -134,7 +125,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(lazyChanger);
   assertFalse(lazyChanger());
   lazyChanger();
   %OptimizeFunctionOnNextCall(lazyChanger);
@@ -154,7 +144,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(lazyChanger);
   assertFalse(lazyChanger());
   lazyChanger();
   %OptimizeFunctionOnNextCall(lazyChanger);
@@ -175,7 +164,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(lazyChanger);
   assertFalse(lazyChanger());
   lazyChanger();
   %OptimizeFunctionOnNextCall(lazyChanger);
@@ -196,7 +184,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(eagerDeoptInCalled);
   eagerDeoptInCalled();
   eagerDeoptInCalled();
   %OptimizeFunctionOnNextCall(eagerDeoptInCalled);
@@ -220,7 +207,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   lazyDeopt();
   lazyDeopt();
   %OptimizeFunctionOnNextCall(lazyDeopt);
@@ -246,7 +232,6 @@
     %NeverOptimizeFunction(callback);
     a.some(callback);
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   lazyDeopt();
   lazyDeopt();
   %OptimizeFunctionOnNextCall(lazyDeopt);
@@ -274,7 +259,6 @@
       caught = true;
     }
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   lazyDeopt();
   lazyDeopt();
   %OptimizeFunctionOnNextCall(lazyDeopt);
@@ -303,7 +287,6 @@
       caught = true;
     }
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   lazyDeopt();
   lazyDeopt();
   %OptimizeFunctionOnNextCall(lazyDeopt);
@@ -335,7 +318,6 @@
     }
     return result;
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   assertEquals(false, lazyDeopt(false));
   assertEquals(false, lazyDeopt(false));
   assertEquals("nope", lazyDeopt(true));
@@ -361,7 +343,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   lazyDeopt();
   lazyDeopt();
   %OptimizeFunctionOnNextCall(lazyDeopt);
@@ -389,7 +370,6 @@
     b.some(callback);
     return did_assert_error;
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   lazyDeopt();
   lazyDeopt();
   %OptimizeFunctionOnNextCall(lazyDeopt);
@@ -417,7 +397,6 @@
     });
     return did_assert_error;
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   lazyDeopt();
   lazyDeopt();
   %OptimizeFunctionOnNextCall(lazyDeopt);
@@ -441,7 +420,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(lazyDeopt);
   assertThrows(() => lazyDeopt());
   assertThrows(() => lazyDeopt());
   try {
@@ -467,7 +445,6 @@
       return false;
     });
   }
-  %PrepareFunctionForOptimization(prototypeChanged);
   prototypeChanged();
   prototypeChanged();
   %OptimizeFunctionOnNextCall(prototypeChanged);
@@ -489,7 +466,6 @@
     });
     return callback_values;
   }
-  %PrepareFunctionForOptimization(withHoles);
   withHoles();
   withHoles();
   %OptimizeFunctionOnNextCall(withHoles);
@@ -506,7 +482,6 @@
     });
     return callback_values;
   }
-  %PrepareFunctionForOptimization(withHoles);
   withHoles();
   withHoles();
   %OptimizeFunctionOnNextCall(withHoles);
@@ -519,7 +494,6 @@
   function notCallable() {
     return a.some(undefined);
   }
-  %PrepareFunctionForOptimization(notCallable);
 
   assertThrows(notCallable, TypeError);
   try { notCallable(); } catch(e) { }

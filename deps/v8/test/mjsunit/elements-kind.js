@@ -26,7 +26,6 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 // Flags: --allow-natives-syntax --expose-gc --nostress-opt
-// Flags: --deopt-every-n-times=0
 
 var elements_kind = {
   fast_smi_only             :  'fast smi only elements',
@@ -110,16 +109,11 @@ function test_wrapper() {
   assertKind(elements_kind.fast, you);
 
   var temp = [];
-  // If we store beyond kMaxGap (1024) we should transition to slow elements.
-  temp[1024] = 0;
+  temp[0xDECAF] = 0;
   assertKind(elements_kind.dictionary, temp);
 
   var fast_double_array = new Array(0xDECAF);
-  // If the gap is greater than 1024 (kMaxGap) we would transition the array
-  // to slow. So increment should be less than 1024.
-  for (var i = 0; i < 0xDECAF; i+=1023) {
-    fast_double_array[i] = i / 2;
-  }
+  for (var i = 0; i < 0xDECAF; i++) fast_double_array[i] = i / 2;
   assertKind(elements_kind.fast_double, fast_double_array);
 
   assertKind(elements_kind.fixed_int8,    new Int8Array(007));
@@ -239,12 +233,12 @@ convert_to_fast(smis);
 convert_to_fast(doubles);
 // Test transition chain SMI->DOUBLE->FAST (crankshafted function will
 // transition to FAST directly).
+%EnsureFeedbackVectorForFunction(convert_mixed);
 function convert_mixed(array, value, kind) {
   array[1] = value;
   assertKind(kind, array);
   assertEquals(value, array[1]);
 }
-%PrepareFunctionForOptimization(convert_mixed);
 smis = construct_smis();
 for (var i = 0; i < 3; i++) {
   convert_mixed(smis, 1.5, elements_kind.fast_double);

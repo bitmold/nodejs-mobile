@@ -28,8 +28,7 @@
 (function f() {
   function assignSloppy() {
     f += "x";
-  };
-  %PrepareFunctionForOptimization(assignSloppy);
+  }
   assertDoesNotThrow(assignSloppy);
   assertDoesNotThrow(assignSloppy);
   %OptimizeFunctionOnNextCall(assignSloppy);
@@ -38,8 +37,7 @@
   function assignStrict() {
     'use strict';
     f += "x";
-  };
-  %PrepareFunctionForOptimization(assignStrict);
+  }
   assertThrows(assignStrict, TypeError);
   assertThrows(assignStrict, TypeError);
   %OptimizeFunctionOnNextCall(assignStrict);

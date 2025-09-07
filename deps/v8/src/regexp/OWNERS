@@ -1,2 +1,6 @@
+set noparent
+
 jgruber@chromium.org
-pthier@chromium.org
+yangguo@chromium.org
+
+# COMPONENT: Blink>JavaScript>Runtime

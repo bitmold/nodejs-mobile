@@ -4,10 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-function foo() {
-  return Number.isNaN();
-};
-%PrepareFunctionForOptimization(foo);
+function foo() { return Number.isNaN(); }
 assertFalse(foo());
 assertFalse(foo());
 %OptimizeFunctionOnNextCall(foo);

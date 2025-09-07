@@ -29,14 +29,12 @@
 
 #include <memory>
 
-#include "include/v8-extension.h"
-#include "include/v8-function.h"
-#include "include/v8-locker.h"
+#include "src/init/v8.h"
+
 #include "src/base/platform/platform.h"
 #include "src/codegen/compilation-cache.h"
 #include "src/execution/execution.h"
 #include "src/execution/isolate.h"
-#include "src/init/v8.h"
 #include "src/objects/objects-inl.h"
 #include "src/strings/unicode-inl.h"
 #include "src/utils/utils.h"
@@ -56,15 +54,14 @@ class DeoptimizeCodeThread : public v8::base::Thread {
   void Run() override {
     v8::Locker locker(isolate_);
     isolate_->Enter();
-    {
-      v8::HandleScope handle_scope(isolate_);
-      v8::Local<v8::Context> context =
-          v8::Local<v8::Context>::New(isolate_, context_);
-      v8::Context::Scope context_scope(context);
-      // This code triggers deoptimization of some function that will be
-      // used in a different thread.
-      CompileRun(source_);
-    }
+    v8::HandleScope handle_scope(isolate_);
+    v8::Local<v8::Context> context =
+        v8::Local<v8::Context>::New(isolate_, context_);
+    v8::Context::Scope context_scope(context);
+    CHECK_EQ(isolate_, v8::Isolate::GetCurrent());
+    // This code triggers deoptimization of some function that will be
+    // used in a different thread.
+    CompileRun(source_);
     isolate_->Exit();
   }
 
@@ -76,7 +73,7 @@ class DeoptimizeCodeThread : public v8::base::Thread {
 };
 
 void UnlockForDeoptimization(const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::Isolate* isolate = args.GetIsolate();
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
   // Gets the pointer to the thread that will trigger the deoptimization of the
   // code.
   DeoptimizeCodeThread* deoptimizer =
@@ -86,7 +83,7 @@ void UnlockForDeoptimization(const v8::FunctionCallbackInfo<v8::Value>& args) {
     isolate->Exit();
     v8::Unlocker unlocker(isolate);
     // Starts the deoptimizing thread.
-    CHECK(deoptimizer->Start());
+    deoptimizer->Start();
     // Waits for deoptimization to finish.
     deoptimizer->Join();
   }
@@ -97,7 +94,7 @@ void UnlockForDeoptimization(const v8::FunctionCallbackInfo<v8::Value>& args) {
 
 void UnlockForDeoptimizationIfReady(
     const v8::FunctionCallbackInfo<v8::Value>& args) {
-  v8::Isolate* isolate = args.GetIsolate();
+  v8::Isolate* isolate = v8::Isolate::GetCurrent();
   bool* ready_to_deoptimize = reinterpret_cast<bool*>(isolate->GetData(1));
   if (*ready_to_deoptimize) {
     // The test should enter here only once, so put the flag back to false.
@@ -111,7 +108,7 @@ void UnlockForDeoptimizationIfReady(
       isolate->Exit();
       v8::Unlocker unlocker(isolate);
       // Starts the thread that deoptimizes the function.
-      CHECK(deoptimizer->Start());
+      deoptimizer->Start();
       // Waits for the deoptimizing thread to finish.
       deoptimizer->Join();
     }
@@ -300,6 +297,7 @@ class KangarooThread : public v8::base::Thread {
     {
       v8::Locker locker(isolate_);
       v8::Isolate::Scope isolate_scope(isolate_);
+      CHECK_EQ(isolate_, v8::Isolate::GetCurrent());
       v8::HandleScope scope(isolate_);
       v8::Local<v8::Context> context =
           v8::Local<v8::Context>::New(isolate_, context_);
@@ -340,10 +338,11 @@ TEST(KangarooIsolates) {
     v8::HandleScope handle_scope(isolate);
     v8::Local<v8::Context> context = v8::Context::New(isolate);
     v8::Context::Scope context_scope(context);
+    CHECK_EQ(isolate, v8::Isolate::GetCurrent());
     CompileRun("function getValue() { return 30; }");
     thread1.reset(new KangarooThread(isolate, context));
   }
-  CHECK(thread1->Start());
+  thread1->Start();
   thread1->Join();
 }
 
@@ -367,10 +366,10 @@ class JoinableThread {
   }
 
   virtual ~JoinableThread() = default;
-  JoinableThread(const JoinableThread&) = delete;
-  JoinableThread& operator=(const JoinableThread&) = delete;
 
-  void Start() { CHECK(thread_.Start()); }
+  void Start() {
+    thread_.Start();
+  }
 
   void Join() {
     semaphore_.Wait();
@@ -400,6 +399,8 @@ class JoinableThread {
   ThreadWithSemaphore thread_;
 
   friend class ThreadWithSemaphore;
+
+  DISALLOW_COPY_AND_ASSIGN(JoinableThread);
 };
 
 
@@ -415,6 +416,7 @@ class IsolateLockingThreadWithLocalContext : public JoinableThread {
     v8::Isolate::Scope isolate_scope(isolate_);
     v8::HandleScope handle_scope(isolate_);
     LocalContext local_context(isolate_);
+    CHECK_EQ(isolate_, v8::Isolate::GetCurrent());
     CalcFibAndCheck(local_context.local());
   }
  private:
@@ -948,7 +950,7 @@ TEST(ExtensionsRegistration) {
                                    "test4", "test5", "test6", "test7"};
   for (const char* name : extension_names) {
     v8::RegisterExtension(
-        std::make_unique<v8::Extension>(name, kSimpleExtensionSource));
+        v8::base::make_unique<v8::Extension>(name, kSimpleExtensionSource));
   }
   std::vector<JoinableThread*> threads;
   threads.reserve(kNThreads);

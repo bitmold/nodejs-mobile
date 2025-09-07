@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --allow-natives-syntax
+// Flags: --allow-natives-syntax --harmony-dynamic-import
 // Resources: test/mjsunit/regress/modules-skip-regress-797581-1.js
 // Resources: test/mjsunit/regress/modules-skip-regress-797581-2.js
 // Resources: test/mjsunit/regress/modules-skip-regress-797581-3.js
@@ -21,7 +21,7 @@ function TryToLoadModule(filename, expect_error, token) {
 
   if (expect_error) {
     assertTrue(caught_error instanceof SyntaxError);
-    assertEquals("Unexpected token '" + token + "'", caught_error.message);
+    assertEquals("Unexpected token " + token, caught_error.message);
   } else {
     assertEquals(undefined, caught_error);
   }

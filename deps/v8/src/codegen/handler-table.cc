@@ -4,64 +4,42 @@
 
 #include "src/codegen/handler-table.h"
 
-#include <algorithm>
 #include <iomanip>
 
-#include "src/base/iterator.h"
 #include "src/codegen/assembler-inl.h"
 #include "src/objects/code-inl.h"
 #include "src/objects/objects-inl.h"
-
-#if V8_ENABLE_WEBASSEMBLY
-#include "src/wasm/wasm-code-manager.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace v8 {
 namespace internal {
 
 HandlerTable::HandlerTable(Code code)
-    : HandlerTable(code.HandlerTableAddress(), code.handler_table_size(),
-                   kReturnAddressBasedEncoding) {}
-
-#if V8_ENABLE_WEBASSEMBLY
-HandlerTable::HandlerTable(const wasm::WasmCode* code)
-    : HandlerTable(code->handler_table(), code->handler_table_size(),
-                   kReturnAddressBasedEncoding) {}
-#endif  // V8_ENABLE_WEBASSEMBLY
+    : HandlerTable(code.InstructionStart() + code.handler_table_offset(),
+                   code.handler_table_size()) {}
 
 HandlerTable::HandlerTable(BytecodeArray bytecode_array)
     : HandlerTable(bytecode_array.handler_table()) {}
 
 HandlerTable::HandlerTable(ByteArray byte_array)
-    : HandlerTable(reinterpret_cast<Address>(byte_array.GetDataStartAddress()),
-                   byte_array.length(), kRangeBasedEncoding) {}
-
-HandlerTable::HandlerTable(Address handler_table, int handler_table_size,
-                           EncodingMode encoding_mode)
-    : number_of_entries_(handler_table_size / EntrySizeFromMode(encoding_mode) /
+    : number_of_entries_(byte_array.length() / kRangeEntrySize /
                          sizeof(int32_t)),
 #ifdef DEBUG
-      mode_(encoding_mode),
+      mode_(kRangeBasedEncoding),
 #endif
-      raw_encoded_data_(handler_table) {
-  // Check padding.
-  static_assert(4 < kReturnEntrySize * sizeof(int32_t), "allowed padding");
-  // For return address encoding, maximum padding is 4; otherwise, there should
-  // be no padding.
-  DCHECK_GE(kReturnAddressBasedEncoding == encoding_mode ? 4 : 0,
-            handler_table_size %
-                (EntrySizeFromMode(encoding_mode) * sizeof(int32_t)));
+      raw_encoded_data_(
+          reinterpret_cast<Address>(byte_array.GetDataStartAddress())) {
+  DCHECK_EQ(0, byte_array.length() % (kRangeEntrySize * sizeof(int32_t)));
 }
 
-// static
-int HandlerTable::EntrySizeFromMode(EncodingMode mode) {
-  switch (mode) {
-    case kReturnAddressBasedEncoding:
-      return kReturnEntrySize;
-    case kRangeBasedEncoding:
-      return kRangeEntrySize;
-  }
-  UNREACHABLE();
+HandlerTable::HandlerTable(Address handler_table, int handler_table_size)
+    : number_of_entries_(handler_table_size / kReturnEntrySize /
+                         sizeof(int32_t)),
+#ifdef DEBUG
+      mode_(kReturnAddressBasedEncoding),
+#endif
+      raw_encoded_data_(handler_table) {
+  static_assert(4 < kReturnEntrySize * sizeof(int32_t), "allowed padding");
+  DCHECK_GE(4, handler_table_size % (kReturnEntrySize * sizeof(int32_t)));
 }
 
 int HandlerTable::GetRangeStart(int index) const {
@@ -147,7 +125,7 @@ int HandlerTable::LengthForRange(int entries) {
 
 // static
 int HandlerTable::EmitReturnTableStart(Assembler* masm) {
-  masm->DataAlign(Code::kMetadataAlignment);
+  masm->DataAlign(sizeof(int32_t));  // Make sure entries are aligned.
   masm->RecordComment(";;; Exception handler table.");
   int table_start = masm->pc_offset();
   return table_start;
@@ -199,41 +177,15 @@ int HandlerTable::LookupRange(int pc_offset, int* data_out,
   return innermost_handler;
 }
 
+// TODO(turbofan): Make sure table is sorted and use binary search.
 int HandlerTable::LookupReturn(int pc_offset) {
-  // We only implement the methods needed by the standard libraries we care
-  // about. This is not technically a full random access iterator by the spec.
-  struct Iterator : base::iterator<std::random_access_iterator_tag, int> {
-    Iterator(HandlerTable* tbl, int idx) : table(tbl), index(idx) {}
-    value_type operator*() const { return table->GetReturnOffset(index); }
-    bool operator!=(const Iterator& other) const { return !(*this == other); }
-    bool operator==(const Iterator& other) const {
-      return index == other.index;
+  for (int i = 0; i < NumberOfReturnEntries(); ++i) {
+    int return_offset = GetReturnOffset(i);
+    if (pc_offset == return_offset) {
+      return GetReturnHandler(i);
     }
-    // GLIBCXX_DEBUG checks uses the <= comparator.
-    bool operator<=(const Iterator& other) { return index <= other.index; }
-    Iterator& operator++() {
-      index++;
-      return *this;
-    }
-    Iterator& operator--() {
-      index--;
-      return *this;
-    }
-    Iterator& operator+=(difference_type offset) {
-      index += offset;
-      return *this;
-    }
-    difference_type operator-(const Iterator& other) const {
-      return index - other.index;
-    }
-    HandlerTable* table;
-    int index;
-  };
-  Iterator begin{this, 0}, end{this, NumberOfReturnEntries()};
-  SLOW_DCHECK(std::is_sorted(begin, end));  // Must be sorted.
-  Iterator result = std::lower_bound(begin, end, pc_offset);
-  bool exact_match = result != end && *result == pc_offset;
-  return exact_match ? GetReturnHandler(result.index) : -1;
+  }
+  return -1;
 }
 
 #ifdef ENABLE_DISASSEMBLER

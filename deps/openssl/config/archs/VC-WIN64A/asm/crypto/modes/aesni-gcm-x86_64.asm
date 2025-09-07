@@ -8,7 +8,6 @@ section	.text code align=64
 
 ALIGN	32
 _aesni_ctr32_ghash_6x:
-
 	vmovdqu	xmm2,XMMWORD[32+r11]
 	sub	rdx,6
 	vpxor	xmm4,xmm4,xmm4
@@ -317,7 +316,6 @@ $L$6x_done:
 
 	DB	0F3h,0C3h		;repret
 
-
 global	aesni_gcm_decrypt
 
 ALIGN	32
@@ -459,7 +457,6 @@ $L$SEH_end_aesni_gcm_decrypt:
 
 ALIGN	32
 _aesni_ctr32_6x:
-
 	vmovdqu	xmm4,XMMWORD[((0-128))+rcx]
 	vmovdqu	xmm2,XMMWORD[32+r11]
 	lea	r13,[((-1))+rbp]
@@ -546,7 +543,6 @@ $L$handle_ctr32_2:
 	vpshufb	xmm1,xmm1,xmm0
 	vpxor	xmm14,xmm14,xmm4
 	jmp	NEAR $L$oop_ctr32
-
 
 
 global	aesni_gcm_encrypt

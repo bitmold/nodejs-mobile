@@ -25,8 +25,6 @@
 
 #include "unicode/utypes.h"
 
-#if U_SHOW_CPLUSPLUS_API
-
 #if !UCONFIG_NO_FORMATTING
 
 #include "unicode/locid.h"
@@ -67,7 +65,7 @@ public:
     /**
      * Determines the gender of a list as a whole given the gender of each
      * of the elements.
-     * 
+     *
      * @param genders the gender of each element in the list.
      * @param length the length of gender array.
      * @param status  Output param set to success/failure code on exit, which
@@ -91,12 +89,12 @@ private:
      * Copy constructor. One object per locale invariant. Clients
      * must never copy GenderInfo objects.
      */
-    GenderInfo(const GenderInfo& other) = delete;
+    GenderInfo(const GenderInfo& other);
 
     /**
       * Assignment operator. Not applicable to immutable objects.
       */
-    GenderInfo& operator=(const GenderInfo&) = delete;
+    GenderInfo& operator=(const GenderInfo&);
 
     GenderInfo();
 
@@ -115,8 +113,6 @@ private:
 U_NAMESPACE_END
 
 #endif /* #if !UCONFIG_NO_FORMATTING */
-
-#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif // _GENDER
 //eof

@@ -14,8 +14,9 @@ namespace v8 {
 namespace internal {
 
 struct BaseControllerTrait {
-  static constexpr size_t kMinSize = 128u * Heap::kHeapLimitMultiplier * MB;
-  static constexpr size_t kMaxSize = 1024u * Heap::kHeapLimitMultiplier * MB;
+  // Sizes are in MB.
+  static constexpr size_t kMinSize = 128 * Heap::kPointerMultiplier;
+  static constexpr size_t kMaxSize = 1024 * Heap::kPointerMultiplier;
 
   static constexpr double kMinGrowingFactor = 1.1;
   static constexpr double kMaxGrowingFactor = 4.0;
@@ -42,7 +43,7 @@ class V8_EXPORT_PRIVATE MemoryController : public AllStatic {
                               double mutator_speed);
 
   static size_t CalculateAllocationLimit(Heap* heap, size_t current_size,
-                                         size_t min_size, size_t max_size,
+                                         size_t max_size,
                                          size_t new_space_capacity,
                                          double factor,
                                          Heap::HeapGrowingMode growing_mode);

@@ -28,7 +28,6 @@
 // Flags: --allow-natives-syntax
 
 function runLiteralsTest(fn) {
-  %PrepareFunctionForOptimization(fn);
   // The first run creates an copy directly from the boilerplate decsription.
   fn();
   // The second run will create the boilerplate.
@@ -532,7 +531,6 @@ runLiteralsTest(function TestSlowLiteralOptimized() {
   function f() {
     return {__proto__:null, bar:"barValue"};
   }
-  %PrepareFunctionForOptimization(f);
   let obj = f();
   assertFalse(%HasFastProperties(obj));
   assertEquals(Object.getPrototypeOf(obj), null);

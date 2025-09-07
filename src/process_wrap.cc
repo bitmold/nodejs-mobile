@@ -24,9 +24,8 @@
 #include "stream_wrap.h"
 #include "util-inl.h"
 
-#include <climits>
-#include <cstdlib>
 #include <cstring>
+#include <cstdlib>
 
 namespace node {
 
@@ -37,7 +36,6 @@ using v8::FunctionTemplate;
 using v8::HandleScope;
 using v8::Int32;
 using v8::Integer;
-using v8::Isolate;
 using v8::Local;
 using v8::Number;
 using v8::Object;
@@ -53,17 +51,20 @@ class ProcessWrap : public HandleWrap {
                          Local<Context> context,
                          void* priv) {
     Environment* env = Environment::GetCurrent(context);
-    Isolate* isolate = env->isolate();
-    Local<FunctionTemplate> constructor = NewFunctionTemplate(isolate, New);
-    constructor->InstanceTemplate()->SetInternalFieldCount(
-        ProcessWrap::kInternalFieldCount);
+    Local<FunctionTemplate> constructor = env->NewFunctionTemplate(New);
+    constructor->InstanceTemplate()->SetInternalFieldCount(1);
+    Local<String> processString =
+        FIXED_ONE_BYTE_STRING(env->isolate(), "Process");
+    constructor->SetClassName(processString);
 
     constructor->Inherit(HandleWrap::GetConstructorTemplate(env));
 
-    SetProtoMethod(isolate, constructor, "spawn", Spawn);
-    SetProtoMethod(isolate, constructor, "kill", Kill);
+    env->SetProtoMethod(constructor, "spawn", Spawn);
+    env->SetProtoMethod(constructor, "kill", Kill);
 
-    SetConstructorFunction(context, target, "Process", constructor);
+    target->Set(env->context(),
+                processString,
+                constructor->GetFunction(context).ToLocalChecked()).Check();
   }
 
   SET_NO_MEMORY_INFO()
@@ -123,11 +124,6 @@ class ProcessWrap : public HandleWrap {
         options->stdio[i].flags = static_cast<uv_stdio_flags>(
             UV_CREATE_PIPE | UV_READABLE_PIPE | UV_WRITABLE_PIPE);
         options->stdio[i].data.stream = StreamForWrap(env, stdio);
-      } else if (type->StrictEquals(env->overlapped_string())) {
-        options->stdio[i].flags = static_cast<uv_stdio_flags>(
-            UV_CREATE_PIPE | UV_READABLE_PIPE | UV_WRITABLE_PIPE |
-            UV_OVERLAPPED_PIPE);
-        options->stdio[i].data.stream = StreamForWrap(env, stdio);
       } else if (type->StrictEquals(env->wrap_string())) {
         options->stdio[i].flags = UV_INHERIT_STREAM;
         options->stdio[i].data.stream = StreamForWrap(env, stdio);
@@ -147,7 +143,6 @@ class ProcessWrap : public HandleWrap {
     Local<Context> context = env->context();
     ProcessWrap* wrap;
     ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
-    int err = 0;
 
     Local<Object> js_options =
         args[0]->ToObject(env->context()).ToLocalChecked();
@@ -186,20 +181,13 @@ class ProcessWrap : public HandleWrap {
     node::Utf8Value file(env->isolate(), file_v);
     options.file = *file;
 
-    // Undocumented feature of Win32 CreateProcess API allows spawning
-    // batch files directly but is potentially insecure because arguments
-    // are not escaped (and sometimes cannot be unambiguously escaped),
-    // hence why they are rejected here.
-    if (IsWindowsBatchFile(options.file))
-      err = UV_EINVAL;
-
     // options.args
     Local<Value> argv_v =
         js_options->Get(context, env->args_string()).ToLocalChecked();
     if (!argv_v.IsEmpty() && argv_v->IsArray()) {
-      Local<Array> js_argv = argv_v.As<Array>();
+      Local<Array> js_argv = Local<Array>::Cast(argv_v);
       int argc = js_argv->Length();
-      CHECK_LT(argc, INT_MAX);  // Check for overflow.
+      CHECK_GT(argc + 1, 0);  // Check for overflow.
 
       // Heap allocate to detect errors. +1 is for nullptr.
       options.args = new char*[argc + 1];
@@ -225,9 +213,9 @@ class ProcessWrap : public HandleWrap {
     Local<Value> env_v =
         js_options->Get(context, env->env_pairs_string()).ToLocalChecked();
     if (!env_v.IsEmpty() && env_v->IsArray()) {
-      Local<Array> env_opt = env_v.As<Array>();
+      Local<Array> env_opt = Local<Array>::Cast(env_v);
       int envc = env_opt->Length();
-      CHECK_LT(envc, INT_MAX);            // Check for overflow.
+      CHECK_GT(envc + 1, 0);  // Check for overflow.
       options.env = new char*[envc + 1];  // Heap allocated to detect errors.
       for (int i = 0; i < envc; i++) {
         node::Utf8Value pair(env->isolate(),
@@ -249,10 +237,6 @@ class ProcessWrap : public HandleWrap {
       options.flags |= UV_PROCESS_WINDOWS_HIDE;
     }
 
-    if (env->hide_console_windows()) {
-      options.flags |= UV_PROCESS_WINDOWS_HIDE_CONSOLE;
-    }
-
     // options.windows_verbatim_arguments
     Local<Value> wva_v =
         js_options->Get(context, env->windows_verbatim_arguments_string())
@@ -270,10 +254,8 @@ class ProcessWrap : public HandleWrap {
       options.flags |= UV_PROCESS_DETACHED;
     }
 
-    if (err == 0) {
-      err = uv_spawn(env->event_loop(), &wrap->process_, &options);
-      wrap->MarkAsInitialized();
-    }
+    int err = uv_spawn(env->event_loop(), &wrap->process_, &options);
+    wrap->MarkAsInitialized();
 
     if (err == 0) {
       CHECK_EQ(wrap->process_.data, wrap);
@@ -309,7 +291,8 @@ class ProcessWrap : public HandleWrap {
   static void OnExit(uv_process_t* handle,
                      int64_t exit_status,
                      int term_signal) {
-    ProcessWrap* wrap = ContainerOf(&ProcessWrap::process_, handle);
+    ProcessWrap* wrap = static_cast<ProcessWrap*>(handle->data);
+    CHECK_NOT_NULL(wrap);
     CHECK_EQ(&wrap->process_, handle);
 
     Environment* env = wrap->env();
@@ -331,4 +314,4 @@ class ProcessWrap : public HandleWrap {
 }  // anonymous namespace
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(process_wrap, node::ProcessWrap::Initialize)
+NODE_MODULE_CONTEXT_AWARE_INTERNAL(process_wrap, node::ProcessWrap::Initialize)

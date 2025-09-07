@@ -28,7 +28,7 @@ BUILTIN(SymbolConstructor) {
   if (!description->IsUndefined(isolate)) {
     ASSIGN_RETURN_FAILURE_ON_EXCEPTION(isolate, description,
                                        Object::ToString(isolate, description));
-    result->set_description(String::cast(*description));
+    result->set_name(*description);
   }
   return *result;
 }
@@ -52,10 +52,10 @@ BUILTIN(SymbolKeyFor) {
         isolate, NewTypeError(MessageTemplate::kSymbolKeyFor, obj));
   }
   Handle<Symbol> symbol = Handle<Symbol>::cast(obj);
-  DisallowGarbageCollection no_gc;
+  DisallowHeapAllocation no_gc;
   Object result;
-  if (symbol->is_in_public_symbol_table()) {
-    result = symbol->description();
+  if (symbol->is_public()) {
+    result = symbol->name();
     DCHECK(result.IsString());
   } else {
     result = ReadOnlyRoots(isolate).undefined_value();

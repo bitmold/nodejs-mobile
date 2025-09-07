@@ -32,7 +32,6 @@ function f(o) {
   if (true) return o.v && a;
 }
 
-%PrepareFunctionForOptimization(f);
 f({});
 f({});
 %OptimizeFunctionOnNextCall(f);
@@ -43,8 +42,6 @@ function f1() { return 1 && 2; };
 function f2() { return 1 || 2; };
 function f3() { return 0 && 2; };
 function f4() { return 0 || 2; };
-
-[f1, f2, f3, f4].forEach(function(f) { %PrepareFunctionForOptimization(f); });
 
 function test() {
   assertEquals(2, f1());

@@ -79,7 +79,7 @@ static int test_async(int nthreads) {
   int i;
 
   threads = calloc(nthreads, sizeof(threads[0]));
-  ASSERT_NOT_NULL(threads);
+  ASSERT(threads != NULL);
 
   for (i = 0; i < nthreads; i++) {
     ctx = threads + i;

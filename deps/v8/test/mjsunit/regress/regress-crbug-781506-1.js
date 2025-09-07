@@ -4,10 +4,8 @@
 
 // Flags: --allow-natives-syntax
 
-function foo(a) {
-  return a[0];
-};
-%PrepareFunctionForOptimization(foo);
+function foo(a) { return a[0]; }
+
 assertEquals(undefined, foo(x => x));
 assertEquals(undefined, foo({}));
 %OptimizeFunctionOnNextCall(foo);

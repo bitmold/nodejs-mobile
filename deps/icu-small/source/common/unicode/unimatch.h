@@ -13,11 +13,10 @@
 #include "unicode/utypes.h"
 
 /**
- * \file 
+ * \file
  * \brief C++ API: Unicode Matcher
  */
 
-#if U_SHOW_CPLUSPLUS_API
 
 U_NAMESPACE_BEGIN
 
@@ -39,7 +38,7 @@ enum UMatchDegree {
      * @stable ICU 2.4
      */
     U_MISMATCH,
-    
+
     /**
      * Constant returned by <code>matches()</code> indicating a
      * partial match between the text and this matcher.  This value is
@@ -51,7 +50,7 @@ enum UMatchDegree {
      * @stable ICU 2.4
      */
     U_PARTIAL_MATCH,
-    
+
     /**
      * Constant returned by <code>matches()</code> indicating a
      * complete match between the text and this matcher.  For an
@@ -85,7 +84,7 @@ public:
      * Matching in the forward direction is indicated by limit >
      * offset.  Characters from offset forwards to limit-1 will be
      * considered for matching.
-     * 
+     *
      * Matching in the reverse direction is indicated by limit <
      * offset.  Characters from offset backwards to limit+1 will be
      * considered for matching.
@@ -115,11 +114,11 @@ public:
      * considered for matching will be text.charAt(limit-1) in the
      * forward direction or text.charAt(limit+1) in the backward
      * direction.
-     * @param incremental if true, then assume further characters may
+     * @param incremental if TRUE, then assume further characters may
      * be inserted at limit and check for partial matching.  Otherwise
      * assume the text as given is complete.
      * @return a match degree value indicating a full match, a partial
-     * match, or a mismatch.  If incremental is false then
+     * match, or a mismatch.  If incremental is FALSE then
      * U_PARTIAL_MATCH should never be returned.
      * @stable ICU 2.4
      */
@@ -134,17 +133,17 @@ public:
      * will produce another matcher that is equal to this one.
      * @param result the string to receive the pattern.  Previous
      * contents will be deleted.
-     * @param escapeUnprintable if true then convert unprintable
+     * @param escapeUnprintable if TRUE then convert unprintable
      * character to their hex escape representations, \\uxxxx or
      * \\Uxxxxxxxx.  Unprintable characters are those other than
      * U+000A, U+0020..U+007E.
      * @stable ICU 2.4
      */
     virtual UnicodeString& toPattern(UnicodeString& result,
-                                     UBool escapeUnprintable = false) const = 0;
+                                     UBool escapeUnprintable = FALSE) const = 0;
 
     /**
-     * Returns true if this matcher will match a character c, where c
+     * Returns TRUE if this matcher will match a character c, where c
      * & 0xFF == v, at offset, in the forward direction (with limit >
      * offset).  This is used by <tt>RuleBasedTransliterator</tt> for
      * indexing.
@@ -162,7 +161,5 @@ public:
 };
 
 U_NAMESPACE_END
-
-#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif

@@ -12,17 +12,12 @@ namespace interpreter {
 
 BytecodeArrayRandomIterator::BytecodeArrayRandomIterator(
     Handle<BytecodeArray> bytecode_array, Zone* zone)
-    : BytecodeArrayIterator(bytecode_array, 0), offsets_(zone) {
-  offsets_.reserve(bytecode_array->length() / 2);
-  Initialize();
-}
-
-void BytecodeArrayRandomIterator::Initialize() {
+    : BytecodeArrayAccessor(bytecode_array, 0), offsets_(zone) {
   // Run forwards through the bytecode array to determine the offset of each
   // bytecode.
-  while (!done()) {
+  while (current_offset() < bytecode_array->length()) {
     offsets_.push_back(current_offset());
-    Advance();
+    SetOffset(current_offset() + current_bytecode_size());
   }
   GoToStart();
 }

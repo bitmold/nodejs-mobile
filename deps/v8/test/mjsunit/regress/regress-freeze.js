@@ -28,11 +28,7 @@
 // Flags: --allow-natives-syntax
 
 // CountOperation
-function f(o) {
-  o.x++;
-};
-%PrepareFunctionForOptimization(f);
-;
+function f(o) { o.x++ };
 var o = {x: 5};
 Object.freeze(o);
 f(o);
@@ -42,11 +38,7 @@ f(o);
 assertEquals(5, o.x);
 
 // Compound Assignment
-function f2(o) {
-  o.x += 3;
-};
-%PrepareFunctionForOptimization(f2);
-;
+function f2(o) { o.x+=3 };
 f2(o);
 f2(o);
 %OptimizeFunctionOnNextCall(f2);

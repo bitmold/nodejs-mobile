@@ -2,10 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/compiler/bytecode-analysis.h"
-
-#include "src/compiler/bytecode-liveness-map.h"
 #include "src/init/v8.h"
+
+#include "src/compiler/bytecode-analysis.h"
 #include "src/interpreter/bytecode-array-builder.h"
 #include "src/interpreter/bytecode-array-iterator.h"
 #include "src/interpreter/bytecode-decoder.h"
@@ -25,29 +24,43 @@ class BytecodeAnalysisTest : public TestWithIsolateAndZone {
  public:
   BytecodeAnalysisTest() = default;
   ~BytecodeAnalysisTest() override = default;
-  BytecodeAnalysisTest(const BytecodeAnalysisTest&) = delete;
-  BytecodeAnalysisTest& operator=(const BytecodeAnalysisTest&) = delete;
 
-  static void SetUpTestSuite() {
+  static void SetUpTestCase() {
     CHECK_NULL(save_flags_);
     save_flags_ = new SaveFlags();
     i::FLAG_ignition_elide_noneffectful_bytecodes = false;
     i::FLAG_ignition_reo = false;
 
-    TestWithIsolateAndZone::SetUpTestSuite();
+    TestWithIsolateAndZone::SetUpTestCase();
   }
 
-  static void TearDownTestSuite() {
-    TestWithIsolateAndZone::TearDownTestSuite();
+  static void TearDownTestCase() {
+    TestWithIsolateAndZone::TearDownTestCase();
     delete save_flags_;
     save_flags_ = nullptr;
+  }
+
+  std::string ToLivenessString(const BytecodeLivenessState* liveness) const {
+    const BitVector& bit_vector = liveness->bit_vector();
+
+    std::string out;
+    out.resize(bit_vector.length());
+    for (int i = 0; i < bit_vector.length(); ++i) {
+      if (bit_vector.Contains(i)) {
+        out[i] = 'L';
+      } else {
+        out[i] = '.';
+      }
+    }
+    return out;
   }
 
   void EnsureLivenessMatches(
       Handle<BytecodeArray> bytecode,
       const std::vector<std::pair<std::string, std::string>>&
           expected_liveness) {
-    BytecodeAnalysis analysis(bytecode, zone(), BytecodeOffset::None(), true);
+    BytecodeAnalysis analysis(bytecode, zone(), true);
+    analysis.Analyze(BailoutId::None());
 
     interpreter::BytecodeArrayIterator iterator(bytecode);
     for (auto liveness : expected_liveness) {
@@ -55,13 +68,12 @@ class BytecodeAnalysisTest : public TestWithIsolateAndZone {
       ss << std::setw(4) << iterator.current_offset() << " : ";
       iterator.PrintTo(ss);
 
-      EXPECT_EQ(liveness.first,
-                ToString(*analysis.GetInLivenessFor(iterator.current_offset())))
+      EXPECT_EQ(liveness.first, ToLivenessString(analysis.GetInLivenessFor(
+                                    iterator.current_offset())))
           << " at bytecode " << ss.str();
 
-      EXPECT_EQ(
-          liveness.second,
-          ToString(*analysis.GetOutLivenessFor(iterator.current_offset())))
+      EXPECT_EQ(liveness.second, ToLivenessString(analysis.GetOutLivenessFor(
+                                     iterator.current_offset())))
           << " at bytecode " << ss.str();
 
       iterator.Advance();
@@ -72,6 +84,8 @@ class BytecodeAnalysisTest : public TestWithIsolateAndZone {
 
  private:
   static SaveFlags* save_flags_;
+
+  DISALLOW_COPY_AND_ASSIGN(BytecodeAnalysisTest);
 };
 
 SaveFlags* BytecodeAnalysisTest::save_flags_ = nullptr;
@@ -79,6 +93,8 @@ SaveFlags* BytecodeAnalysisTest::save_flags_ = nullptr;
 TEST_F(BytecodeAnalysisTest, EmptyBlock) {
   interpreter::BytecodeArrayBuilder builder(zone(), 3, 3);
   std::vector<std::pair<std::string, std::string>> expected_liveness;
+
+  interpreter::Register reg_0(0);
 
   builder.Return();
   expected_liveness.emplace_back("...L", "....");
@@ -214,6 +230,7 @@ TEST_F(BytecodeAnalysisTest, SimpleLoop) {
   std::vector<std::pair<std::string, std::string>> expected_liveness;
 
   interpreter::Register reg_0(0);
+  interpreter::Register reg_1(1);
   interpreter::Register reg_2(2);
 
   // Kill r0.
@@ -240,7 +257,7 @@ TEST_F(BytecodeAnalysisTest, SimpleLoop) {
     expected_liveness.emplace_back("L..L", "L.L.");
 
     loop_builder.BindContinueTarget();
-    loop_builder.JumpToHeader(0, nullptr);
+    loop_builder.JumpToHeader(0);
     expected_liveness.emplace_back("L.L.", "L.L.");
   }
 
@@ -345,7 +362,7 @@ TEST_F(BytecodeAnalysisTest, DiamondInLoop) {
     builder.Bind(&end_label);
 
     loop_builder.BindContinueTarget();
-    loop_builder.JumpToHeader(0, nullptr);
+    loop_builder.JumpToHeader(0);
     expected_liveness.emplace_back("L...", "L...");
   }
 
@@ -417,12 +434,12 @@ TEST_F(BytecodeAnalysisTest, KillingLoopInsideLoop) {
       expected_liveness.emplace_back("LL.L", "LL..");
 
       inner_loop_builder.BindContinueTarget();
-      inner_loop_builder.JumpToHeader(1, &loop_builder);
+      inner_loop_builder.JumpToHeader(1);
       expected_liveness.emplace_back(".L..", ".L..");
     }
 
     loop_builder.BindContinueTarget();
-    loop_builder.JumpToHeader(0, nullptr);
+    loop_builder.JumpToHeader(0);
     expected_liveness.emplace_back("LL..", "LL..");
   }
 

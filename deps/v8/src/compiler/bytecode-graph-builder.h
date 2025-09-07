@@ -7,15 +7,10 @@
 
 #include "src/compiler/js-operator.h"
 #include "src/compiler/js-type-hint-lowering.h"
-#include "src/compiler/node-observer.h"
-#include "src/handles/handles.h"
-#include "src/objects/code-kind.h"
 #include "src/utils/utils.h"
+#include "src/handles/handles.h"
 
 namespace v8 {
-
-class TickCounter;
-
 namespace internal {
 
 class BytecodeArray;
@@ -26,14 +21,10 @@ class Zone;
 namespace compiler {
 
 class JSGraph;
-class NodeObserver;
 class SourcePositionTable;
 
 enum class BytecodeGraphBuilderFlag : uint8_t {
-  kSkipFirstStackAndTierupCheck = 1 << 0,
-  // TODO(neis): Remove liveness flag here when concurrent inlining is always
-  // on, because then the serializer will be the only place where we perform
-  // bytecode analysis.
+  kSkipFirstStackCheck = 1 << 0,
   kAnalyzeEnvironmentLiveness = 1 << 1,
   kBailoutOnUninitialized = 1 << 2,
 };
@@ -42,15 +33,14 @@ using BytecodeGraphBuilderFlags = base::Flags<BytecodeGraphBuilderFlag>;
 // Note: {invocation_frequency} is taken by reference to work around a GCC bug
 // on AIX (v8:8193).
 void BuildGraphFromBytecode(JSHeapBroker* broker, Zone* local_zone,
-                            SharedFunctionInfoRef const& shared_info,
-                            FeedbackCellRef const& feedback_cell,
-                            BytecodeOffset osr_offset, JSGraph* jsgraph,
+                            Handle<BytecodeArray> bytecode_array,
+                            Handle<SharedFunctionInfo> shared,
+                            Handle<FeedbackVector> feedback_vector,
+                            BailoutId osr_offset, JSGraph* jsgraph,
                             CallFrequency const& invocation_frequency,
                             SourcePositionTable* source_positions,
-                            int inlining_id, CodeKind code_kind,
-                            BytecodeGraphBuilderFlags flags,
-                            TickCounter* tick_counter,
-                            ObserveNodeInfo const& observe_node_info = {});
+                            Handle<Context> native_context, int inlining_id,
+                            BytecodeGraphBuilderFlags flags);
 
 }  // namespace compiler
 }  // namespace internal

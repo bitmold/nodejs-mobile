@@ -2,15 +2,13 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "include/v8-context.h"
-#include "include/v8-local-handle.h"
-#include "include/v8-primitive.h"
-#include "include/v8-template.h"
+#include "testing/gtest/include/gtest/gtest.h"
+
+#include "include/v8.h"
 #include "src/api/api-inl.h"
 #include "src/handles/handles.h"
 #include "src/objects/objects-inl.h"
 #include "test/unittests/test-utils.h"
-#include "testing/gtest/include/gtest/gtest.h"
 
 namespace v8 {
 namespace remote_object_unittest {
@@ -41,7 +39,7 @@ TEST_F(RemoteObjectTest, CreationContextOfRemoteContext) {
 
   Local<Object> remote_context =
       Context::NewRemoteContext(isolate(), global_template).ToLocalChecked();
-  EXPECT_TRUE(remote_context->GetCreationContext().IsEmpty());
+  EXPECT_TRUE(remote_context->CreationContext().IsEmpty());
 }
 
 TEST_F(RemoteObjectTest, CreationContextOfRemoteObject) {
@@ -53,7 +51,7 @@ TEST_F(RemoteObjectTest, CreationContextOfRemoteObject) {
 
   Local<Object> remote_object =
       constructor_template->NewRemoteInstance().ToLocalChecked();
-  EXPECT_TRUE(remote_object->GetCreationContext().IsEmpty());
+  EXPECT_TRUE(remote_object->CreationContext().IsEmpty());
 }
 
 TEST_F(RemoteObjectTest, RemoteContextInstanceChecks) {
@@ -98,6 +96,24 @@ TEST_F(RemoteObjectTest, TypeOfRemoteObject) {
       constructor_template->NewRemoteInstance().ToLocalChecked();
   String::Utf8Value result(isolate(), remote_object->TypeOf(isolate()));
   EXPECT_STREQ("object", *result);
+}
+
+TEST_F(RemoteObjectTest, ClassOf) {
+  Local<FunctionTemplate> constructor_template =
+      FunctionTemplate::New(isolate(), Constructor);
+  constructor_template->InstanceTemplate()->SetAccessCheckCallbackAndHandler(
+      AccessCheck, NamedPropertyHandlerConfiguration(NamedGetter),
+      IndexedPropertyHandlerConfiguration());
+  constructor_template->SetClassName(
+      String::NewFromUtf8(isolate(), "test_class", NewStringType::kNormal)
+          .ToLocalChecked());
+
+  Local<Object> remote_object =
+      constructor_template->NewRemoteInstance().ToLocalChecked();
+  Local<String> class_name = Utils::ToLocal(
+      i::handle(Utils::OpenHandle(*remote_object)->class_name(), i_isolate()));
+  String::Utf8Value result(isolate(), class_name);
+  EXPECT_STREQ("test_class", *result);
 }
 
 }  // namespace remote_object_unittest

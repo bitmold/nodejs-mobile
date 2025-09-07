@@ -5,8 +5,11 @@
 #ifndef V8_OBJECTS_MAYBE_OBJECT_INL_H_
 #define V8_OBJECTS_MAYBE_OBJECT_INL_H_
 
-#include "src/common/ptr-compr-inl.h"
 #include "src/objects/maybe-object.h"
+
+#ifdef V8_COMPRESS_POINTERS
+#include "src/execution/isolate.h"
+#endif
 #include "src/objects/smi-inl.h"
 #include "src/objects/tagged-impl-inl.h"
 
@@ -34,15 +37,6 @@ MaybeObject MaybeObject::MakeWeak(MaybeObject object) {
   return MaybeObject(object.ptr() | kWeakHeapObjectMask);
 }
 
-// static
-MaybeObject MaybeObject::Create(MaybeObject o) { return o; }
-
-// static
-MaybeObject MaybeObject::Create(Object o) { return FromObject(o); }
-
-// static
-MaybeObject MaybeObject::Create(Smi smi) { return FromSmi(smi); }
-
 //
 // HeapObjectReference implementation.
 //
@@ -65,29 +59,16 @@ HeapObjectReference HeapObjectReference::Weak(Object object) {
 }
 
 // static
-HeapObjectReference HeapObjectReference::From(Object object,
-                                              HeapObjectReferenceType type) {
-  DCHECK(!object.IsSmi());
-  DCHECK(!HasWeakHeapObjectTag(object));
-  switch (type) {
-    case HeapObjectReferenceType::STRONG:
-      return HeapObjectReference::Strong(object);
-    case HeapObjectReferenceType::WEAK:
-      return HeapObjectReference::Weak(object);
-  }
-}
-
-// static
-HeapObjectReference HeapObjectReference::ClearedValue(
-    PtrComprCageBase cage_base) {
+HeapObjectReference HeapObjectReference::ClearedValue(Isolate* isolate) {
   // Construct cleared weak ref value.
+  Address raw_value = kClearedWeakHeapObjectLower32;
 #ifdef V8_COMPRESS_POINTERS
   // This is necessary to make pointer decompression computation also
   // suitable for cleared weak references.
-  Address raw_value =
-      DecompressTaggedPointer(cage_base, kClearedWeakHeapObjectLower32);
-#else
-  Address raw_value = kClearedWeakHeapObjectLower32;
+  Address isolate_root = isolate->isolate_root();
+  raw_value |= isolate_root;
+  DCHECK_EQ(raw_value & (~static_cast<Address>(kClearedWeakHeapObjectLower32)),
+            isolate_root);
 #endif
   // The rest of the code will check only the lower 32-bits.
   DCHECK_EQ(kClearedWeakHeapObjectLower32, static_cast<uint32_t>(raw_value));

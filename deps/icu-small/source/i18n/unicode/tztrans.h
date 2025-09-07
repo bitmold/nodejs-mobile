@@ -10,13 +10,11 @@
 #define TZTRANS_H
 
 /**
- * \file 
+ * \file
  * \brief C++ API: Time zone transition
  */
 
 #include "unicode/utypes.h"
-
-#if U_SHOW_CPLUSPLUS_API
 
 #if !UCONFIG_NO_FORMATTING
 
@@ -37,7 +35,7 @@ public:
     /**
      * Constructs a <code>TimeZoneTransition</code> with the time and the rules before/after
      * the transition.
-     * 
+     *
      * @param time  The time of transition in milliseconds since the base time.
      * @param from  The time zone rule used before the transition.
      * @param to    The time zone rule used after the transition.
@@ -70,7 +68,7 @@ public:
      * @return  A copy of the object.
      * @stable ICU 3.8
      */
-    TimeZoneTransition* clone() const;
+    TimeZoneTransition* clone(void) const;
 
     /**
      * Assignment operator.
@@ -86,7 +84,7 @@ public:
      * @return  true if the given TimeZoneTransition objects are semantically equal.
      * @stable ICU 3.8
      */
-    bool operator==(const TimeZoneTransition& that) const;
+    UBool operator==(const TimeZoneTransition& that) const;
 
     /**
      * Return true if the given TimeZoneTransition objects are semantically unequal. Objects
@@ -95,7 +93,7 @@ public:
      * @return  true if the given TimeZoneTransition objects are semantically unequal.
      * @stable ICU 3.8
      */
-    bool operator!=(const TimeZoneTransition& that) const;
+    UBool operator!=(const TimeZoneTransition& that) const;
 
     /**
      * Returns the time of transition in milliseconds.
@@ -187,14 +185,12 @@ public:
      *                  other classes have different class IDs.
      * @stable ICU 3.8
      */
-    virtual UClassID getDynamicClassID(void) const override;
+    virtual UClassID getDynamicClassID(void) const;
 };
 
 U_NAMESPACE_END
 
 #endif /* #if !UCONFIG_NO_FORMATTING */
-
-#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif // TZTRANS_H
 

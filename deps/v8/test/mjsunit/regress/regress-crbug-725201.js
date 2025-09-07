@@ -8,7 +8,6 @@ function __f_1() {
   function __f_2() {
     Array.prototype.__proto__ = { 77e4  : null };
   }
-  %PrepareFunctionForOptimization(__f_2);
   __f_2();
   %OptimizeFunctionOnNextCall(__f_2);
   __f_2();

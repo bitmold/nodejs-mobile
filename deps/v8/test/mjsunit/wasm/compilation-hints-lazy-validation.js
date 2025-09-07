@@ -4,13 +4,13 @@
 
 // Flags: --experimental-wasm-compilation-hints --wasm-lazy-validation
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 (function testInstantiateLazyValidation() {
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('id', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
                    kExprI64Const, 1,
                    kExprI32Mul])
          .setCompilationHint(kCompilationHintStrategyLazy,

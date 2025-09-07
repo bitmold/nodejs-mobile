@@ -4,7 +4,7 @@
 
 // Flags: --expose-wasm
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 // Collect the Callsite objects instead of just a string:
 Error.prepareStackTrace = function(error, frames) {
@@ -23,16 +23,16 @@ function testTrapLocations(instance, expected_stack_length) {
       // function.
       assertTrue(
           e.stack[1].toString().startsWith(function_name), 'stack depth');
-      assertEquals(1, e.stack[0].getLineNumber(), 'wasmFunctionIndex');
+      assertEquals(0, e.stack[0].getLineNumber(), 'wasmFunctionIndex');
       assertEquals(position, e.stack[0].getPosition(), 'position');
     }
   }
 
   // The actual tests:
-  testWasmTrap(0, kTrapDivByZero, 73);
-  testWasmTrap(1, kTrapMemOutOfBounds, 74);
-  testWasmTrap(2, kTrapUnreachable, 87);
-  testWasmTrap(3, kTrapTableOutOfBounds, 91);
+  testWasmTrap(0, kTrapDivByZero, 14);
+  testWasmTrap(1, kTrapMemOutOfBounds, 15);
+  testWasmTrap(2, kTrapUnreachable, 28);
+  testWasmTrap(3, kTrapFuncInvalid, 32);
 }
 
 var builder = new WasmModuleBuilder();
@@ -54,27 +54,27 @@ builder.addFunction("main", kSig_i_i)
   .addBody([
       // offset 1
         kExprBlock, kWasmI32,
-            kExprLocalGet, 0,
+            kExprGetLocal, 0,
             kExprI32Const, 2,
           kExprI32LtU,
-        kExprIf, kWasmVoid,
+        kExprIf, kWasmStmt,
         // offset 9
               kExprI32Const, 0x7e /* -2 */,
-              kExprLocalGet, 0,
+              kExprGetLocal, 0,
             kExprI32DivU,
           // offset 15
           kExprI32LoadMem, 0, 0,
           kExprBr, 1,
         kExprEnd,
         // offset 21
-            kExprLocalGet, 0,
+            kExprGetLocal, 0,
             kExprI32Const, 2,
           kExprI32Eq,
-        kExprIf, kWasmVoid,
+        kExprIf, kWasmStmt,
           kExprUnreachable,
         kExprEnd,
         // offset 30
-        kExprLocalGet, 0,
+        kExprGetLocal, 0,
         kExprCallIndirect, sig_index, kTableZero,
       kExprEnd,
   ])

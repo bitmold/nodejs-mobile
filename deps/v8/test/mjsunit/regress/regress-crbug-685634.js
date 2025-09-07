@@ -6,10 +6,7 @@
 
 "use strict";
 
-function foo(f) {
-  return f.apply(this, arguments);
-};
-%PrepareFunctionForOptimization(foo);
+function foo(f) { return f.apply(this, arguments); }
 function bar() {}
 
 foo(bar);

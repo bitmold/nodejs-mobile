@@ -10,10 +10,8 @@ function foo() {
   return a;
 }
 
-function bar(a) {
-  a[0] = 'bazinga!';
-};
-%PrepareFunctionForOptimization(bar);
+function bar(a) { a[0] = "bazinga!"; }
+
 for (var i = 0; i < 5; i++) bar([]);
 
 %OptimizeFunctionOnNextCall(bar);

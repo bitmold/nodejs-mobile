@@ -41,8 +41,7 @@ o.func = mk();
 // Optimize object comparison with new-space RHS.
 function cmp(o, f) {
   return f === o.func;
-};
-%PrepareFunctionForOptimization(cmp);
+}
 assertTrue(cmp(o, o.func));
 assertTrue(cmp(o, o.func));
 %OptimizeFunctionOnNextCall(cmp);

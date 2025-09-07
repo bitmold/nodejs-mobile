@@ -5,8 +5,7 @@
 Error.prepareStackTrace = function (a,b) { return b; };
 
 try {
-  eval("/(invalid regexp/;");
-  assertUnreachable();
+  /(invalid regexp/;
 } catch (e) {
   assertEquals("[object global]", e.stack[0].getThis().toString());
 }

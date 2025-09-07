@@ -45,7 +45,6 @@ function g() {
 }
 
 var fun = g();
-%PrepareFunctionForOptimization(fun);
 fun(false, c);
 fun(false, c);
 fun(false, c);

@@ -4,7 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-d8.file.execute('test/mjsunit/test-async.js');
+load('test/mjsunit/test-async.js');
 
 // Yield a thenable which is never settled
 testAsync(test => {

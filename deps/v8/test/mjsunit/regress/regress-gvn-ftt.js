@@ -21,7 +21,6 @@ function f(o, value) {
 
 var obj = {o: a1};
 
-%PrepareFunctionForOptimization(f);
 f(obj, a1);
 f(obj, a1);
 %OptimizeFunctionOnNextCall(f);

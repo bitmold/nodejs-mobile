@@ -24,34 +24,34 @@ class RawMachineAssemblerTester : public HandleAndZoneScope,
  public:
   template <typename... ParamMachTypes>
   explicit RawMachineAssemblerTester(ParamMachTypes... p)
-      : HandleAndZoneScope(kCompressGraphZone),
+      : HandleAndZoneScope(),
         CallHelper<ReturnType>(
             main_isolate(),
             CSignature::New(main_zone(), MachineTypeForC<ReturnType>(), p...)),
         RawMachineAssembler(
-            main_isolate(), main_zone()->template New<Graph>(main_zone()),
+            main_isolate(), new (main_zone()) Graph(main_zone()),
             Linkage::GetSimplifiedCDescriptor(
                 main_zone(),
                 CSignature::New(main_zone(), MachineTypeForC<ReturnType>(),
                                 p...),
-                CallDescriptor::kInitializeRootRegister),
+                true),
             MachineType::PointerRepresentation(),
             InstructionSelector::SupportedMachineOperatorFlags(),
             InstructionSelector::AlignmentRequirements()) {}
 
   template <typename... ParamMachTypes>
-  RawMachineAssemblerTester(CodeKind kind, ParamMachTypes... p)
-      : HandleAndZoneScope(kCompressGraphZone),
+  RawMachineAssemblerTester(Code::Kind kind, ParamMachTypes... p)
+      : HandleAndZoneScope(),
         CallHelper<ReturnType>(
             main_isolate(),
             CSignature::New(main_zone(), MachineTypeForC<ReturnType>(), p...)),
         RawMachineAssembler(
-            main_isolate(), main_zone()->template New<Graph>(main_zone()),
+            main_isolate(), new (main_zone()) Graph(main_zone()),
             Linkage::GetSimplifiedCDescriptor(
                 main_zone(),
                 CSignature::New(main_zone(), MachineTypeForC<ReturnType>(),
                                 p...),
-                CallDescriptor::kInitializeRootRegister),
+                true),
             MachineType::PointerRepresentation(),
             InstructionSelector::SupportedMachineOperatorFlags(),
             InstructionSelector::AlignmentRequirements()),
@@ -76,16 +76,13 @@ class RawMachineAssemblerTester : public HandleAndZoneScope,
     return code_.ToHandleChecked();
   }
 
-  Handle<CodeT> GetCodeT() { return ToCodeT(GetCode(), main_isolate()); }
-
  protected:
   Address Generate() override {
     if (code_.is_null()) {
-      Schedule* schedule = this->ExportForTest();
+      Schedule* schedule = this->Export();
       auto call_descriptor = this->call_descriptor();
       Graph* graph = this->graph();
-      OptimizedCompilationInfo info(base::ArrayVector("testing"), main_zone(),
-                                    kind_);
+      OptimizedCompilationInfo info(ArrayVector("testing"), main_zone(), kind_);
       code_ = Pipeline::GenerateCodeForTesting(
           &info, main_isolate(), call_descriptor, graph,
           AssemblerOptions::Default(main_isolate()), schedule);
@@ -94,7 +91,7 @@ class RawMachineAssemblerTester : public HandleAndZoneScope,
   }
 
  private:
-  CodeKind kind_ = CodeKind::FOR_TESTING;
+  Code::Kind kind_ = Code::Kind::STUB;
   MaybeHandle<Code> code_;
 };
 

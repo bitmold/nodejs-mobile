@@ -52,11 +52,11 @@ bool TaggedImpl<kRefType, StorageType>::GetHeapObject(
 
 template <HeapObjectReferenceType kRefType, typename StorageType>
 bool TaggedImpl<kRefType, StorageType>::GetHeapObject(
-    Isolate* isolate, HeapObject* result) const {
+    ROOT_PARAM, HeapObject* result) const {
   if (kIsFull) return GetHeapObject(result);
   // Implementation for compressed pointers.
   if (!IsStrongOrWeak()) return false;
-  *result = GetHeapObject(isolate);
+  *result = GetHeapObject(ROOT_VALUE);
   return true;
 }
 
@@ -79,14 +79,14 @@ bool TaggedImpl<kRefType, StorageType>::GetHeapObject(
 
 template <HeapObjectReferenceType kRefType, typename StorageType>
 bool TaggedImpl<kRefType, StorageType>::GetHeapObject(
-    Isolate* isolate, HeapObject* result,
+    ROOT_PARAM, HeapObject* result,
     HeapObjectReferenceType* reference_type) const {
   if (kIsFull) return GetHeapObject(result, reference_type);
   // Implementation for compressed pointers.
   if (!IsStrongOrWeak()) return false;
   *reference_type = IsWeakOrCleared() ? HeapObjectReferenceType::WEAK
                                       : HeapObjectReferenceType::STRONG;
-  *result = GetHeapObject(isolate);
+  *result = GetHeapObject(ROOT_VALUE);
   return true;
 }
 
@@ -107,12 +107,12 @@ bool TaggedImpl<kRefType, StorageType>::GetHeapObjectIfStrong(
 
 template <HeapObjectReferenceType kRefType, typename StorageType>
 bool TaggedImpl<kRefType, StorageType>::GetHeapObjectIfStrong(
-    Isolate* isolate, HeapObject* result) const {
+    ROOT_PARAM, HeapObject* result) const {
   if (kIsFull) return GetHeapObjectIfStrong(result);
   // Implementation for compressed pointers.
   if (IsStrong()) {
-    *result = HeapObject::cast(
-        Object(DecompressTaggedPointer(isolate, static_cast<Tagged_t>(ptr_))));
+    *result =
+        HeapObject::cast(Object(DecompressTaggedPointer(ROOT_VALUE, ptr_)));
     return true;
   }
   return false;
@@ -132,12 +132,11 @@ HeapObject TaggedImpl<kRefType, StorageType>::GetHeapObjectAssumeStrong()
 
 template <HeapObjectReferenceType kRefType, typename StorageType>
 HeapObject TaggedImpl<kRefType, StorageType>::GetHeapObjectAssumeStrong(
-    Isolate* isolate) const {
+    ROOT_PARAM) const {
   if (kIsFull) return GetHeapObjectAssumeStrong();
   // Implementation for compressed pointers.
   DCHECK(IsStrong());
-  return HeapObject::cast(
-      Object(DecompressTaggedPointer(isolate, static_cast<Tagged_t>(ptr_))));
+  return HeapObject::cast(Object(DecompressTaggedPointer(ROOT_VALUE, ptr_)));
 }
 
 //
@@ -162,12 +161,12 @@ bool TaggedImpl<kRefType, StorageType>::GetHeapObjectIfWeak(
 
 template <HeapObjectReferenceType kRefType, typename StorageType>
 bool TaggedImpl<kRefType, StorageType>::GetHeapObjectIfWeak(
-    Isolate* isolate, HeapObject* result) const {
+    ROOT_PARAM, HeapObject* result) const {
   if (kIsFull) return GetHeapObjectIfWeak(result);
   // Implementation for compressed pointers.
   if (kCanBeWeak) {
     if (IsWeak()) {
-      *result = GetHeapObject(isolate);
+      *result = GetHeapObject(ROOT_VALUE);
       return true;
     }
     return false;
@@ -190,11 +189,11 @@ HeapObject TaggedImpl<kRefType, StorageType>::GetHeapObjectAssumeWeak() const {
 
 template <HeapObjectReferenceType kRefType, typename StorageType>
 HeapObject TaggedImpl<kRefType, StorageType>::GetHeapObjectAssumeWeak(
-    Isolate* isolate) const {
+    ROOT_PARAM) const {
   if (kIsFull) return GetHeapObjectAssumeWeak();
   // Implementation for compressed pointers.
   DCHECK(IsWeak());
-  return GetHeapObject(isolate);
+  return GetHeapObject(ROOT_VALUE);
 }
 
 //
@@ -215,19 +214,17 @@ HeapObject TaggedImpl<kRefType, StorageType>::GetHeapObject() const {
 }
 
 template <HeapObjectReferenceType kRefType, typename StorageType>
-HeapObject TaggedImpl<kRefType, StorageType>::GetHeapObject(
-    Isolate* isolate) const {
+HeapObject TaggedImpl<kRefType, StorageType>::GetHeapObject(ROOT_PARAM) const {
   if (kIsFull) return GetHeapObject();
   // Implementation for compressed pointers.
   DCHECK(!IsSmi());
   if (kCanBeWeak) {
     DCHECK(!IsCleared());
-    return HeapObject::cast(Object(DecompressTaggedPointer(
-        isolate, static_cast<Tagged_t>(ptr_) & ~kWeakHeapObjectMask)));
+    return HeapObject::cast(Object(
+        DecompressTaggedPointer(ROOT_VALUE, ptr_ & ~kWeakHeapObjectMask)));
   } else {
     DCHECK(!HAS_WEAK_HEAP_OBJECT_TAG(ptr_));
-    return HeapObject::cast(
-        Object(DecompressTaggedPointer(isolate, static_cast<Tagged_t>(ptr_))));
+    return HeapObject::cast(Object(DecompressTaggedPointer(ROOT_VALUE, ptr_)));
   }
 }
 
@@ -245,14 +242,13 @@ Object TaggedImpl<kRefType, StorageType>::GetHeapObjectOrSmi() const {
 }
 
 template <HeapObjectReferenceType kRefType, typename StorageType>
-Object TaggedImpl<kRefType, StorageType>::GetHeapObjectOrSmi(
-    Isolate* isolate) const {
+Object TaggedImpl<kRefType, StorageType>::GetHeapObjectOrSmi(ROOT_PARAM) const {
   if (kIsFull) return GetHeapObjectOrSmi();
   // Implementation for compressed pointers.
   if (IsSmi()) {
-    return Object(DecompressTaggedSigned(static_cast<Tagged_t>(ptr_)));
+    return Object(DecompressTaggedSigned(ptr_));
   }
-  return GetHeapObject(isolate);
+  return GetHeapObject(ROOT_VALUE);
 }
 
 }  // namespace internal

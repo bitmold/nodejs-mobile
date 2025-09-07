@@ -4,13 +4,8 @@
 
 // Flags: --allow-natives-syntax
 
-function bar() {
-  return {__proto__: this};
-}
-function foo(a) {
-  a[0] = 0.3;
-};
-%PrepareFunctionForOptimization(foo);
+function bar() { return { __proto__: this }; }
+function foo(a) { a[0] = 0.3; }
 foo(bar());
 %OptimizeFunctionOnNextCall(foo);
 foo(bar());

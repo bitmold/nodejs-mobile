@@ -15,24 +15,13 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/js-array-tq-inl.inc"
+OBJECT_CONSTRUCTORS_IMPL(JSArray, JSObject)
+OBJECT_CONSTRUCTORS_IMPL(JSArrayIterator, JSObject)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(JSArray)
-TQ_OBJECT_CONSTRUCTORS_IMPL(JSArrayIterator)
+CAST_ACCESSOR(JSArray)
+CAST_ACCESSOR(JSArrayIterator)
 
-DEF_GETTER(JSArray, length, Object) {
-  return TaggedField<Object, kLengthOffset>::load(cage_base, *this);
-}
-
-void JSArray::set_length(Object value, WriteBarrierMode mode) {
-  // Note the relaxed atomic store.
-  TaggedField<Object, kLengthOffset>::Relaxed_Store(*this, value);
-  CONDITIONAL_WRITE_BARRIER(*this, kLengthOffset, value, mode);
-}
-
-Object JSArray::length(PtrComprCageBase cage_base, RelaxedLoadTag tag) const {
-  return TaggedField<Object, kLengthOffset>::Relaxed_Load(cage_base, *this);
-}
+ACCESSORS(JSArray, length, Object, kLengthOffset)
 
 void JSArray::set_length(Smi length) {
   // Don't need a write barrier for a Smi.
@@ -41,6 +30,12 @@ void JSArray::set_length(Smi length) {
 
 bool JSArray::SetLengthWouldNormalize(Heap* heap, uint32_t new_length) {
   return new_length > kMaxFastArrayLength;
+}
+
+bool JSArray::AllowsSetLength() {
+  bool result = elements().IsFixedArray() || elements().IsFixedDoubleArray();
+  DCHECK(result == !HasTypedArrayElements());
+  return result;
 }
 
 void JSArray::SetContent(Handle<JSArray> array,
@@ -63,14 +58,16 @@ bool JSArray::HasArrayPrototype(Isolate* isolate) {
   return map().prototype() == *isolate->initial_array_prototype();
 }
 
-SMI_ACCESSORS(JSArrayIterator, raw_kind, kKindOffset)
+ACCESSORS(JSArrayIterator, iterated_object, Object, kIteratedObjectOffset)
+ACCESSORS(JSArrayIterator, next_index, Object, kNextIndexOffset)
 
 IterationKind JSArrayIterator::kind() const {
-  return static_cast<IterationKind>(raw_kind());
+  return static_cast<IterationKind>(
+      Smi::cast(READ_FIELD(*this, kKindOffset)).value());
 }
 
 void JSArrayIterator::set_kind(IterationKind kind) {
-  set_raw_kind(static_cast<int>(kind));
+  WRITE_FIELD(*this, kKindOffset, Smi::FromInt(static_cast<int>(kind)));
 }
 
 }  // namespace internal

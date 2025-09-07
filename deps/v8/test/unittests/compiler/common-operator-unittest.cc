@@ -62,6 +62,8 @@ class CommonSharedOperatorTest
     : public TestWithZone,
       public ::testing::WithParamInterface<SharedOperator> {};
 
+}  // namespace
+
 
 TEST_P(CommonSharedOperatorTest, InstancesAreGloballyShared) {
   const SharedOperator& sop = GetParam();
@@ -248,12 +250,6 @@ TEST_F(CommonOperatorTest, IfValue) {
       EXPECT_EQ(1, op->ControlOutputCount());
     }
   }
-
-  // Specific test for a regression in the IfValueParameters operator==.
-  CHECK(!(IfValueParameters(0, 0) == IfValueParameters(1, 0)));
-  CHECK(!(IfValueParameters(0, 0) == IfValueParameters(0, 1)));
-  CHECK(!(IfValueParameters(0, 1, BranchHint::kFalse) ==
-          IfValueParameters(0, 1, BranchHint::kTrue)));
 }
 
 
@@ -391,7 +387,6 @@ TEST_F(CommonOperatorTest, Projection) {
   }
 }
 
-}  // namespace
 }  // namespace common_operator_unittest
 }  // namespace compiler
 }  // namespace internal

@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 (function testTableGetNonExportedFunction() {
   print(arguments.callee.name);
@@ -11,8 +11,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   const f1 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 11]);
   const f2 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 22]);
   const offset = 3;
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset),
-                                  [f1.index, f2.index]);
+  builder.addElementSegment(0, offset, false, [f1.index, f2.index]);
 
   const instance = builder.instantiate();
 
@@ -28,8 +27,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   const f2 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 22])
                     .exportAs("f2");
   const offset = 3;
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset),
-                                  [f1.index, f2.index]);
+  builder.addElementSegment(0, offset, false, [f1.index, f2.index]);
 
   const instance = builder.instantiate();
 
@@ -44,10 +42,8 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   const f1 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 11]);
   const f2 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 22]);
   const offset = 3;
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset),
-                                  [f1.index, f2.index]);
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset + 1),
-                                  [f1.index, f2.index]);
+  builder.addElementSegment(0, offset, false, [f1.index, f2.index]);
+  builder.addElementSegment(0, offset + 1, false, [f1.index, f2.index]);
 
   const instance = builder.instantiate();
 
@@ -59,12 +55,10 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   print(arguments.callee.name);
   const builder = new WasmModuleBuilder();
   const table = builder.addTable(kWasmAnyFunc, 20).exportAs("table");
-  const f1 = builder.addFunction('f', kSig_i_v)
-                    .addBody([kExprI32Const, 11]).exportAs("f1");
+  const f1 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 11]).exportAs("f1");
   const f2 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 22]);
   const offset = 3;
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset),
-                                  [f1.index, f1.index, f1.index]);
+  builder.addElementSegment(0, offset, false, [f1.index, f1.index, f1.index]);
 
   const instance = builder.instantiate();
 
@@ -84,8 +78,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   const f1 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 11]);
   const f2 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 22]);
   const offset = 3;
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset),
-                                  [f1.index, f1.index, f1.index]);
+  builder.addElementSegment(0, offset, false, [f1.index, f1.index, f1.index]);
 
   const instance = builder.instantiate();
 
@@ -104,8 +97,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   const f1 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 11]);
   const f2 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 22]);
   const offset = 3;
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset),
-                                  [f1.index, f1.index, f1.index]);
+  builder.addElementSegment(0, offset, false, [f1.index, f1.index, f1.index]);
 
   const instance = builder.instantiate();
   assertEquals(null, instance.exports.table.get(offset - 1));
@@ -119,8 +111,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   const f1 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 11]);
   const f2 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 22]);
   const offset = 3;
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset),
-                                  [f1.index, f1.index, f1.index]);
+  builder.addElementSegment(0, offset, false, [f1.index, f1.index, f1.index]);
 
   const instance = builder.instantiate();
   assertThrows(() => instance.exports.table.get(size + 3), RangeError);
@@ -134,8 +125,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   const import1 = builder.addImport("q", "fun", kSig_i_ii);
   const f1 = builder.addFunction('f', kSig_i_v).addBody([kExprI32Const, 11]);
   const offset = 3;
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(offset),
-                                  [f1.index, import1]);
+  builder.addElementSegment(0, offset, false, [f1.index, import1]);
 
   const instance = builder.instantiate({q: {fun: () => 33}});
   assertEquals(33, instance.exports.table.get(offset + 1)());

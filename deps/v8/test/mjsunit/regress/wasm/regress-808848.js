@@ -2,11 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// The test needs --no-liftoff because we can't serialize and deserialize
-// Liftoff code.
-// Flags: --allow-natives-syntax --no-liftoff
+// Flags: --allow-natives-syntax
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 // The number of locals must be greater than the constant defined here:
 // https://cs.chromium.org/chromium/src/v8/src/compiler/x64/code-generator-x64.cc?l=3146
@@ -29,11 +27,11 @@ function varuint32(val) {
 let body = [];
 
 for (let i = 0; i < kNumLocals; ++i) {
-  body.push(kExprCallFunction, 0, kExprLocalSet, ...varuint32(i));
+  body.push(kExprCallFunction, 0, kExprSetLocal, ...varuint32(i));
 }
 
 for (let i = 0; i < kNumLocals; ++i) {
-  body.push(kExprLocalGet, ...varuint32(i), kExprCallFunction, 1);
+  body.push(kExprGetLocal, ...varuint32(i), kExprCallFunction, 1);
 }
 
 let builder = new WasmModuleBuilder();
@@ -41,7 +39,7 @@ builder.addImport('mod', 'get', kSig_i_v);
 builder.addImport('mod', 'call', kSig_v_i);
 builder.
   addFunction('main', kSig_v_v).
-  addLocals(kWasmI32, kNumLocals).
+  addLocals({i32_count: kNumLocals}).
   addBody(body).
   exportAs('main');
 let m1_bytes = builder.toBuffer();

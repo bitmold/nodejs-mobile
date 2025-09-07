@@ -4,7 +4,7 @@
 
 // Flags: --experimental-wasm-threads
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 const kMemtypeSize32 = 4;
 const kMemtypeSize16 = 2;
@@ -25,8 +25,8 @@ function GetAtomicBinOpFunction(wasmExpression, alignment, offset) {
   builder.addImportedMemory("m", "imported_mem", 0, maxSize, "shared");
   builder.addFunction("main", kSig_i_ii)
     .addBody([
-      kExprLocalGet, 0,
-      kExprLocalGet, 1,
+      kExprGetLocal, 0,
+      kExprGetLocal, 1,
       kAtomicPrefix,
       wasmExpression, alignment, offset])
     .exportAs("main");
@@ -43,11 +43,11 @@ function GetAtomicCmpExchangeFunction(wasmExpression, alignment, offset) {
   builder.addImportedMemory("m", "imported_mem", 0, maxSize, "shared");
   builder.addFunction("main", kSig_i_iii)
     .addBody([
-      kExprLocalGet, 0,
-      kExprLocalGet, 1,
-      kExprLocalGet, 2,
+      kExprGetLocal, 0,
+      kExprGetLocal, 1,
+      kExprGetLocal, 2,
       kAtomicPrefix,
-      wasmExpression, alignment, ...wasmSignedLeb(offset, 5)])
+      wasmExpression, alignment, offset])
     .exportAs("main");
 
   // Instantiate module, get function exports
@@ -62,7 +62,7 @@ function GetAtomicLoadFunction(wasmExpression, alignment, offset) {
   builder.addImportedMemory("m", "imported_mem", 0, maxSize, "shared");
   builder.addFunction("main", kSig_i_i)
     .addBody([
-      kExprLocalGet, 0,
+      kExprGetLocal, 0,
       kAtomicPrefix,
       wasmExpression, alignment, offset])
     .exportAs("main");
@@ -79,8 +79,8 @@ function GetAtomicStoreFunction(wasmExpression, alignment, offset) {
   builder.addImportedMemory("m", "imported_mem", 0, maxSize, "shared");
   builder.addFunction("main", kSig_v_ii)
     .addBody([
-      kExprLocalGet, 0,
-      kExprLocalGet, 1,
+      kExprGetLocal, 0,
+      kExprGetLocal, 1,
       kAtomicPrefix,
       wasmExpression, alignment, offset])
     .exportAs("main");
@@ -251,15 +251,15 @@ function Test8Op(operation, func) {
   Test8Op(Exchange, wasmExchange);
 })();
 
-function TestCmpExchange(func, buffer, params, size, offset = 0) {
-  for (let i = 0; i + (offset / size) < buffer.length; i = inc(i)) {
+function TestCmpExchange(func, buffer, params, size) {
+  for (let i = 0; i < buffer.length; i = inc(i)) {
     for (let j = 0; j < params.length; j++) {
       for (let k = 0; k < params.length; k++) {
-        buffer[i + (offset / size)] = params[j];
+        buffer[i] = params[j];
         let loaded = func(i * size, params[k], params[j]) >>> 0;
         let expected = (params[k] == loaded) ? params[j] : loaded;
         assertEquals(loaded, params[j]);
-        assertEquals(expected, buffer[i + (offset / size)]);
+        assertEquals(expected, buffer[i]);
       }
     }
   }
@@ -268,14 +268,11 @@ function TestCmpExchange(func, buffer, params, size, offset = 0) {
 
 (function TestAtomicCompareExchange() {
   print(arguments.callee.name);
-  // Offset is big enough to not fit in a 12-bit immediate on arm64, but small
-  // enough to fit in the maxSize wasm pages.
-  const offset = 0x1234;
   let wasmCmpExchange =
-      GetAtomicCmpExchangeFunction(kExprI32AtomicCompareExchange, 2, offset);
+      GetAtomicCmpExchangeFunction(kExprI32AtomicCompareExchange, 2, 0);
   let i32 = new Uint32Array(memory.buffer);
   let params = [0x00000001, 0x00000555, 0x00099999, 0xffffffff];
-  TestCmpExchange(wasmCmpExchange, i32, params, kMemtypeSize32, offset);
+  TestCmpExchange(wasmCmpExchange, i32, params, kMemtypeSize32);
 })();
 
 (function TestAtomicCompareExchange16U() {
@@ -399,7 +396,7 @@ function TestStore(func, buffer, value, size) {
   builder.addImportedMemory("m", "imported_mem", 16, 128, "shared");
   builder.addFunction("main", kSig_i_v)
     .addBody([
-      kExprLoop, kWasmVoid,
+      kExprLoop, kWasmStmt,
         kExprI32Const, 16,
         kExprI32Const, 20,
         kAtomicPrefix,
@@ -440,14 +437,14 @@ function CmpExchgLoop(opcode, alignment) {
   let builder = new WasmModuleBuilder();
   builder.addImportedMemory("m", "imported_mem", 0, 2, "shared");
   builder.addFunction("main", makeSig([kWasmI32], []))
-      .addLocals(kWasmI64, 2)
+      .addLocals({i64_count: 2})
       .addBody([
-        kExprLoop, kWasmVoid,
-          kExprLocalGet, 0,
-          kExprLocalGet, 1,
-          kExprLocalGet, 2,
+        kExprLoop, kWasmStmt,
+          kExprGetLocal, 0,
+          kExprGetLocal, 1,
+          kExprGetLocal, 2,
           kAtomicPrefix, opcode, alignment, 0,
-          kExprLocalGet, 1,
+          kExprGetLocal, 1,
           kExprI64Ne,
           kExprBrIf, 0,
           kExprEnd

@@ -1,74 +1,71 @@
 #include "node_binding.h"
 #include <atomic>
 #include "env-inl.h"
-#include "node_builtins.h"
-#include "node_errors.h"
-#include "node_external_reference.h"
+#include "node_native_module_env.h"
 #include "util.h"
 
-#include <string>
-
 #if HAVE_OPENSSL
-#define NODE_BUILTIN_OPENSSL_BINDINGS(V) V(crypto) V(tls_wrap)
+#define NODE_BUILTIN_OPENSSL_MODULES(V) V(crypto) V(tls_wrap)
 #else
-#define NODE_BUILTIN_OPENSSL_BINDINGS(V)
+#define NODE_BUILTIN_OPENSSL_MODULES(V)
 #endif
 
 #if NODE_HAVE_I18N_SUPPORT
-#define NODE_BUILTIN_ICU_BINDINGS(V) V(icu)
+#define NODE_BUILTIN_ICU_MODULES(V) V(icu)
 #else
-#define NODE_BUILTIN_ICU_BINDINGS(V)
+#define NODE_BUILTIN_ICU_MODULES(V)
+#endif
+
+#if NODE_REPORT
+#define NODE_BUILTIN_REPORT_MODULES(V) V(report)
+#else
+#define NODE_BUILTIN_REPORT_MODULES(V)
 #endif
 
 #if HAVE_INSPECTOR
-#define NODE_BUILTIN_PROFILER_BINDINGS(V) V(profiler)
+#define NODE_BUILTIN_PROFILER_MODULES(V) V(profiler)
 #else
-#define NODE_BUILTIN_PROFILER_BINDINGS(V)
+#define NODE_BUILTIN_PROFILER_MODULES(V)
 #endif
 
 #if HAVE_DTRACE || HAVE_ETW
-#define NODE_BUILTIN_DTRACE_BINDINGS(V) V(dtrace)
+#define NODE_BUILTIN_DTRACE_MODULES(V) V(dtrace)
 #else
-#define NODE_BUILTIN_DTRACE_BINDINGS(V)
+#define NODE_BUILTIN_DTRACE_MODULES(V)
 #endif
 
-// A list of built-in bindings. In order to do binding registration
-// in node::Init(), need to add built-in bindings in the following list.
-// Then in binding::RegisterBuiltinBindings(), it calls bindings' registration
-// function. This helps the built-in bindings are loaded properly when
+// A list of built-in modules. In order to do module registration
+// in node::Init(), need to add built-in modules in the following list.
+// Then in binding::RegisterBuiltinModules(), it calls modules' registration
+// function. This helps the built-in modules are loaded properly when
 // node is built as static library. No need to depend on the
 // __attribute__((constructor)) like mechanism in GCC.
-#define NODE_BUILTIN_STANDARD_BINDINGS(V)                                      \
+#define NODE_BUILTIN_STANDARD_MODULES(V)                                       \
   V(async_wrap)                                                                \
-  V(blob)                                                                      \
-  V(block_list)                                                                \
   V(buffer)                                                                    \
-  V(builtins)                                                                  \
   V(cares_wrap)                                                                \
   V(config)                                                                    \
   V(contextify)                                                                \
   V(credentials)                                                               \
+  V(domain)                                                                    \
   V(errors)                                                                    \
   V(fs)                                                                        \
-  V(fs_dir)                                                                    \
   V(fs_event_wrap)                                                             \
   V(heap_utils)                                                                \
   V(http2)                                                                     \
   V(http_parser)                                                               \
+  V(http_parser_llhttp)                                                        \
   V(inspector)                                                                 \
   V(js_stream)                                                                 \
-  V(js_udp_wrap)                                                               \
   V(messaging)                                                                 \
   V(module_wrap)                                                               \
-  V(mksnapshot)                                                                \
+  V(native_module)                                                             \
   V(options)                                                                   \
   V(os)                                                                        \
   V(performance)                                                               \
   V(pipe_wrap)                                                                 \
   V(process_wrap)                                                              \
   V(process_methods)                                                           \
-  V(report)                                                                    \
-  V(sea)                                                                       \
   V(serdes)                                                                    \
   V(signal_wrap)                                                               \
   V(spawn_sync)                                                                \
@@ -87,33 +84,25 @@
   V(util)                                                                      \
   V(uv)                                                                        \
   V(v8)                                                                        \
-  V(wasi)                                                                      \
-  V(wasm_web_api)                                                              \
-  V(watchdog)                                                                  \
   V(worker)                                                                    \
   V(zlib)
 
-#define NODE_BUILTIN_BINDINGS(V)                                               \
-  NODE_BUILTIN_STANDARD_BINDINGS(V)                                            \
-  NODE_BUILTIN_OPENSSL_BINDINGS(V)                                             \
-  NODE_BUILTIN_ICU_BINDINGS(V)                                                 \
-  NODE_BUILTIN_PROFILER_BINDINGS(V)                                            \
-  NODE_BUILTIN_DTRACE_BINDINGS(V)
+#define NODE_BUILTIN_MODULES(V)                                                \
+  NODE_BUILTIN_STANDARD_MODULES(V)                                             \
+  NODE_BUILTIN_OPENSSL_MODULES(V)                                              \
+  NODE_BUILTIN_ICU_MODULES(V)                                                  \
+  NODE_BUILTIN_REPORT_MODULES(V)                                               \
+  NODE_BUILTIN_PROFILER_MODULES(V)                                             \
+  NODE_BUILTIN_DTRACE_MODULES(V)
 
-// This is used to load built-in bindings. Instead of using
+// This is used to load built-in modules. Instead of using
 // __attribute__((constructor)), we call the _register_<modname>
-// function for each built-in bindings explicitly in
-// binding::RegisterBuiltinBindings(). This is only forward declaration.
-// The definitions are in each binding's implementation when calling
-// the NODE_BINDING_CONTEXT_AWARE_INTERNAL.
+// function for each built-in modules explicitly in
+// binding::RegisterBuiltinModules(). This is only forward declaration.
+// The definitions are in each module's implementation when calling
+// the NODE_MODULE_CONTEXT_AWARE_INTERNAL.
 #define V(modname) void _register_##modname();
-NODE_BUILTIN_BINDINGS(V)
-#undef V
-
-#define V(modname)                                                             \
-  void _register_isolate_##modname(node::IsolateData* isolate_data,            \
-                                   v8::Local<v8::FunctionTemplate> target);
-NODE_BINDINGS_WITH_PER_ISOLATE_INIT(V)
+NODE_BUILTIN_MODULES(V)
 #undef V
 
 #ifdef _AIX
@@ -162,7 +151,7 @@ void* wrapped_dlopen(const char* filename, int flags) {
   Mutex::ScopedLock lock(dlhandles_mutex);
 
   uv_fs_t req;
-  auto cleanup = OnScopeLeave([&]() { uv_fs_req_cleanup(&req); });
+  OnScopeLeave cleanup([&]() { uv_fs_req_cleanup(&req); });
   int rc = uv_fs_stat(nullptr, &req, filename, nullptr);
 
   if (rc != 0) {
@@ -236,20 +225,17 @@ static bool libc_may_be_musl() {
   has_cached_retval = true;
   return retval;
 }
-#elif defined(__POSIX__)
+#else  // __linux__
 static bool libc_may_be_musl() { return false; }
 #endif  // __linux__
 
 namespace node {
 
 using v8::Context;
-using v8::EscapableHandleScope;
 using v8::Exception;
 using v8::FunctionCallbackInfo;
-using v8::FunctionTemplate;
-using v8::HandleScope;
-using v8::Isolate;
 using v8::Local;
+using v8::NewStringType;
 using v8::Object;
 using v8::String;
 using v8::Value;
@@ -419,12 +405,6 @@ inline napi_addon_register_func GetNapiInitializerCallback(DLib* dlib) {
       dlib->GetSymbolAddress(name));
 }
 
-inline node_api_addon_get_api_version_func GetNapiAddonGetApiVersionCallback(
-    DLib* dlib) {
-  return reinterpret_cast<node_api_addon_get_api_version_func>(
-      dlib->GetSymbolAddress(STRINGIFY(NODE_API_MODULE_GET_API_VERSION)));
-}
-
 // DLOpen is process.dlopen(module, filename, flags).
 // Used to load 'module.node' dynamically shared objects.
 //
@@ -433,24 +413,18 @@ inline node_api_addon_get_api_version_func GetNapiAddonGetApiVersionCallback(
 // cache that's a plain C list or hash table that's shared across contexts?
 void DLOpen(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-
-  if (env->no_native_addons()) {
-    return THROW_ERR_DLOPEN_DISABLED(
-      env, "Cannot load native addon because loading addons is disabled.");
-  }
-
   auto context = env->context();
 
   CHECK_NULL(thread_local_modpending);
 
   if (args.Length() < 2) {
-    return THROW_ERR_MISSING_ARGS(
-        env, "process.dlopen needs at least 2 arguments");
+    env->ThrowError("process.dlopen needs at least 2 arguments.");
+    return;
   }
 
   int32_t flags = DLib::kDefaultFlags;
   if (args.Length() > 2 && !args[2]->Int32Value(context).To(&flags)) {
-    return THROW_ERR_INVALID_ARG_TYPE(env, "flag argument must be an integer.");
+    return env->ThrowTypeError("flag argument must be an integer.");
   }
 
   Local<Object> module;
@@ -476,24 +450,19 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
     thread_local_modpending = nullptr;
 
     if (!is_opened) {
-      std::string errmsg = dlib->errmsg_.c_str();
+      Local<String> errmsg =
+          OneByteString(env->isolate(), dlib->errmsg_.c_str());
       dlib->Close();
 #ifdef _WIN32
       // Windows needs to add the filename into the error message
-      errmsg += *filename;
+      errmsg = String::Concat(
+          env->isolate(), errmsg, args[1]->ToString(context).ToLocalChecked());
 #endif  // _WIN32
-      THROW_ERR_DLOPEN_FAILED(env, "%s", errmsg.c_str());
+      env->isolate()->ThrowException(Exception::Error(errmsg));
       return false;
     }
 
     if (mp != nullptr) {
-      if (mp->nm_context_register_func == nullptr) {
-        if (env->force_context_aware()) {
-          dlib->Close();
-          THROW_ERR_NON_CONTEXT_AWARE_DISABLED(env);
-          return false;
-        }
-      }
       mp->nm_dso_handle = dlib->handle_;
       dlib->SaveInGlobalHandleMap(mp);
     } else {
@@ -501,19 +470,13 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
         callback(exports, module, context);
         return true;
       } else if (auto napi_callback = GetNapiInitializerCallback(dlib)) {
-        int32_t module_api_version = NODE_API_DEFAULT_MODULE_API_VERSION;
-        if (auto get_version = GetNapiAddonGetApiVersionCallback(dlib)) {
-          module_api_version = get_version();
-        }
-        napi_module_register_by_symbol(
-            exports, module, context, napi_callback, module_api_version);
+        napi_module_register_by_symbol(exports, module, context, napi_callback);
         return true;
       } else {
         mp = dlib->GetSavedModuleFromGlobalHandleMap();
         if (mp == nullptr || mp->nm_context_register_func == nullptr) {
           dlib->Close();
-          THROW_ERR_DLOPEN_FAILED(
-              env, "Module did not self-register: '%s'.", *filename);
+          env->ThrowError("Module did not self-register.");
           return false;
         }
       }
@@ -528,22 +491,23 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
         callback(exports, module, context);
         return true;
       }
+      char errmsg[1024];
+      snprintf(errmsg,
+               sizeof(errmsg),
+               "The module '%s'"
+               "\nwas compiled against a different Node.js version using"
+               "\nNODE_MODULE_VERSION %d. This version of Node.js requires"
+               "\nNODE_MODULE_VERSION %d. Please try re-compiling or "
+               "re-installing\nthe module (for instance, using `npm rebuild` "
+               "or `npm install`).",
+               *filename,
+               mp->nm_version,
+               NODE_MODULE_VERSION);
 
-      const int actual_nm_version = mp->nm_version;
       // NOTE: `mp` is allocated inside of the shared library's memory, calling
       // `dlclose` will deallocate it
       dlib->Close();
-      THROW_ERR_DLOPEN_FAILED(
-          env,
-          "The module '%s'"
-          "\nwas compiled against a different Node.js version using"
-          "\nNODE_MODULE_VERSION %d. This version of Node.js requires"
-          "\nNODE_MODULE_VERSION %d. Please try re-compiling or "
-          "re-installing\nthe module (for instance, using `npm rebuild` "
-          "or `npm install`).",
-          *filename,
-          actual_nm_version,
-          NODE_MODULE_VERSION);
+      env->ThrowError(errmsg);
       return false;
     }
     CHECK_EQ(mp->nm_flags & NM_F_BUILTIN, 0);
@@ -556,7 +520,7 @@ void DLOpen(const FunctionCallbackInfo<Value>& args) {
       mp->nm_register_func(exports, module, mp->nm_priv);
     } else {
       dlib->Close();
-      THROW_ERR_DLOPEN_FAILED(env, "Module has no declared entry point.");
+      env->ThrowError("Module has no declared entry point.");
       return false;
     }
 
@@ -580,86 +544,60 @@ inline struct node_module* FindModule(struct node_module* list,
   return mp;
 }
 
-void CreateInternalBindingTemplates(IsolateData* isolate_data) {
-#define V(modname)                                                             \
-  do {                                                                         \
-    Local<FunctionTemplate> templ =                                            \
-        FunctionTemplate::New(isolate_data->isolate());                        \
-    templ->InstanceTemplate()->SetInternalFieldCount(                          \
-        BaseObject::kInternalFieldCount);                                      \
-    templ->Inherit(BaseObject::GetConstructorTemplate(isolate_data));          \
-    _register_isolate_##modname(isolate_data, templ);                          \
-    isolate_data->set_##modname##_binding(templ);                              \
-  } while (0);
-  NODE_BINDINGS_WITH_PER_ISOLATE_INIT(V)
-#undef V
+node_module* get_internal_module(const char* name) {
+  return FindModule(modlist_internal, name, NM_F_INTERNAL);
+}
+node_module* get_linked_module(const char* name) {
+  return FindModule(modlist_linked, name, NM_F_LINKED);
 }
 
-static Local<Object> GetInternalBindingExportObject(IsolateData* isolate_data,
-                                                    const char* mod_name,
-                                                    Local<Context> context) {
-  Local<FunctionTemplate> ctor;
-#define V(name)                                                                \
-  if (strcmp(mod_name, #name) == 0) {                                          \
-    ctor = isolate_data->name##_binding();                                     \
-  } else  // NOLINT(readability/braces)
-  NODE_BINDINGS_WITH_PER_ISOLATE_INIT(V)
-#undef V
-  {
-    ctor = isolate_data->binding_data_ctor_template();
-  }
-
-  Local<Object> obj = ctor->GetFunction(context)
-                          .ToLocalChecked()
-                          ->NewInstance(context)
-                          .ToLocalChecked();
-  return obj;
-}
-
-static Local<Object> InitInternalBinding(Realm* realm, node_module* mod) {
-  EscapableHandleScope scope(realm->isolate());
-  Local<Context> context = realm->context();
-  Local<Object> exports = GetInternalBindingExportObject(
-      realm->isolate_data(), mod->nm_modname, context);
+static Local<Object> InitModule(Environment* env,
+                                node_module* mod,
+                                Local<String> module) {
+  Local<Object> exports = Object::New(env->isolate());
+  // Internal bindings don't have a "module" object, only exports.
   CHECK_NULL(mod->nm_register_func);
   CHECK_NOT_NULL(mod->nm_context_register_func);
-  Local<Value> unused = Undefined(realm->isolate());
-  // Internal bindings don't have a "module" object, only exports.
-  mod->nm_context_register_func(exports, unused, context, mod->nm_priv);
-  return scope.Escape(exports);
+  Local<Value> unused = Undefined(env->isolate());
+  mod->nm_context_register_func(exports, unused, env->context(), mod->nm_priv);
+  return exports;
+}
+
+static void ThrowIfNoSuchModule(Environment* env, const char* module_v) {
+  char errmsg[1024];
+  snprintf(errmsg, sizeof(errmsg), "No such module: %s", module_v);
+  env->ThrowError(errmsg);
 }
 
 void GetInternalBinding(const FunctionCallbackInfo<Value>& args) {
-  Realm* realm = Realm::GetCurrent(args);
-  Isolate* isolate = realm->isolate();
-  HandleScope scope(isolate);
-  Local<Context> context = realm->context();
+  Environment* env = Environment::GetCurrent(args);
 
   CHECK(args[0]->IsString());
 
   Local<String> module = args[0].As<String>();
-  node::Utf8Value module_v(isolate, module);
+  node::Utf8Value module_v(env->isolate(), module);
   Local<Object> exports;
 
-  node_module* mod = FindModule(modlist_internal, *module_v, NM_F_INTERNAL);
+  node_module* mod = get_internal_module(*module_v);
   if (mod != nullptr) {
-    exports = InitInternalBinding(realm, mod);
-    realm->internal_bindings.insert(mod);
+    exports = InitModule(env, mod, module);
   } else if (!strcmp(*module_v, "constants")) {
-    exports = Object::New(isolate);
-    CHECK(exports->SetPrototype(context, Null(isolate)).FromJust());
-    DefineConstants(isolate, exports);
+    exports = Object::New(env->isolate());
+    CHECK(
+        exports->SetPrototype(env->context(), Null(env->isolate())).FromJust());
+    DefineConstants(env->isolate(), exports);
   } else if (!strcmp(*module_v, "natives")) {
-    exports = realm->env()->builtin_loader()->GetSourceObject(context);
+    exports = native_module::NativeModuleEnv::GetSourceObject(env->context());
     // Legacy feature: process.binding('natives').config contains stringified
     // config.gypi
     CHECK(exports
-              ->Set(context,
-                    realm->isolate_data()->config_string(),
-                    realm->env()->builtin_loader()->GetConfigString(isolate))
+              ->Set(env->context(),
+                    env->config_string(),
+                    native_module::NativeModuleEnv::GetConfigString(
+                        env->isolate()))
               .FromJust());
   } else {
-    return THROW_ERR_INVALID_MODULE(isolate, "No such binding: %s", *module_v);
+    return ThrowIfNoSuchModule(env, *module_v);
   }
 
   args.GetReturnValue().Set(exports);
@@ -673,30 +611,22 @@ void GetLinkedBinding(const FunctionCallbackInfo<Value>& args) {
   Local<String> module_name = args[0].As<String>();
 
   node::Utf8Value module_name_v(env->isolate(), module_name);
-  const char* name = *module_name_v;
-  node_module* mod = nullptr;
-
-  // Iterate from here to the nearest non-Worker Environment to see if there's
-  // a linked binding defined locally rather than through the global list.
-  Environment* cur_env = env;
-  while (mod == nullptr && cur_env != nullptr) {
-    Mutex::ScopedLock lock(cur_env->extra_linked_bindings_mutex());
-    mod = FindModule(cur_env->extra_linked_bindings_head(), name, NM_F_LINKED);
-    cur_env = cur_env->worker_parent_env();
-  }
-
-  if (mod == nullptr)
-    mod = FindModule(modlist_linked, name, NM_F_LINKED);
+  node_module* mod = get_linked_module(*module_name_v);
 
   if (mod == nullptr) {
-    return THROW_ERR_INVALID_MODULE(
-        env, "No such binding was linked: %s", *module_name_v);
+    char errmsg[1024];
+    snprintf(errmsg,
+             sizeof(errmsg),
+             "No such module was linked: %s",
+             *module_name_v);
+    return env->ThrowError(errmsg);
   }
 
   Local<Object> module = Object::New(env->isolate());
   Local<Object> exports = Object::New(env->isolate());
   Local<String> exports_prop =
-      String::NewFromUtf8Literal(env->isolate(), "exports");
+      String::NewFromUtf8(env->isolate(), "exports", NewStringType::kNormal)
+          .ToLocalChecked();
   module->Set(env->context(), exports_prop, exports).Check();
 
   if (mod->nm_context_register_func != nullptr) {
@@ -705,8 +635,7 @@ void GetLinkedBinding(const FunctionCallbackInfo<Value>& args) {
   } else if (mod->nm_register_func != nullptr) {
     mod->nm_register_func(exports, module, mod->nm_priv);
   } else {
-    return THROW_ERR_INVALID_MODULE(
-        env, "Linked binding has no declared entry point.");
+    return env->ThrowError("Linked module has no declared entry point.");
   }
 
   auto effective_exports =
@@ -715,21 +644,13 @@ void GetLinkedBinding(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(effective_exports);
 }
 
-// Call built-in bindings' _register_<module name> function to
-// do binding registration explicitly.
-void RegisterBuiltinBindings() {
+// Call built-in modules' _register_<module name> function to
+// do module registration explicitly.
+void RegisterBuiltinModules() {
 #define V(modname) _register_##modname();
-  NODE_BUILTIN_BINDINGS(V)
+  NODE_BUILTIN_MODULES(V)
 #undef V
-}
-
-void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
-  registry->Register(GetLinkedBinding);
-  registry->Register(GetInternalBinding);
 }
 
 }  // namespace binding
 }  // namespace node
-
-NODE_BINDING_EXTERNAL_REFERENCE(binding,
-                                node::binding::RegisterExternalReferences)

@@ -10,13 +10,11 @@ global	Camellia_EncryptBlock
 
 ALIGN	16
 Camellia_EncryptBlock:
-
 	mov	eax,128
 	sub	eax,ecx
 	mov	ecx,3
 	adc	ecx,0
 	jmp	NEAR $L$enc_rounds
-
 
 
 global	Camellia_EncryptBlock_Rounds
@@ -97,7 +95,6 @@ $L$SEH_end_Camellia_EncryptBlock_Rounds:
 
 ALIGN	16
 _x86_64_Camellia_encrypt:
-
 	xor	r9d,DWORD[r14]
 	xor	r8d,DWORD[4+r14]
 	xor	r11d,DWORD[8+r14]
@@ -303,18 +300,15 @@ DB	0xf3,0xc3
 
 
 
-
 global	Camellia_DecryptBlock
 
 ALIGN	16
 Camellia_DecryptBlock:
-
 	mov	eax,128
 	sub	eax,ecx
 	mov	ecx,3
 	adc	ecx,0
 	jmp	NEAR $L$dec_rounds
-
 
 
 global	Camellia_DecryptBlock_Rounds
@@ -395,7 +389,6 @@ $L$SEH_end_Camellia_DecryptBlock_Rounds:
 
 ALIGN	16
 _x86_64_Camellia_decrypt:
-
 	xor	r9d,DWORD[r14]
 	xor	r8d,DWORD[4+r14]
 	xor	r11d,DWORD[8+r14]
@@ -599,7 +592,6 @@ $L$ddone:
 	mov	r11d,ebx
 
 DB	0xf3,0xc3
-
 
 global	Camellia_Ekeygen
 
@@ -1705,7 +1697,6 @@ $L$SEH_begin_Camellia_cbc_encrypt:
 
 
 
-DB	243,15,30,250
 	cmp	rdx,0
 	je	NEAR $L$cbc_abort
 	push	rbx

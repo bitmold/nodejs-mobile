@@ -53,7 +53,7 @@ JsonValue ReadMessage() {
   return ParseJson(content).value;
 }
 
-void WriteMessage(JsonValue message) {
+void WriteMessage(JsonValue& message) {
   std::string content = SerializeToString(message);
 
   Logger::Log("[outgoing] ", content, "\n\n");
@@ -69,12 +69,12 @@ void ResetCompilationErrorDiagnostics(MessageWriter writer) {
     PublishDiagnosticsNotification notification;
     notification.set_method("textDocument/publishDiagnostics");
 
-    std::string error_file = SourceFileMap::AbsolutePath(source);
+    std::string error_file = SourceFileMap::GetSource(source);
     notification.params().set_uri(error_file);
     // Trigger empty array creation.
     USE(notification.params().diagnostics_size());
 
-    writer(std::move(notification.GetJsonValue()));
+    writer(notification.GetJsonValue());
   }
   DiagnosticsFiles::Get() = {};
 }
@@ -87,8 +87,6 @@ void ResetCompilationErrorDiagnostics(MessageWriter writer) {
 class DiagnosticCollector {
  public:
   void AddTorqueMessage(const TorqueMessage& message) {
-    if (!ShouldAddMessageOfKind(message.kind)) return;
-
     SourceId id =
         message.position ? message.position->source : SourceId::Invalid();
     auto& notification = GetOrCreateNotificationForSource(id);
@@ -117,23 +115,9 @@ class DiagnosticCollector {
     notification.set_method("textDocument/publishDiagnostics");
 
     std::string file =
-        id.IsValid() ? SourceFileMap::AbsolutePath(id) : "<unknown>";
+        id.IsValid() ? SourceFileMap::GetSource(id) : "<unknown>";
     notification.params().set_uri(file);
     return notification;
-  }
-
-  bool ShouldAddMessageOfKind(TorqueMessage::Kind kind) {
-    // An error can easily cause a lot of false positive lint messages, due to
-    // unused variables, macros, etc. Thus we suppress subsequent lint messages
-    // when there are errors.
-    switch (kind) {
-      case TorqueMessage::Kind::kError:
-        suppress_lint_messages_ = true;
-        return true;
-      case TorqueMessage::Kind::kLint:
-        if (suppress_lint_messages_) return false;
-        return true;
-    }
   }
 
   void PopulateRangeFromSourcePosition(Range range,
@@ -154,7 +138,6 @@ class DiagnosticCollector {
   }
 
   std::map<SourceId, PublishDiagnosticsNotification> notifications_;
-  bool suppress_lint_messages_ = false;
 };
 
 void SendCompilationDiagnostics(const TorqueCompilerResult& result,
@@ -168,7 +151,7 @@ void SendCompilationDiagnostics(const TorqueCompilerResult& result,
 
   for (auto& pair : collector.notifications()) {
     PublishDiagnosticsNotification& notification = pair.second;
-    writer(std::move(notification.GetJsonValue()));
+    writer(notification.GetJsonValue());
 
     // Record all source files for which notifications are sent, so they
     // can be reset before the next compiler run.
@@ -181,7 +164,7 @@ void SendCompilationDiagnostics(const TorqueCompilerResult& result,
 
 void CompilationFinished(TorqueCompilerResult result, MessageWriter writer) {
   LanguageServerData::Get() = std::move(result.language_server_data);
-  SourceFileMap::Get() = *result.source_file_map;
+  SourceFileMap::Get() = result.source_file_map;
 
   SendCompilationDiagnostics(result, writer);
 }
@@ -222,7 +205,7 @@ void HandleInitializeRequest(InitializeRequest request, MessageWriter writer) {
   //               "workspace/didChangeWatchedFiles" capability.
   // TODO(szuend): Check if client supports "LocationLink". This will
   //               influence the result of "goto definition".
-  writer(std::move(response.GetJsonValue()));
+  writer(response.GetJsonValue());
 }
 
 void HandleInitializedNotification(MessageWriter writer) {
@@ -241,7 +224,7 @@ void HandleInitializedNotification(MessageWriter writer) {
   reg.set_id("did-change-id");
   reg.set_method("workspace/didChangeWatchedFiles");
 
-  writer(std::move(request.GetJsonValue()));
+  writer(request.GetJsonValue());
 }
 
 void HandleTorqueFileListNotification(TorqueFileListNotification notification,
@@ -275,13 +258,12 @@ void HandleGotoDefinitionRequest(GotoDefinitionRequest request,
   // the definition not beeing found.
   if (!id.IsValid()) {
     response.SetNull("result");
-    writer(std::move(response.GetJsonValue()));
+    writer(response.GetJsonValue());
     return;
   }
 
-  auto pos =
-      LineAndColumn::WithUnknownOffset(request.params().position().line(),
-                                       request.params().position().character());
+  LineAndColumn pos{request.params().position().line(),
+                    request.params().position().character()};
 
   if (auto maybe_definition = LanguageServerData::FindDefinition(id, pos)) {
     SourcePosition definition = *maybe_definition;
@@ -290,7 +272,7 @@ void HandleGotoDefinitionRequest(GotoDefinitionRequest request,
     response.SetNull("result");
   }
 
-  writer(std::move(response.GetJsonValue()));
+  writer(response.GetJsonValue());
 }
 
 void HandleChangeWatchedFilesNotification(
@@ -312,22 +294,22 @@ void HandleDocumentSymbolRequest(DocumentSymbolRequest request,
     DCHECK(symbol->IsUserDefined());
     if (symbol->IsMacro()) {
       Macro* macro = Macro::cast(symbol);
-      SymbolInformation info = response.add_result();
-      info.set_name(macro->ReadableName());
-      info.set_kind(SymbolKind::kFunction);
-      info.location().SetTo(macro->Position());
+      SymbolInformation symbol = response.add_result();
+      symbol.set_name(macro->ReadableName());
+      symbol.set_kind(SymbolKind::kFunction);
+      symbol.location().SetTo(macro->Position());
     } else if (symbol->IsBuiltin()) {
       Builtin* builtin = Builtin::cast(symbol);
-      SymbolInformation info = response.add_result();
-      info.set_name(builtin->ReadableName());
-      info.set_kind(SymbolKind::kFunction);
-      info.location().SetTo(builtin->Position());
-    } else if (symbol->IsGenericCallable()) {
-      GenericCallable* generic = GenericCallable::cast(symbol);
-      SymbolInformation info = response.add_result();
-      info.set_name(generic->name());
-      info.set_kind(SymbolKind::kFunction);
-      info.location().SetTo(generic->Position());
+      SymbolInformation symbol = response.add_result();
+      symbol.set_name(builtin->ReadableName());
+      symbol.set_kind(SymbolKind::kFunction);
+      symbol.location().SetTo(builtin->Position());
+    } else if (symbol->IsGeneric()) {
+      Generic* generic = Generic::cast(symbol);
+      SymbolInformation symbol = response.add_result();
+      symbol.set_name(generic->name());
+      symbol.set_kind(SymbolKind::kFunction);
+      symbol.location().SetTo(generic->Position());
     } else if (symbol->IsTypeAlias()) {
       const Type* type = TypeAlias::cast(symbol)->type();
       SymbolKind kind =
@@ -343,13 +325,13 @@ void HandleDocumentSymbolRequest(DocumentSymbolRequest request,
   // Trigger empty array creation in case no symbols were found.
   USE(response.result_size());
 
-  writer(std::move(response.GetJsonValue()));
+  writer(response.GetJsonValue());
 }
 
 }  // namespace
 
-void HandleMessage(JsonValue raw_message, MessageWriter writer) {
-  Request<bool> request(std::move(raw_message));
+void HandleMessage(JsonValue& raw_message, MessageWriter writer) {
+  Request<bool> request(raw_message);
 
   // We ignore responses for now. They are matched to requests
   // by id and don't have a method set.
@@ -362,23 +344,21 @@ void HandleMessage(JsonValue raw_message, MessageWriter writer) {
 
   const std::string method = request.method();
   if (method == "initialize") {
-    HandleInitializeRequest(
-        InitializeRequest(std::move(request.GetJsonValue())), writer);
+    HandleInitializeRequest(InitializeRequest(request.GetJsonValue()), writer);
   } else if (method == "initialized") {
     HandleInitializedNotification(writer);
   } else if (method == "torque/fileList") {
     HandleTorqueFileListNotification(
-        TorqueFileListNotification(std::move(request.GetJsonValue())), writer);
+        TorqueFileListNotification(request.GetJsonValue()), writer);
   } else if (method == "textDocument/definition") {
-    HandleGotoDefinitionRequest(
-        GotoDefinitionRequest(std::move(request.GetJsonValue())), writer);
+    HandleGotoDefinitionRequest(GotoDefinitionRequest(request.GetJsonValue()),
+                                writer);
   } else if (method == "workspace/didChangeWatchedFiles") {
     HandleChangeWatchedFilesNotification(
-        DidChangeWatchedFilesNotification(std::move(request.GetJsonValue())),
-        writer);
+        DidChangeWatchedFilesNotification(request.GetJsonValue()), writer);
   } else if (method == "textDocument/documentSymbol") {
-    HandleDocumentSymbolRequest(
-        DocumentSymbolRequest(std::move(request.GetJsonValue())), writer);
+    HandleDocumentSymbolRequest(DocumentSymbolRequest(request.GetJsonValue()),
+                                writer);
   } else {
     Logger::Log("[error] Message of type ", method, " is not handled!\n\n");
   }

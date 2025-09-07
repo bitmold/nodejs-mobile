@@ -22,12 +22,8 @@ Graph::Graph(Zone* zone)
       end_(nullptr),
       mark_max_(0),
       next_node_id_(0),
-      decorators_(zone) {
-  // Nodes use compressed pointers, so zone must support pointer compression.
-  // If the check fails, ensure the zone is created with kCompressGraphZone
-  // flag.
-  CHECK_IMPLIES(kCompressGraphZone, zone->supports_compression());
-}
+      decorators_(zone) {}
+
 
 void Graph::Decorate(Node* node) {
   for (GraphDecorator* const decorator : decorators_) {
@@ -72,10 +68,9 @@ Node* Graph::CloneNode(const Node* node) {
 
 
 NodeId Graph::NextNodeId() {
-  // A node's id is internally stored in a bit field using fewer bits than
-  // NodeId (see Node::IdField). Hence the addition below won't ever overflow.
-  DCHECK_LT(next_node_id_, std::numeric_limits<NodeId>::max());
-  return next_node_id_++;
+  NodeId const id = next_node_id_;
+  CHECK(!base::bits::UnsignedAddOverflow32(id, 1, &next_node_id_));
+  return id;
 }
 
 void Graph::Print() const { StdoutStream{} << AsRPO(*this); }

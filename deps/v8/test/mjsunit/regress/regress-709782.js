@@ -5,13 +5,9 @@
 // Flags: --allow-natives-syntax
 
 var a = [0];
-function bar(x) {
-  return x;
-}
-function foo() {
-  return a.reduce(bar);
-};
-%PrepareFunctionForOptimization(foo);
+function bar(x) { return x; }
+function foo() { return a.reduce(bar); }
+
 assertEquals(0, foo());
 assertEquals(0, foo());
 %OptimizeFunctionOnNextCall(foo);

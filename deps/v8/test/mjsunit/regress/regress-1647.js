@@ -29,14 +29,13 @@
 
 // Test for correct deoptimization in named function expressions.
 
-var t = {foo: function() {}};
+var t = { foo: function() {} };
 
-var f = function bar() {
-  t.foo();
-  assertEquals('function', typeof bar);
-};
-;
-%PrepareFunctionForOptimization(f);
+var f = (function bar() {
+ t.foo();
+ assertEquals("function", typeof bar);
+});
+
 for (var i = 0; i < 10; i++) f();
 %OptimizeFunctionOnNextCall(f);
 t.number = 2;

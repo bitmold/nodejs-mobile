@@ -28,7 +28,8 @@ static Handle<T> OpenHandle(v8::Local<v8::Value> value) {
 
 static inline v8::Local<v8::Value> Run(v8::Local<v8::Script> script) {
   v8::Local<v8::Value> result;
-  if (script->Run(CcTest::isolate()->GetCurrentContext()).ToLocal(&result)) {
+  if (script->Run(v8::Isolate::GetCurrent()->GetCurrentContext())
+          .ToLocal(&result)) {
     return result;
   }
   return v8::Local<v8::Value>();
@@ -45,8 +46,9 @@ Handle<T> GetLexical(const char* name) {
   Handle<ScriptContextTable> script_contexts(
       isolate->native_context()->script_context_table(), isolate);
 
-  VariableLookupResult lookup_result;
-  if (script_contexts->Lookup(str_name, &lookup_result)) {
+  ScriptContextTable::LookupResult lookup_result;
+  if (ScriptContextTable::Lookup(isolate, *script_contexts, *str_name,
+                                 &lookup_result)) {
     Handle<Context> script_context = ScriptContextTable::GetContext(
         isolate, script_contexts, lookup_result.context_index);
 
@@ -79,11 +81,15 @@ static Object GetFieldValue(JSObject obj, int property_index) {
 }
 
 static double GetDoubleFieldValue(JSObject obj, FieldIndex field_index) {
-  Object value = obj.RawFastPropertyAt(field_index);
-  if (value.IsHeapNumber()) {
-    return HeapNumber::cast(value).value();
+  if (obj.IsUnboxedDoubleField(field_index)) {
+    return obj.RawFastDoublePropertyAt(field_index);
   } else {
-    return value.Number();
+    Object value = obj.RawFastPropertyAt(field_index);
+    if (value.IsMutableHeapNumber()) {
+      return MutableHeapNumber::cast(value).value();
+    } else {
+      return value.Number();
+    }
   }
 }
 
@@ -100,9 +106,8 @@ bool IsObjectShrinkable(JSObject obj) {
   int unused = obj.map().UnusedPropertyFields();
   if (unused == 0) return false;
 
-  Address packed_filler = MapWord::FromMap(*filler_map).ptr();
   for (int i = inobject_properties - unused; i < inobject_properties; i++) {
-    if (packed_filler != GetFieldValue(obj, i).ptr()) {
+    if (*filler_map != GetFieldValue(obj, i)) {
       return false;
     }
   }
@@ -838,8 +843,6 @@ TEST(ObjectLiteralPropertyBackingStoreSize) {
 }
 
 TEST(SlowModeSubclass) {
-  if (FLAG_stress_concurrent_allocation) return;
-
   // Avoid eventual completion of in-object slack tracking.
   FLAG_always_opt = false;
   CcTest::InitializeVM();
@@ -1017,8 +1020,8 @@ TEST(SubclassBooleanBuiltin) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
 
-  TestSubclassBuiltin("A1", JS_PRIMITIVE_WRAPPER_TYPE, "Boolean", "true");
-  TestSubclassBuiltin("A2", JS_PRIMITIVE_WRAPPER_TYPE, "Boolean", "false");
+  TestSubclassBuiltin("A1", JS_VALUE_TYPE, "Boolean", "true");
+  TestSubclassBuiltin("A2", JS_VALUE_TYPE, "Boolean", "false");
 }
 
 
@@ -1058,8 +1061,8 @@ TEST(SubclassNumberBuiltin) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
 
-  TestSubclassBuiltin("A1", JS_PRIMITIVE_WRAPPER_TYPE, "Number", "42");
-  TestSubclassBuiltin("A2", JS_PRIMITIVE_WRAPPER_TYPE, "Number", "4.2");
+  TestSubclassBuiltin("A1", JS_VALUE_TYPE, "Number", "42");
+  TestSubclassBuiltin("A2", JS_VALUE_TYPE, "Number", "4.2");
 }
 
 
@@ -1091,9 +1094,8 @@ TEST(SubclassStringBuiltin) {
   CcTest::InitializeVM();
   v8::HandleScope scope(CcTest::isolate());
 
-  TestSubclassBuiltin("A1", JS_PRIMITIVE_WRAPPER_TYPE, "String",
-                      "'some string'");
-  TestSubclassBuiltin("A2", JS_PRIMITIVE_WRAPPER_TYPE, "String", "");
+  TestSubclassBuiltin("A1", JS_VALUE_TYPE, "String", "'some string'");
+  TestSubclassBuiltin("A2", JS_VALUE_TYPE, "String", "");
 }
 
 
@@ -1110,7 +1112,7 @@ TEST(SubclassRegExpBuiltin) {
   v8::HandleScope scope(CcTest::isolate());
 
   const int first_field = 1;
-  TestSubclassBuiltin("A1", JS_REG_EXP_TYPE, "RegExp", "'o(..)h', 'g'",
+  TestSubclassBuiltin("A1", JS_REGEXP_TYPE, "RegExp", "'o(..)h', 'g'",
                       first_field);
 }
 

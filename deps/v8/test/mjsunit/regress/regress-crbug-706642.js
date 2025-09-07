@@ -31,7 +31,6 @@ var observer = new Proxy(A, {
   }
 });
 
-%PrepareFunctionForOptimization(B);
 Reflect.construct(B, [], observer);
 Reflect.construct(B, [], observer);
 %OptimizeFunctionOnNextCall(B);

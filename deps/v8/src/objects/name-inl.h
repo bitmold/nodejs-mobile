@@ -5,12 +5,10 @@
 #ifndef V8_OBJECTS_NAME_INL_H_
 #define V8_OBJECTS_NAME_INL_H_
 
-#include "src/base/logging.h"
+#include "src/objects/name.h"
+
 #include "src/heap/heap-write-barrier-inl.h"
 #include "src/objects/map-inl.h"
-#include "src/objects/name.h"
-#include "src/objects/primitive-heap-object-inl.h"
-#include "src/objects/string-inl.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -18,30 +16,20 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/name-tq-inl.inc"
+OBJECT_CONSTRUCTORS_IMPL(Name, HeapObject)
+OBJECT_CONSTRUCTORS_IMPL(Symbol, Name)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(Name)
-TQ_OBJECT_CONSTRUCTORS_IMPL(Symbol)
+CAST_ACCESSOR(Name)
+CAST_ACCESSOR(Symbol)
 
+ACCESSORS(Symbol, name, Object, kNameOffset)
+INT_ACCESSORS(Symbol, flags, kFlagsOffset)
 BIT_FIELD_ACCESSORS(Symbol, flags, is_private, Symbol::IsPrivateBit)
 BIT_FIELD_ACCESSORS(Symbol, flags, is_well_known_symbol,
                     Symbol::IsWellKnownSymbolBit)
-BIT_FIELD_ACCESSORS(Symbol, flags, is_in_public_symbol_table,
-                    Symbol::IsInPublicSymbolTableBit)
+BIT_FIELD_ACCESSORS(Symbol, flags, is_public, Symbol::IsPublicBit)
 BIT_FIELD_ACCESSORS(Symbol, flags, is_interesting_symbol,
                     Symbol::IsInterestingSymbolBit)
-
-bool Symbol::is_private_brand() const {
-  bool value = Symbol::IsPrivateBrandBit::decode(flags());
-  DCHECK_IMPLIES(value, is_private());
-  return value;
-}
-
-void Symbol::set_is_private_brand() {
-  set_flags(Symbol::IsPrivateBit::update(flags(), true));
-  set_flags(Symbol::IsPrivateNameBit::update(flags(), true));
-  set_flags(Symbol::IsPrivateBrandBit::update(flags(), true));
-}
 
 bool Symbol::is_private_name() const {
   bool value = Symbol::IsPrivateNameBit::decode(flags());
@@ -56,13 +44,18 @@ void Symbol::set_is_private_name() {
   set_flags(Symbol::IsPrivateNameBit::update(flags(), true));
 }
 
-DEF_GETTER(Name, IsUniqueName, bool) {
-  uint32_t type = map(cage_base).instance_type();
+bool Name::IsUniqueName() const {
+  uint32_t type = map().instance_type();
   bool result = (type & (kIsNotStringMask | kIsNotInternalizedMask)) !=
                 (kStringTag | kNotInternalizedTag);
   SLOW_DCHECK(result == HeapObject::IsUniqueName());
-  DCHECK_IMPLIES(result, HasHashCode());
   return result;
+}
+
+uint32_t Name::hash_field() { return ReadField<uint32_t>(kHashFieldOffset); }
+
+void Name::set_hash_field(uint32_t value) {
+  WriteField<uint32_t>(kHashFieldOffset, value);
 }
 
 bool Name::Equals(Name other) {
@@ -84,86 +77,42 @@ bool Name::Equals(Isolate* isolate, Handle<Name> one, Handle<Name> two) {
                             Handle<String>::cast(two));
 }
 
-bool Name::IsHashFieldComputed(uint32_t raw_hash_field) {
-  return (raw_hash_field & kHashNotComputedMask) == 0;
+bool Name::IsHashFieldComputed(uint32_t field) {
+  return (field & kHashNotComputedMask) == 0;
 }
 
-bool Name::IsHash(uint32_t raw_hash_field) {
-  return HashFieldTypeBits::decode(raw_hash_field) == HashFieldType::kHash;
-}
+bool Name::HasHashCode() { return IsHashFieldComputed(hash_field()); }
 
-bool Name::IsIntegerIndex(uint32_t raw_hash_field) {
-  return HashFieldTypeBits::decode(raw_hash_field) ==
-         HashFieldType::kIntegerIndex;
-}
-
-bool Name::IsForwardingIndex(uint32_t raw_hash_field) {
-  return HashFieldTypeBits::decode(raw_hash_field) ==
-         HashFieldType::kForwardingIndex;
-}
-
-uint32_t Name::CreateHashFieldValue(uint32_t hash, HashFieldType type) {
-  return HashBits::encode(hash & HashBits::kMax) |
-         HashFieldTypeBits::encode(type);
-}
-
-bool Name::HasHashCode() const { return IsHashFieldComputed(raw_hash_field()); }
-
-uint32_t Name::EnsureHash() {
+uint32_t Name::Hash() {
   // Fast case: has hash code already been computed?
-  uint32_t field = raw_hash_field();
-  if (IsHashFieldComputed(field)) return HashBits::decode(field);
+  uint32_t field = hash_field();
+  if (IsHashFieldComputed(field)) return field >> kHashShift;
   // Slow case: compute hash code and set it. Has to be a string.
   return String::cast(*this).ComputeAndSetHash();
 }
 
-uint32_t Name::EnsureHash(const SharedStringAccessGuardIfNeeded& access_guard) {
-  // Fast case: has hash code already been computed?
-  uint32_t field = raw_hash_field();
-  if (IsHashFieldComputed(field)) return HashBits::decode(field);
-  // Slow case: compute hash code and set it. Has to be a string.
-  return String::cast(*this).ComputeAndSetHash(access_guard);
+bool Name::IsInterestingSymbol() const {
+  return IsSymbol() && Symbol::cast(*this).is_interesting_symbol();
 }
 
-uint32_t Name::hash() const {
-  uint32_t field = raw_hash_field();
-  DCHECK(IsHashFieldComputed(field));
-  return HashBits::decode(field);
+bool Name::IsPrivate() {
+  return this->IsSymbol() && Symbol::cast(*this).is_private();
 }
 
-DEF_GETTER(Name, IsInterestingSymbol, bool) {
-  return IsSymbol(cage_base) && Symbol::cast(*this).is_interesting_symbol();
-}
-
-DEF_GETTER(Name, IsPrivate, bool) {
-  return this->IsSymbol(cage_base) && Symbol::cast(*this).is_private();
-}
-
-DEF_GETTER(Name, IsPrivateName, bool) {
+bool Name::IsPrivateName() {
   bool is_private_name =
-      this->IsSymbol(cage_base) && Symbol::cast(*this).is_private_name();
+      this->IsSymbol() && Symbol::cast(*this).is_private_name();
   DCHECK_IMPLIES(is_private_name, IsPrivate());
   return is_private_name;
-}
-
-DEF_GETTER(Name, IsPrivateBrand, bool) {
-  bool is_private_brand =
-      this->IsSymbol(cage_base) && Symbol::cast(*this).is_private_brand();
-  DCHECK_IMPLIES(is_private_brand, IsPrivateName());
-  return is_private_brand;
 }
 
 bool Name::AsArrayIndex(uint32_t* index) {
   return IsString() && String::cast(*this).AsArrayIndex(index);
 }
 
-bool Name::AsIntegerIndex(size_t* index) {
-  return IsString() && String::cast(*this).AsIntegerIndex(index);
-}
-
 // static
-bool Name::ContainsCachedArrayIndex(uint32_t raw_hash_field) {
-  return (raw_hash_field & Name::kDoesNotContainCachedArrayIndexMask) == 0;
+bool Name::ContainsCachedArrayIndex(uint32_t hash) {
+  return (hash & Name::kDoesNotContainCachedArrayIndexMask) == 0;
 }
 
 }  // namespace internal

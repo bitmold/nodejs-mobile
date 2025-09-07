@@ -6,10 +6,8 @@
 
 var a = 1;
 
-function foo(x) {
-  a = Math.fround(x + 1);
-};
-%PrepareFunctionForOptimization(foo);
+function foo(x) { a = Math.fround(x + 1); }
+
 foo(1);
 foo(1);
 %OptimizeFunctionOnNextCall(foo);

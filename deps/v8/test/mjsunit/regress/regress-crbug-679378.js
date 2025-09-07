@@ -6,19 +6,12 @@
 
 var x = {};
 x.__defineGetter__('0', () => 0);
-x.a = {
-  v: 1.51
-};
+x.a = {v: 1.51};
 
 var y = {};
-y.a = {
-  u: 'OK'
-};
+y.a = {u:"OK"};
 
-function foo(o) {
-  return o.a.u;
-};
-%PrepareFunctionForOptimization(foo);
+function foo(o) { return o.a.u; }
 foo(y);
 foo(y);
 foo(x);

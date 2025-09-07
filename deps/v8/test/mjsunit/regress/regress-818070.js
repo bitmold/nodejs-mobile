@@ -9,7 +9,6 @@ function f(a) {
 }
 
 x = { [Symbol.toPrimitive]: () => FAIL };
-%PrepareFunctionForOptimization(f);
 f(1);
 f(1);
 %OptimizeFunctionOnNextCall(f);
@@ -20,7 +19,6 @@ function f(a) {
 }
 
 x = { [Symbol.toPrimitive]: () => FAIL };
-%PrepareFunctionForOptimization(f);
 f(1);
 f(1);
 %OptimizeFunctionOnNextCall(f);
@@ -31,7 +29,6 @@ function f(a) {
 }
 
 x = { [Symbol.toPrimitive]: () => FAIL };
-%PrepareFunctionForOptimization(f);
 f(1);
 f(1);
 %OptimizeFunctionOnNextCall(f);

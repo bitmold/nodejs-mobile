@@ -10,7 +10,6 @@ function g() {
   f();
 }
 
-%PrepareFunctionForOptimization(g);
 assertThrows(g, SyntaxError);
 %OptimizeFunctionOnNextCall(g);
 assertThrows(g, SyntaxError);

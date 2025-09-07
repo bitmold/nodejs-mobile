@@ -3,8 +3,6 @@
 
 #include "env-inl.h"
 #include "node_buffer.h"
-#include "node_errors.h"
-#include "node_external_reference.h"
 #include "string_bytes.h"
 #include "util.h"
 
@@ -31,17 +29,11 @@ MaybeLocal<String> MakeString(Isolate* isolate,
   Local<Value> error;
   MaybeLocal<Value> ret;
   if (encoding == UTF8) {
-    MaybeLocal<String> utf8_string = String::NewFromUtf8(
+    return String::NewFromUtf8(
         isolate,
         data,
         v8::NewStringType::kNormal,
         length);
-    if (utf8_string.IsEmpty()) {
-      isolate->ThrowException(node::ERR_STRING_TOO_LONG(isolate));
-      return MaybeLocal<String>();
-    } else {
-      return utf8_string;
-    }
   } else {
     ret = StringBytes::Encode(
         isolate,
@@ -70,10 +62,7 @@ MaybeLocal<String> StringDecoder::DecodeData(Isolate* isolate,
 
   size_t nread = *nread_ptr;
 
-  if (Encoding() == UTF8 ||
-      Encoding() == UCS2 ||
-      Encoding() == BASE64 ||
-      Encoding() == BASE64URL) {
+  if (Encoding() == UTF8 || Encoding() == UCS2 || Encoding() == BASE64) {
     // See if we want bytes to finish a character from the previous
     // chunk; if so, copy the new bytes to the missing bytes buffer
     // and create a small string from it that is to be prepended to the
@@ -201,7 +190,7 @@ MaybeLocal<String> StringDecoder::DecodeData(Isolate* isolate,
           state_[kBufferedBytes] = 2;
           state_[kMissingBytes] = 2;
         }
-      } else if (Encoding() == BASE64 || Encoding() == BASE64URL) {
+      } else if (Encoding() == BASE64) {
         state_[kBufferedBytes] = nread % 3;
         if (state_[kBufferedBytes] > 0)
           state_[kMissingBytes] = 3 - BufferedBytes();
@@ -314,7 +303,6 @@ void InitializeStringDecoder(Local<Object> target,
   ADD_TO_ENCODINGS_ARRAY(ASCII, "ascii");
   ADD_TO_ENCODINGS_ARRAY(UTF8, "utf8");
   ADD_TO_ENCODINGS_ARRAY(BASE64, "base64");
-  ADD_TO_ENCODINGS_ARRAY(BASE64URL, "base64url");
   ADD_TO_ENCODINGS_ARRAY(UCS2, "utf16le");
   ADD_TO_ENCODINGS_ARRAY(HEX, "hex");
   ADD_TO_ENCODINGS_ARRAY(BUFFER, "buffer");
@@ -328,21 +316,13 @@ void InitializeStringDecoder(Local<Object> target,
               FIXED_ONE_BYTE_STRING(isolate, "kSize"),
               Integer::New(isolate, sizeof(StringDecoder))).Check();
 
-  SetMethod(context, target, "decode", DecodeData);
-  SetMethod(context, target, "flush", FlushData);
+  env->SetMethod(target, "decode", DecodeData);
+  env->SetMethod(target, "flush", FlushData);
 }
 
 }  // anonymous namespace
 
-void RegisterStringDecoderExternalReferences(
-    ExternalReferenceRegistry* registry) {
-  registry->Register(DecodeData);
-  registry->Register(FlushData);
-}
-
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(string_decoder,
-                                    node::InitializeStringDecoder)
-NODE_BINDING_EXTERNAL_REFERENCE(string_decoder,
-                                node::RegisterStringDecoderExternalReferences)
+NODE_MODULE_CONTEXT_AWARE_INTERNAL(string_decoder,
+                                   node::InitializeStringDecoder)

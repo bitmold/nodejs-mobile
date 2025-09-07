@@ -8,62 +8,36 @@
 #include "node_errors.h"
 
 namespace node {
-class ExternalReferenceRegistry;
-
 namespace contextify {
-
-class MicrotaskQueueWrap : public BaseObject {
- public:
-  MicrotaskQueueWrap(Environment* env, v8::Local<v8::Object> obj);
-
-  const std::shared_ptr<v8::MicrotaskQueue>& microtask_queue() const;
-
-  static void Init(Environment* env, v8::Local<v8::Object> target);
-  static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
-  static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
-
-  // This could have methods for running the microtask queue, if we ever decide
-  // to make that fully customizable from userland.
-
-  SET_NO_MEMORY_INFO()
-  SET_MEMORY_INFO_NAME(MicrotaskQueueWrap)
-  SET_SELF_SIZE(MicrotaskQueueWrap)
-
- private:
-  std::shared_ptr<v8::MicrotaskQueue> microtask_queue_;
-};
 
 struct ContextOptions {
   v8::Local<v8::String> name;
   v8::Local<v8::String> origin;
   v8::Local<v8::Boolean> allow_code_gen_strings;
   v8::Local<v8::Boolean> allow_code_gen_wasm;
-  BaseObjectPtr<MicrotaskQueueWrap> microtask_queue_wrap;
 };
 
-class ContextifyContext : public BaseObject {
+class ContextifyContext {
  public:
   ContextifyContext(Environment* env,
-                    v8::Local<v8::Object> wrapper,
-                    v8::Local<v8::Context> v8_context,
+                    v8::Local<v8::Object> sandbox_obj,
                     const ContextOptions& options);
   ~ContextifyContext();
+  static void CleanupHook(void* arg);
 
-  void MemoryInfo(MemoryTracker* tracker) const override;
-  SET_MEMORY_INFO_NAME(ContextifyContext)
-  SET_SELF_SIZE(ContextifyContext)
-
-  static v8::MaybeLocal<v8::Context> CreateV8Context(
-      v8::Isolate* isolate,
-      v8::Local<v8::ObjectTemplate> object_template,
-      const SnapshotData* snapshot_data,
-      v8::MicrotaskQueue* queue);
+  v8::MaybeLocal<v8::Object> CreateDataWrapper(Environment* env);
+  v8::MaybeLocal<v8::Context> CreateV8Context(Environment* env,
+                                              v8::Local<v8::Object> sandbox_obj,
+                                              const ContextOptions& options);
   static void Init(Environment* env, v8::Local<v8::Object> target);
-  static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
 
   static ContextifyContext* ContextFromContextifiedSandbox(
       Environment* env,
       const v8::Local<v8::Object>& sandbox);
+
+  inline Environment* env() const {
+    return env_;
+  }
 
   inline v8::Local<v8::Context> context() const {
     return PersistentToLocal::Default(env()->isolate(), context_);
@@ -74,32 +48,15 @@ class ContextifyContext : public BaseObject {
   }
 
   inline v8::Local<v8::Object> sandbox() const {
-    return context()->GetEmbedderData(ContextEmbedderIndex::kSandboxObject)
-        .As<v8::Object>();
+    return v8::Local<v8::Object>::Cast(
+        context()->GetEmbedderData(ContextEmbedderIndex::kSandboxObject));
   }
 
-  inline std::shared_ptr<v8::MicrotaskQueue> microtask_queue() const {
-    if (!microtask_queue_wrap_) return {};
-    return microtask_queue_wrap_->microtask_queue();
-  }
 
   template <typename T>
   static ContextifyContext* Get(const v8::PropertyCallbackInfo<T>& args);
-  static ContextifyContext* Get(v8::Local<v8::Object> object);
-
-  static void InitializeGlobalTemplates(IsolateData* isolate_data);
 
  private:
-  static BaseObjectPtr<ContextifyContext> New(Environment* env,
-                                              v8::Local<v8::Object> sandbox_obj,
-                                              const ContextOptions& options);
-  // Initialize a context created from CreateV8Context()
-  static BaseObjectPtr<ContextifyContext> New(v8::Local<v8::Context> ctx,
-                                              Environment* env,
-                                              v8::Local<v8::Object> sandbox_obj,
-                                              const ContextOptions& options);
-
-  static bool IsStillInitializing(const ContextifyContext* ctx);
   static void MakeContext(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void IsContext(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void CompileFunction(
@@ -142,18 +99,12 @@ class ContextifyContext : public BaseObject {
   static void IndexedPropertyDeleterCallback(
       uint32_t index,
       const v8::PropertyCallbackInfo<v8::Boolean>& args);
-
+  Environment* const env_;
   v8::Global<v8::Context> context_;
-  BaseObjectPtr<MicrotaskQueueWrap> microtask_queue_wrap_;
 };
 
 class ContextifyScript : public BaseObject {
  public:
-  enum InternalFields {
-    kUnboundScriptSlot = BaseObject::kInternalFieldCount,
-    kInternalFieldCount
-  };
-
   SET_NO_MEMORY_INFO()
   SET_MEMORY_INFO_NAME(ContextifyScript)
   SET_SELF_SIZE(ContextifyScript)
@@ -162,31 +113,44 @@ class ContextifyScript : public BaseObject {
   ~ContextifyScript() override;
 
   static void Init(Environment* env, v8::Local<v8::Object> target);
-  static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
   static void New(const v8::FunctionCallbackInfo<v8::Value>& args);
   static bool InstanceOf(Environment* env, const v8::Local<v8::Value>& args);
-  static void CreateCachedData(const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void CreateCachedData(
+      const v8::FunctionCallbackInfo<v8::Value>& args);
+  static void RunInThisContext(const v8::FunctionCallbackInfo<v8::Value>& args);
   static void RunInContext(const v8::FunctionCallbackInfo<v8::Value>& args);
-  static bool EvalMachine(v8::Local<v8::Context> context,
-                          Environment* env,
+  static bool EvalMachine(Environment* env,
                           const int64_t timeout,
                           const bool display_errors,
                           const bool break_on_sigint,
                           const bool break_on_first_line,
-                          std::shared_ptr<v8::MicrotaskQueue> microtask_queue,
                           const v8::FunctionCallbackInfo<v8::Value>& args);
+
+  inline uint32_t id() { return id_; }
 
  private:
   v8::Global<v8::UnboundScript> script_;
+  uint32_t id_;
 };
 
-v8::Maybe<bool> StoreCodeCacheResult(
-    Environment* env,
-    v8::Local<v8::Object> target,
-    v8::ScriptCompiler::CompileOptions compile_options,
-    const v8::ScriptCompiler::Source& source,
-    bool produce_cached_data,
-    std::unique_ptr<v8::ScriptCompiler::CachedData> new_cached_data);
+class CompiledFnEntry final : public BaseObject {
+ public:
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(CompiledFnEntry)
+  SET_SELF_SIZE(CompiledFnEntry)
+
+  CompiledFnEntry(Environment* env,
+                  v8::Local<v8::Object> object,
+                  uint32_t id,
+                  v8::Local<v8::ScriptOrModule> script);
+  ~CompiledFnEntry();
+
+ private:
+  uint32_t id_;
+  v8::Global<v8::ScriptOrModule> script_;
+
+  static void WeakCallback(const v8::WeakCallbackInfo<CompiledFnEntry>& data);
+};
 
 }  // namespace contextify
 }  // namespace node

@@ -5,7 +5,6 @@
 #include "src/interpreter/bytecode-array-writer.h"
 
 #include "src/api/api-inl.h"
-#include "src/heap/local-factory-inl.h"
 #include "src/interpreter/bytecode-jump-table.h"
 #include "src/interpreter/bytecode-label.h"
 #include "src/interpreter/bytecode-node.h"
@@ -13,6 +12,7 @@
 #include "src/interpreter/bytecode-source-info.h"
 #include "src/interpreter/constant-array-builder.h"
 #include "src/interpreter/handler-table-builder.h"
+#include "src/logging/log.h"
 #include "src/objects/objects-inl.h"
 
 namespace v8 {
@@ -27,7 +27,7 @@ BytecodeArrayWriter::BytecodeArrayWriter(
     SourcePositionTableBuilder::RecordingMode source_position_mode)
     : bytecodes_(zone),
       unbound_jumps_(0),
-      source_position_table_builder_(zone, source_position_mode),
+      source_position_table_builder_(source_position_mode),
       constant_array_builder_(constant_array_builder),
       last_bytecode_(Bytecode::kIllegal),
       last_bytecode_offset_(0),
@@ -37,9 +37,8 @@ BytecodeArrayWriter::BytecodeArrayWriter(
   bytecodes_.reserve(512);  // Derived via experimentation.
 }
 
-template <typename IsolateT>
 Handle<BytecodeArray> BytecodeArrayWriter::ToBytecodeArray(
-    IsolateT* isolate, int register_count, int parameter_count,
+    Isolate* isolate, int register_count, int parameter_count,
     Handle<ByteArray> handler_table) {
   DCHECK_EQ(0, unbound_jumps_);
 
@@ -51,60 +50,18 @@ Handle<BytecodeArray> BytecodeArrayWriter::ToBytecodeArray(
       bytecode_size, &bytecodes()->front(), frame_size, parameter_count,
       constant_pool);
   bytecode_array->set_handler_table(*handler_table);
+  if (!source_position_table_builder_.Lazy()) {
+    Handle<ByteArray> source_position_table =
+        source_position_table_builder_.Omit()
+            ? ReadOnlyRoots(isolate).empty_byte_array_handle()
+            : source_position_table_builder()->ToSourcePositionTable(isolate);
+    bytecode_array->set_source_position_table(*source_position_table);
+    LOG_CODE_EVENT(isolate, CodeLinePosInfoRecordEvent(
+                                bytecode_array->GetFirstBytecodeAddress(),
+                                *source_position_table));
+  }
   return bytecode_array;
 }
-
-template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
-    Handle<BytecodeArray> BytecodeArrayWriter::ToBytecodeArray(
-        Isolate* isolate, int register_count, int parameter_count,
-        Handle<ByteArray> handler_table);
-template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
-    Handle<BytecodeArray> BytecodeArrayWriter::ToBytecodeArray(
-        LocalIsolate* isolate, int register_count, int parameter_count,
-        Handle<ByteArray> handler_table);
-
-template <typename IsolateT>
-Handle<ByteArray> BytecodeArrayWriter::ToSourcePositionTable(
-    IsolateT* isolate) {
-  DCHECK(!source_position_table_builder_.Lazy());
-  Handle<ByteArray> source_position_table =
-      source_position_table_builder_.Omit()
-          ? isolate->factory()->empty_byte_array()
-          : source_position_table_builder_.ToSourcePositionTable(isolate);
-  return source_position_table;
-}
-
-template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
-    Handle<ByteArray> BytecodeArrayWriter::ToSourcePositionTable(
-        Isolate* isolate);
-template EXPORT_TEMPLATE_DEFINE(V8_EXPORT_PRIVATE)
-    Handle<ByteArray> BytecodeArrayWriter::ToSourcePositionTable(
-        LocalIsolate* isolate);
-
-#ifdef DEBUG
-int BytecodeArrayWriter::CheckBytecodeMatches(BytecodeArray bytecode) {
-  int mismatches = false;
-  int bytecode_size = static_cast<int>(bytecodes()->size());
-  const byte* bytecode_ptr = &bytecodes()->front();
-  if (bytecode_size != bytecode.length()) mismatches = true;
-
-  // If there's a mismatch only in the length of the bytecode (very unlikely)
-  // then the first mismatch will be the first extra bytecode.
-  int first_mismatch = std::min(bytecode_size, bytecode.length());
-  for (int i = 0; i < first_mismatch; ++i) {
-    if (bytecode_ptr[i] != bytecode.get(i)) {
-      mismatches = true;
-      first_mismatch = i;
-      break;
-    }
-  }
-
-  if (mismatches) {
-    return first_mismatch;
-  }
-  return -1;
-}
-#endif
 
 void BytecodeArrayWriter::Write(BytecodeNode* node) {
   DCHECK(!Bytecodes::IsJump(node->bytecode()));
@@ -164,8 +121,6 @@ void BytecodeArrayWriter::BindLabel(BytecodeLabel* label) {
 void BytecodeArrayWriter::BindLoopHeader(BytecodeLoopHeader* loop_header) {
   size_t current_offset = bytecodes()->size();
   loop_header->bind_to(current_offset);
-  // Don't start a basic block when the entire loop is dead.
-  if (exit_seen_in_block_) return;
   StartBasicBlock();
 }
 
@@ -209,12 +164,6 @@ void BytecodeArrayWriter::BindTryRegionEnd(
   handler_table_builder->SetTryRegionEnd(handler_id, current_offset);
 }
 
-void BytecodeArrayWriter::SetFunctionEntrySourcePosition(int position) {
-  bool is_statement = false;
-  source_position_table_builder_.AddPosition(
-      kFunctionEntryBytecodeOffset, SourcePosition(position), is_statement);
-}
-
 void BytecodeArrayWriter::StartBasicBlock() {
   InvalidateLastBytecode();
   exit_seen_in_block_ = false;
@@ -238,7 +187,6 @@ void BytecodeArrayWriter::UpdateExitSeenInBlock(Bytecode bytecode) {
     case Bytecode::kReThrow:
     case Bytecode::kAbort:
     case Bytecode::kJump:
-    case Bytecode::kJumpLoop:
     case Bytecode::kJumpConstant:
     case Bytecode::kSuspendGenerator:
       exit_seen_in_block_ = true;
@@ -256,8 +204,7 @@ void BytecodeArrayWriter::MaybeElideLastBytecode(Bytecode next_bytecode,
   // and the next bytecode clobbers this load without reading the accumulator,
   // then the previous bytecode can be elided as it has no effect.
   if (Bytecodes::IsAccumulatorLoadWithoutEffects(last_bytecode_) &&
-      Bytecodes::GetImplicitRegisterUse(next_bytecode) ==
-          ImplicitRegisterUse::kWriteAccumulator &&
+      Bytecodes::GetAccumulatorUse(next_bytecode) == AccumulatorUse::kWrite &&
       (!last_bytecode_had_source_info_ || !has_source_info)) {
     DCHECK_GT(bytecodes()->size(), last_bytecode_offset_);
     bytecodes()->resize(last_bytecode_offset_);
@@ -294,6 +241,7 @@ void BytecodeArrayWriter::EmitBytecode(const BytecodeNode* const node) {
     switch (operand_sizes[i]) {
       case OperandSize::kNone:
         UNREACHABLE();
+        break;
       case OperandSize::kByte:
         bytecodes()->push_back(static_cast<uint8_t>(operands[i]));
         break;
@@ -338,8 +286,6 @@ Bytecode GetJumpWithConstantOperand(Bytecode jump_bytecode) {
       return Bytecode::kJumpIfUndefinedConstant;
     case Bytecode::kJumpIfNotUndefined:
       return Bytecode::kJumpIfNotUndefinedConstant;
-    case Bytecode::kJumpIfUndefinedOrNull:
-      return Bytecode::kJumpIfUndefinedOrNullConstant;
     case Bytecode::kJumpIfJSReceiver:
       return Bytecode::kJumpIfJSReceiverConstant;
     default:
@@ -388,8 +334,8 @@ void BytecodeArrayWriter::PatchJumpWith16BitOperand(size_t jump_location,
     // The jump fits within the range of an Imm16 operand, so cancel
     // the reservation and jump directly.
     constant_array_builder()->DiscardReservedEntry(OperandSize::kShort);
-    base::WriteUnalignedValue<uint16_t>(
-        reinterpret_cast<Address>(operand_bytes), static_cast<uint16_t>(delta));
+    WriteUnalignedUInt16(reinterpret_cast<Address>(operand_bytes),
+                         static_cast<uint16_t>(delta));
   } else {
     // The jump does not fit within the range of an Imm16 operand, so
     // commit reservation putting the offset into the constant pool,
@@ -398,8 +344,8 @@ void BytecodeArrayWriter::PatchJumpWith16BitOperand(size_t jump_location,
         OperandSize::kShort, Smi::FromInt(delta));
     jump_bytecode = GetJumpWithConstantOperand(jump_bytecode);
     bytecodes()->at(jump_location) = Bytecodes::ToByte(jump_bytecode);
-    base::WriteUnalignedValue<uint16_t>(
-        reinterpret_cast<Address>(operand_bytes), static_cast<uint16_t>(entry));
+    WriteUnalignedUInt16(reinterpret_cast<Address>(operand_bytes),
+                         static_cast<uint16_t>(entry));
   }
   DCHECK(bytecodes()->at(operand_location) == k8BitJumpPlaceholder &&
          bytecodes()->at(operand_location + 1) == k8BitJumpPlaceholder);
@@ -413,8 +359,8 @@ void BytecodeArrayWriter::PatchJumpWith32BitOperand(size_t jump_location,
       Bytecodes::FromByte(bytecodes()->at(jump_location))));
   constant_array_builder()->DiscardReservedEntry(OperandSize::kQuad);
   uint8_t operand_bytes[4];
-  base::WriteUnalignedValue<uint32_t>(reinterpret_cast<Address>(operand_bytes),
-                                      static_cast<uint32_t>(delta));
+  WriteUnalignedUInt32(reinterpret_cast<Address>(operand_bytes),
+                       static_cast<uint32_t>(delta));
   size_t operand_location = jump_location + 1;
   DCHECK(bytecodes()->at(operand_location) == k8BitJumpPlaceholder &&
          bytecodes()->at(operand_location + 1) == k8BitJumpPlaceholder &&

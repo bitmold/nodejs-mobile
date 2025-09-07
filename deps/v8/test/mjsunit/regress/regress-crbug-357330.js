@@ -10,7 +10,6 @@ function f(foo) {
   if (null != g) {}
 };
 
-%PrepareFunctionForOptimization(f);
 f(1.4);
 f(1.4);
 %OptimizeFunctionOnNextCall(f);

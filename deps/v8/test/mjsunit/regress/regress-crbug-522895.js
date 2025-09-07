@@ -10,7 +10,6 @@ var body =
   "  while (i-- > 31) {" +
   "    %OptimizeOsr(); " +
   "    j = 9;          " +
-  "    %PrepareFunctionForOptimization(bar1); " +
   "    while (j-- > 7);" +
   "  }                 " +
   "  return i;         " +

@@ -506,9 +506,9 @@ var obj = {
 })();
 
 
-(function testInvalidNumericEscapes() {
-  assertThrows(function() { eval("`\\8`"); }, SyntaxError)
-  assertThrows(function() { eval("`\\9`"); }, SyntaxError)
+(function testValidNumericEscapes() {
+  assertEquals("8", `\8`);
+  assertEquals("9", `\9`);
 })();
 
 
@@ -725,20 +725,20 @@ var global = this;
 (function testTaggedTemplateInvalidAssignmentTargetStrict() {
   "use strict";
   function f() {}
-  assertThrows(() => Function("++f`foo`"), SyntaxError);
-  assertThrows(() => Function("f`foo`++"), SyntaxError);
-  assertThrows(() => Function("--f`foo`"), SyntaxError);
-  assertThrows(() => Function("f`foo`--"), SyntaxError);
-  assertThrows(() => Function("f`foo` = 1"), SyntaxError);
+  assertThrows(() => Function("++f`foo`"), ReferenceError);
+  assertThrows(() => Function("f`foo`++"), ReferenceError);
+  assertThrows(() => Function("--f`foo`"), ReferenceError);
+  assertThrows(() => Function("f`foo`--"), ReferenceError);
+  assertThrows(() => Function("f`foo` = 1"), ReferenceError);
 })();
 
 (function testTaggedTemplateInvalidAssignmentTargetSloppy() {
   function f() {}
-  assertThrows(() => Function("++f`foo`"), SyntaxError);
-  assertThrows(() => Function("f`foo`++"), SyntaxError);
-  assertThrows(() => Function("--f`foo`"), SyntaxError);
-  assertThrows(() => Function("f`foo`--"), SyntaxError);
-  assertThrows(() => Function("f`foo` = 1"), SyntaxError);
+  assertThrows(() => Function("++f`foo`"), ReferenceError);
+  assertThrows(() => Function("f`foo`++"), ReferenceError);
+  assertThrows(() => Function("--f`foo`"), ReferenceError);
+  assertThrows(() => Function("f`foo`--"), ReferenceError);
+  assertThrows(() => Function("f`foo` = 1"), ReferenceError);
 })();
 
 // Disable eval caching if a tagged template occurs in a nested function

@@ -28,22 +28,13 @@
 /* Actual benchmarks and helpers are defined in benchmark-list.h */
 #include "benchmark-list.h"
 
-#ifdef __MVS__
-#include "zos-base.h"
-/* Initialize environment and zoslib */
-__attribute__((constructor)) void init() {
-  zoslib_config_t config;
-  init_zoslib_config(&config);
-  init_zoslib(config);
-}
-#endif
-
 
 static int maybe_run_test(int argc, char **argv);
 
 
 int main(int argc, char **argv) {
-  platform_init(argc, argv);
+  if (platform_init(argc, argv))
+    return EXIT_FAILURE;
 
   switch (argc) {
   case 1: return run_tests(1);
@@ -54,6 +45,8 @@ int main(int argc, char **argv) {
     fflush(stderr);
     return EXIT_FAILURE;
   }
+
+  return EXIT_SUCCESS;
 }
 
 

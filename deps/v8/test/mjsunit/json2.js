@@ -54,7 +54,7 @@ expected_2 = '[' + nulls + 'null]';
 TestStringify(expected_1, array_1);
 TestStringify(expected_2, array_2);
 
-// Test JSPrimitiveWrapper with custom prototype.
+// Test JSValue with custom prototype.
 var num_wrapper = Object(42);
 num_wrapper.__proto__ = { __proto__: null,
                           toString: function() { return true; } };

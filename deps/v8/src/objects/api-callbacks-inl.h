@@ -20,31 +20,40 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/api-callbacks-tq-inl.inc"
+OBJECT_CONSTRUCTORS_IMPL(AccessCheckInfo, Struct)
+OBJECT_CONSTRUCTORS_IMPL(AccessorInfo, Struct)
+OBJECT_CONSTRUCTORS_IMPL(InterceptorInfo, Struct)
+OBJECT_CONSTRUCTORS_IMPL(CallHandlerInfo, Tuple3)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(AccessCheckInfo)
-TQ_OBJECT_CONSTRUCTORS_IMPL(AccessorInfo)
-TQ_OBJECT_CONSTRUCTORS_IMPL(InterceptorInfo)
+CAST_ACCESSOR(AccessorInfo)
+CAST_ACCESSOR(AccessCheckInfo)
+CAST_ACCESSOR(InterceptorInfo)
+CAST_ACCESSOR(CallHandlerInfo)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(CallHandlerInfo)
+ACCESSORS(AccessorInfo, name, Name, kNameOffset)
+SMI_ACCESSORS(AccessorInfo, flags, kFlagsOffset)
+ACCESSORS(AccessorInfo, expected_receiver_type, Object,
+          kExpectedReceiverTypeOffset)
 
 ACCESSORS_CHECKED2(AccessorInfo, getter, Object, kGetterOffset, true,
                    Foreign::IsNormalized(value))
 ACCESSORS_CHECKED2(AccessorInfo, setter, Object, kSetterOffset, true,
                    Foreign::IsNormalized(value))
+ACCESSORS(AccessorInfo, js_getter, Object, kJsGetterOffset)
+ACCESSORS(AccessorInfo, data, Object, kDataOffset)
 
 bool AccessorInfo::has_getter() {
-  bool result = getter() != Smi::zero();
+  bool result = getter() != Smi::kZero;
   DCHECK_EQ(result,
-            getter() != Smi::zero() &&
+            getter() != Smi::kZero &&
                 Foreign::cast(getter()).foreign_address() != kNullAddress);
   return result;
 }
 
 bool AccessorInfo::has_setter() {
-  bool result = setter() != Smi::zero();
+  bool result = setter() != Smi::kZero;
   DCHECK_EQ(result,
-            setter() != Smi::zero() &&
+            setter() != Smi::kZero &&
                 Foreign::cast(setter()).foreign_address() != kNullAddress);
   return result;
 }
@@ -88,13 +97,31 @@ bool AccessorInfo::HasExpectedReceiverType() {
   return expected_receiver_type().IsFunctionTemplateInfo();
 }
 
+ACCESSORS(AccessCheckInfo, callback, Object, kCallbackOffset)
+ACCESSORS(AccessCheckInfo, named_interceptor, Object, kNamedInterceptorOffset)
+ACCESSORS(AccessCheckInfo, indexed_interceptor, Object,
+          kIndexedInterceptorOffset)
+ACCESSORS(AccessCheckInfo, data, Object, kDataOffset)
+
+ACCESSORS(InterceptorInfo, getter, Object, kGetterOffset)
+ACCESSORS(InterceptorInfo, setter, Object, kSetterOffset)
+ACCESSORS(InterceptorInfo, query, Object, kQueryOffset)
+ACCESSORS(InterceptorInfo, descriptor, Object, kDescriptorOffset)
+ACCESSORS(InterceptorInfo, deleter, Object, kDeleterOffset)
+ACCESSORS(InterceptorInfo, enumerator, Object, kEnumeratorOffset)
+ACCESSORS(InterceptorInfo, definer, Object, kDefinerOffset)
+ACCESSORS(InterceptorInfo, data, Object, kDataOffset)
+SMI_ACCESSORS(InterceptorInfo, flags, kFlagsOffset)
 BOOL_ACCESSORS(InterceptorInfo, flags, can_intercept_symbols,
-               CanInterceptSymbolsBit::kShift)
-BOOL_ACCESSORS(InterceptorInfo, flags, all_can_read, AllCanReadBit::kShift)
-BOOL_ACCESSORS(InterceptorInfo, flags, non_masking, NonMaskingBit::kShift)
-BOOL_ACCESSORS(InterceptorInfo, flags, is_named, NamedBit::kShift)
-BOOL_ACCESSORS(InterceptorInfo, flags, has_no_side_effect,
-               HasNoSideEffectBit::kShift)
+               kCanInterceptSymbolsBit)
+BOOL_ACCESSORS(InterceptorInfo, flags, all_can_read, kAllCanReadBit)
+BOOL_ACCESSORS(InterceptorInfo, flags, non_masking, kNonMasking)
+BOOL_ACCESSORS(InterceptorInfo, flags, is_named, kNamed)
+BOOL_ACCESSORS(InterceptorInfo, flags, has_no_side_effect, kHasNoSideEffect)
+
+ACCESSORS(CallHandlerInfo, callback, Object, kCallbackOffset)
+ACCESSORS(CallHandlerInfo, js_callback, Object, kJsCallbackOffset)
+ACCESSORS(CallHandlerInfo, data, Object, kDataOffset)
 
 bool CallHandlerInfo::IsSideEffectFreeCallHandlerInfo() const {
   ReadOnlyRoots roots = GetReadOnlyRoots();

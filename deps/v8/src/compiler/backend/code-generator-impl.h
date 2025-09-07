@@ -26,7 +26,7 @@ class InstructionOperandConverter {
 
   // -- Instruction operand accesses with conversions --------------------------
 
-  Register InputRegister(size_t index) const {
+  Register InputRegister(size_t index) {
     return ToRegister(instr_->InputAt(index));
   }
 
@@ -62,10 +62,6 @@ class InstructionOperandConverter {
     return static_cast<int8_t>(InputInt32(index));
   }
 
-  uint8_t InputUint8(size_t index) {
-    return bit_cast<uint8_t>(InputInt8(index));
-  }
-
   int16_t InputInt16(size_t index) {
     return static_cast<int16_t>(InputInt32(index));
   }
@@ -90,7 +86,7 @@ class InstructionOperandConverter {
     return ToExternalReference(instr_->InputAt(index));
   }
 
-  Handle<CodeT> InputCode(size_t index) {
+  Handle<Code> InputCode(size_t index) {
     return ToCode(instr_->InputAt(index));
   }
 
@@ -100,7 +96,7 @@ class InstructionOperandConverter {
     return ToRpoNumber(instr_->InputAt(index));
   }
 
-  Register OutputRegister(size_t index = 0) const {
+  Register OutputRegister(size_t index = 0) {
     return ToRegister(instr_->OutputAt(index));
   }
 
@@ -120,10 +116,6 @@ class InstructionOperandConverter {
     return ToSimd128Register(instr_->Output());
   }
 
-  Simd128Register TempSimd128Register(size_t index) {
-    return ToSimd128Register(instr_->TempAt(index));
-  }
-
   // -- Conversions for operands -----------------------------------------------
 
   Label* ToLabel(InstructionOperand* op) {
@@ -134,7 +126,7 @@ class InstructionOperandConverter {
     return ToConstant(op).ToRpoNumber();
   }
 
-  Register ToRegister(InstructionOperand* op) const {
+  Register ToRegister(InstructionOperand* op) {
     return LocationOperand::cast(op)->GetRegister();
   }
 
@@ -150,7 +142,7 @@ class InstructionOperandConverter {
     return LocationOperand::cast(op)->GetSimd128Register();
   }
 
-  Constant ToConstant(InstructionOperand* op) const {
+  Constant ToConstant(InstructionOperand* op) {
     if (op->IsImmediate()) {
       return gen_->instructions()->GetImmediate(ImmediateOperand::cast(op));
     }
@@ -168,7 +160,7 @@ class InstructionOperandConverter {
     return ToConstant(op).ToExternalReference();
   }
 
-  Handle<CodeT> ToCode(InstructionOperand* op) {
+  Handle<Code> ToCode(InstructionOperand* op) {
     return ToConstant(op).ToCode();
   }
 
@@ -184,71 +176,20 @@ class InstructionOperandConverter {
   Instruction* instr_;
 };
 
-// Deoptimization exit.
+// Eager deoptimization exit.
 class DeoptimizationExit : public ZoneObject {
  public:
-  explicit DeoptimizationExit(SourcePosition pos, BytecodeOffset bailout_id,
-                              int translation_id, int pc_offset,
-                              DeoptimizeKind kind, DeoptimizeReason reason,
-                              NodeId node_id)
-      : deoptimization_id_(kNoDeoptIndex),
-        pos_(pos),
-        bailout_id_(bailout_id),
-        translation_id_(translation_id),
-        pc_offset_(pc_offset),
-        kind_(kind),
-        reason_(reason),
-        node_id_(node_id),
-        immediate_args_(nullptr),
-        emitted_(false) {}
+  explicit DeoptimizationExit(int deoptimization_id, SourcePosition pos)
+      : deoptimization_id_(deoptimization_id), pos_(pos) {}
 
-  bool has_deoptimization_id() const {
-    return deoptimization_id_ != kNoDeoptIndex;
-  }
-  int deoptimization_id() const {
-    DCHECK(has_deoptimization_id());
-    return deoptimization_id_;
-  }
-  void set_deoptimization_id(int deoptimization_id) {
-    deoptimization_id_ = deoptimization_id;
-  }
-  SourcePosition pos() const { return pos_; }
-  // The label for the deoptimization call.
+  int deoptimization_id() const { return deoptimization_id_; }
   Label* label() { return &label_; }
-  // The label after the deoptimization check, which will resume execution.
-  Label* continue_label() { return &continue_label_; }
-  BytecodeOffset bailout_id() const { return bailout_id_; }
-  int translation_id() const { return translation_id_; }
-  int pc_offset() const { return pc_offset_; }
-  DeoptimizeKind kind() const { return kind_; }
-  DeoptimizeReason reason() const { return reason_; }
-  NodeId node_id() const { return node_id_; }
-  const ZoneVector<ImmediateOperand*>* immediate_args() const {
-    return immediate_args_;
-  }
-  void set_immediate_args(ZoneVector<ImmediateOperand*>* immediate_args) {
-    immediate_args_ = immediate_args;
-  }
-  // Returns whether the deopt exit has already been emitted. Most deopt exits
-  // are emitted contiguously at the end of the code, but unconditional deopt
-  // exits (kArchDeoptimize) may be inlined where they are encountered.
-  bool emitted() const { return emitted_; }
-  void set_emitted() { emitted_ = true; }
+  SourcePosition pos() const { return pos_; }
 
  private:
-  static const int kNoDeoptIndex = kMaxInt16 + 1;
-  int deoptimization_id_;
-  const SourcePosition pos_;
+  int const deoptimization_id_;
   Label label_;
-  Label continue_label_;
-  const BytecodeOffset bailout_id_;
-  const int translation_id_;
-  const int pc_offset_;
-  const DeoptimizeKind kind_;
-  const DeoptimizeReason reason_;
-  const NodeId node_id_;
-  ZoneVector<ImmediateOperand*>* immediate_args_;
-  bool emitted_;
+  SourcePosition const pos_;
 };
 
 // Generator for out-of-line code that is emitted after the main code is done.
@@ -272,6 +213,11 @@ class OutOfLineCode : public ZoneObject {
   TurboAssembler* const tasm_;
   OutOfLineCode* const next_;
 };
+
+inline bool HasCallDescriptorFlag(Instruction* instr,
+                                  CallDescriptor::Flag flag) {
+  return MiscField::decode(instr->opcode()) & flag;
+}
 
 }  // namespace compiler
 }  // namespace internal

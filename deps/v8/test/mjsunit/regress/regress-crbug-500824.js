@@ -19,6 +19,5 @@ var f = (function(v) {
   };
 })(get_thrower()).fun;
 
-%PrepareFunctionForOptimization(f);
 %OptimizeFunctionOnNextCall(f);
 f();

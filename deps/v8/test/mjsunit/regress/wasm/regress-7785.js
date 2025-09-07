@@ -2,16 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// The test needs --no-liftoff because we can't serialize and deserialize
-// Liftoff code.
-// Flags: --allow-natives-syntax --no-liftoff
+// Flags: --allow-natives-syntax --experimental-wasm-anyref
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
-(function testExternRefNull() {
+(function testAnyRefNull() {
   const builder = new WasmModuleBuilder();
   builder.addFunction('main', kSig_r_v)
-      .addBody([kExprRefNull, kExternRefCode])
+      .addBody([kExprRefNull])
       .exportFunc();
 
   var wire_bytes = builder.toBuffer();
@@ -23,10 +21,10 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   assertEquals(null, instance.exports.main());
 })();
 
-(function testExternRefIsNull() {
+(function testAnyRefIsNull() {
   const builder = new WasmModuleBuilder();
   builder.addFunction('main', kSig_i_r)
-      .addBody([kExprLocalGet, 0, kExprRefIsNull])
+      .addBody([kExprGetLocal, 0, kExprRefIsNull])
       .exportFunc();
 
   var wire_bytes = builder.toBuffer();

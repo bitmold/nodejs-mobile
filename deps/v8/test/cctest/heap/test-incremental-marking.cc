@@ -4,8 +4,6 @@
 
 #include <stdlib.h>
 
-#include "src/heap/safepoint.h"
-
 #ifdef __linux__
 #include <errno.h>
 #include <fcntl.h>
@@ -16,11 +14,11 @@
 
 #include <utility>
 
+#include "src/init/v8.h"
+
 #include "src/handles/global-handles.h"
-#include "src/heap/gc-tracer.h"
 #include "src/heap/incremental-marking.h"
 #include "src/heap/spaces.h"
-#include "src/init/v8.h"
 #include "src/objects/objects-inl.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/heap/heap-utils.h"
@@ -35,10 +33,16 @@ namespace heap {
 
 class MockPlatform : public TestPlatform {
  public:
-  MockPlatform() : taskrunner_(new MockTaskRunner()) {}
+  MockPlatform()
+      : taskrunner_(new MockTaskRunner()),
+        old_platform_(i::V8::GetCurrentPlatform()) {
+    // Now that it's completely constructed, make this the current platform.
+    i::V8::SetPlatformForTesting(this);
+  }
   ~MockPlatform() override {
+    i::V8::SetPlatformForTesting(old_platform_);
     for (auto& task : worker_tasks_) {
-      CcTest::default_platform()->CallOnWorkerThread(std::move(task));
+      old_platform_->CallOnWorkerThread(std::move(task));
     }
     worker_tasks_.clear();
   }
@@ -65,18 +69,9 @@ class MockPlatform : public TestPlatform {
       task_ = std::move(task);
     }
 
-    void PostNonNestableTask(std::unique_ptr<Task> task) override {
-      PostTask(std::move(task));
-    }
-
     void PostDelayedTask(std::unique_ptr<Task> task,
                          double delay_in_seconds) override {
-      PostTask(std::move(task));
-    }
-
-    void PostNonNestableDelayedTask(std::unique_ptr<Task> task,
-                                    double delay_in_seconds) override {
-      PostTask(std::move(task));
+      task_ = std::move(task);
     }
 
     void PostIdleTask(std::unique_ptr<IdleTask> task) override {
@@ -84,8 +79,6 @@ class MockPlatform : public TestPlatform {
     }
 
     bool IdleTasksEnabled() override { return false; }
-    bool NonNestableTasksEnabled() const override { return true; }
-    bool NonNestableDelayedTasksEnabled() const override { return true; }
 
     bool PendingTask() { return task_ != nullptr; }
 
@@ -100,36 +93,23 @@ class MockPlatform : public TestPlatform {
 
   std::shared_ptr<MockTaskRunner> taskrunner_;
   std::vector<std::unique_ptr<Task>> worker_tasks_;
+  v8::Platform* old_platform_;
 };
 
-TEST_WITH_PLATFORM(IncrementalMarkingUsingTasks, MockPlatform) {
+TEST(IncrementalMarkingUsingTasks) {
   if (!i::FLAG_incremental_marking) return;
-  FLAG_stress_concurrent_allocation = false;  // For SimulateFullSpace.
   FLAG_stress_incremental_marking = false;
-  v8::Isolate* isolate = CcTest::isolate();
-  {
-    v8::HandleScope handle_scope(isolate);
-    v8::Local<v8::Context> context = CcTest::NewContext(isolate);
-    v8::Context::Scope context_scope(context);
-    Isolate* i_isolate = reinterpret_cast<i::Isolate*>(isolate);
-    Heap* heap = i_isolate->heap();
-
-    i::heap::SimulateFullSpace(heap->old_space());
-    i::IncrementalMarking* marking = heap->incremental_marking();
-    marking->Stop();
-    {
-      SafepointScope scope(heap);
-      heap->tracer()->StartCycle(
-          GarbageCollector::MARK_COMPACTOR, GarbageCollectionReason::kTesting,
-          "collector cctest", GCTracer::MarkingType::kIncremental);
-      marking->Start(i::GarbageCollectionReason::kTesting);
-    }
-    CHECK(platform.PendingTask());
-    while (platform.PendingTask()) {
-      platform.PerformTask();
-    }
-    CHECK(marking->IsStopped());
+  CcTest::InitializeVM();
+  MockPlatform platform;
+  i::heap::SimulateFullSpace(CcTest::heap()->old_space());
+  i::IncrementalMarking* marking = CcTest::heap()->incremental_marking();
+  marking->Stop();
+  marking->Start(i::GarbageCollectionReason::kTesting);
+  CHECK(platform.PendingTask());
+  while (platform.PendingTask()) {
+    platform.PerformTask();
   }
+  CHECK(marking->IsStopped());
 }
 
 }  // namespace heap

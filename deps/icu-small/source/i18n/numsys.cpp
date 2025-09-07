@@ -37,7 +37,7 @@ U_NAMESPACE_BEGIN
 
 // Useful constants
 
-#define DEFAULT_DIGITS UNICODE_STRING_SIMPLE("0123456789")
+#define DEFAULT_DIGITS UNICODE_STRING_SIMPLE("0123456789");
 static const char gNumberingSystems[] = "numberingSystems";
 static const char gNumberElements[] = "NumberElements";
 static const char gDefault[] = "default";
@@ -61,7 +61,7 @@ UOBJECT_DEFINE_RTTI_IMPLEMENTATION(NumsysNameEnumeration)
 
 NumberingSystem::NumberingSystem() {
      radix = 10;
-     algorithmic = false;
+     algorithmic = FALSE;
      UnicodeString defaultDigits = DEFAULT_DIGITS;
      desc.setTo(defaultDigits);
      uprv_strcpy(name,gLatn);
@@ -72,7 +72,7 @@ NumberingSystem::NumberingSystem() {
      * @draft ICU 4.2
      */
 
-NumberingSystem::NumberingSystem(const NumberingSystem& other) 
+NumberingSystem::NumberingSystem(const NumberingSystem& other)
 :  UObject(other) {
     *this=other;
 }
@@ -116,9 +116,9 @@ NumberingSystem::createInstance(const Locale & inLocale, UErrorCode& status) {
         return nullptr;
     }
 
-    UBool nsResolved = true;
-    UBool usingFallback = false;
-    char buffer[ULOC_KEYWORDS_CAPACITY] = "";
+    UBool nsResolved = TRUE;
+    UBool usingFallback = FALSE;
+    char buffer[ULOC_KEYWORDS_CAPACITY];
     int32_t count = inLocale.getKeywordValue("numbers", buffer, sizeof(buffer), status);
     if (U_FAILURE(status) || status == U_STRING_NOT_TERMINATED_WARNING) {
         // the "numbers" keyword exceeds ULOC_KEYWORDS_CAPACITY; ignore and use default.
@@ -128,13 +128,13 @@ NumberingSystem::createInstance(const Locale & inLocale, UErrorCode& status) {
     if ( count > 0 ) { // @numbers keyword was specified in the locale
         U_ASSERT(count < ULOC_KEYWORDS_CAPACITY);
         buffer[count] = '\0'; // Make sure it is null terminated.
-        if ( !uprv_strcmp(buffer,gDefault) || !uprv_strcmp(buffer,gNative) || 
+        if ( !uprv_strcmp(buffer,gDefault) || !uprv_strcmp(buffer,gNative) ||
              !uprv_strcmp(buffer,gTraditional) || !uprv_strcmp(buffer,gFinance)) {
-            nsResolved = false;
+            nsResolved = FALSE;
         }
     } else {
         uprv_strcpy(buffer, gDefault);
-        nsResolved = false;
+        nsResolved = FALSE;
     }
 
     if (!nsResolved) { // Resolve the numbering system ( default, native, traditional or finance ) into a "real" numbering system
@@ -149,7 +149,7 @@ NumberingSystem::createInstance(const Locale & inLocale, UErrorCode& status) {
         while (!nsResolved) {
             localStatus = U_ZERO_ERROR;
             count = 0;
-            const char16_t *nsName = ures_getStringByKeyWithFallback(numberElementsRes.getAlias(), buffer, &count, &localStatus);
+            const UChar *nsName = ures_getStringByKeyWithFallback(numberElementsRes.getAlias(), buffer, &count, &localStatus);
             // Don't stomp on the catastrophic failure of OOM.
             if (localStatus == U_MEMORY_ALLOCATION_ERROR) {
                 status = U_MEMORY_ALLOCATION_ERROR;
@@ -158,17 +158,17 @@ NumberingSystem::createInstance(const Locale & inLocale, UErrorCode& status) {
             if ( count > 0 && count < ULOC_KEYWORDS_CAPACITY ) { // numbering system found
                 u_UCharsToChars(nsName, buffer, count);
                 buffer[count] = '\0'; // Make sure it is null terminated.
-                nsResolved = true;
-            } 
+                nsResolved = TRUE;
+            }
 
             if (!nsResolved) { // Fallback behavior per TR35 - traditional falls back to native, finance and native fall back to default
-                if (!uprv_strcmp(buffer,gNative) || !uprv_strcmp(buffer,gFinance)) { 
+                if (!uprv_strcmp(buffer,gNative) || !uprv_strcmp(buffer,gFinance)) {
                     uprv_strcpy(buffer,gDefault);
                 } else if (!uprv_strcmp(buffer,gTraditional)) {
                     uprv_strcpy(buffer,gNative);
                 } else { // If we get here we couldn't find even the default numbering system
-                    usingFallback = true;
-                    nsResolved = true;
+                    usingFallback = TRUE;
+                    nsResolved = TRUE;
                 }
             }
         }
@@ -271,7 +271,7 @@ UBool NumberingSystem::isAlgorithmic() const {
 namespace {
 
 UVector* gNumsysNames = nullptr;
-UInitOnce gNumSysInitOnce {};
+UInitOnce gNumSysInitOnce = U_INITONCE_INITIALIZER;
 
 U_CFUNC UBool U_CALLCONV numSysCleanup() {
     delete gNumsysNames;
@@ -313,7 +313,12 @@ U_CFUNC void initNumsysNames(UErrorCode &status) {
         }
         const char *nsName = ures_getKey(nsCurrent.getAlias());
         LocalPointer<UnicodeString> newElem(new UnicodeString(nsName, -1, US_INV), status);
-        numsysNames->adoptElement(newElem.orphan(), status);
+        if (U_SUCCESS(status)) {
+            numsysNames->addElement(newElem.getAlias(), status);
+            if (U_SUCCESS(status)) {
+                newElem.orphan(); // on success, the numsysNames vector owns newElem.
+            }
+        }
     }
 
     ures_close(numberingSystemsInfo);

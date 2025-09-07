@@ -7,7 +7,6 @@
 #include "src/init/v8.h"
 #include "test/cctest/cctest.h"
 
-#include "src/execution/protectors-inl.h"
 #include "src/heap/heap.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/objects.h"
@@ -15,11 +14,10 @@
 namespace v8 {
 namespace internal {
 
-void TestArrayBufferViewContents(LocalContext* env, bool should_use_buffer) {
+void TestArrayBufferViewContents(LocalContext& env, bool should_use_buffer) {
   v8::Local<v8::Object> obj_a = v8::Local<v8::Object>::Cast(
-      (*env)
-          ->Global()
-          ->Get((*env)->GetIsolate()->GetCurrentContext(), v8_str("a"))
+      env->Global()
+          ->Get(v8::Isolate::GetCurrent()->GetCurrentContext(), v8_str("a"))
           .ToLocalChecked());
   CHECK(obj_a->IsArrayBufferView());
   v8::Local<v8::ArrayBufferView> array_buffer_view =
@@ -34,6 +32,7 @@ void TestArrayBufferViewContents(LocalContext* env, bool should_use_buffer) {
   }
 }
 
+
 TEST(CopyContentsTypedArray) {
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
@@ -43,7 +42,7 @@ TEST(CopyContentsTypedArray) {
       "a[1] = 1;"
       "a[2] = 2;"
       "a[3] = 3;");
-  TestArrayBufferViewContents(&env, false);
+  TestArrayBufferViewContents(env, false);
 }
 
 
@@ -51,7 +50,7 @@ TEST(CopyContentsArray) {
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
   CompileRun("var a = new Uint8Array([0, 1, 2, 3]);");
-  TestArrayBufferViewContents(&env, false);
+  TestArrayBufferViewContents(env, false);
 }
 
 
@@ -68,7 +67,21 @@ TEST(CopyContentsView) {
       "c[4] = 2;"
       "c[5] = 3;"
       "var a = new DataView(b, 2);");
-  TestArrayBufferViewContents(&env, true);
+  TestArrayBufferViewContents(env, true);
+}
+
+
+TEST(AllocateNotExternal) {
+  LocalContext env;
+  v8::HandleScope scope(env->GetIsolate());
+  void* memory = reinterpret_cast<Isolate*>(env->GetIsolate())
+                     ->array_buffer_allocator()
+                     ->Allocate(1024);
+  v8::Local<v8::ArrayBuffer> buffer =
+      v8::ArrayBuffer::New(env->GetIsolate(), memory, 1024,
+                           v8::ArrayBufferCreationMode::kInternalized);
+  CHECK(!buffer->IsExternal());
+  CHECK_EQ(memory, buffer->GetContents().Data());
 }
 
 void TestSpeciesProtector(char* code,
@@ -101,12 +114,12 @@ void TestSpeciesProtector(char* code,
 
       v8::internal::Isolate* i_isolate =
           reinterpret_cast<v8::internal::Isolate*>(isolate);
-      CHECK(Protectors::IsTypedArraySpeciesLookupChainIntact(i_isolate));
+      CHECK(i_isolate->IsTypedArraySpeciesLookupChainIntact());
       CompileRun(code);
       if (invalidates_species_protector) {
-        CHECK(!Protectors::IsTypedArraySpeciesLookupChainIntact(i_isolate));
+        CHECK(!i_isolate->IsTypedArraySpeciesLookupChainIntact());
       } else {
-        CHECK(Protectors::IsTypedArraySpeciesLookupChainIntact(i_isolate));
+        CHECK(i_isolate->IsTypedArraySpeciesLookupChainIntact());
       }
 
       v8::Local<v8::Value> my_typed_array = CompileRun("MyTypedArray");

@@ -74,7 +74,7 @@ class CancelableTaskManagerTest : public ::testing::Test {
 
   std::unique_ptr<TestTask> NewTask(
       ResultType* result, TestTask::Mode mode = TestTask::kDoNothing) {
-    return std::make_unique<TestTask>(this, result, mode);
+    return base::make_unique<TestTask>(this, result, mode);
   }
 
   void CancelAndWait() {
@@ -160,8 +160,8 @@ TEST_F(CancelableTaskManagerTest, ThreadedMultipleTasksStarted) {
   ResultType result2{0};
   ThreadedRunner runner1(NewTask(&result1, TestTask::kWaitTillCancelTriggered));
   ThreadedRunner runner2(NewTask(&result2, TestTask::kWaitTillCancelTriggered));
-  CHECK(runner1.Start());
-  CHECK(runner2.Start());
+  runner1.Start();
+  runner2.Start();
   // Busy wait on result to make sure both tasks are done.
   while (result1.load() == 0 || result2.load() == 0) {
   }
@@ -179,8 +179,8 @@ TEST_F(CancelableTaskManagerTest, ThreadedMultipleTasksNotRun) {
   ThreadedRunner runner2(NewTask(&result2, TestTask::kCheckNotRun));
   CancelAndWait();
   // Tasks are canceled, hence the runner will bail out and not update result.
-  CHECK(runner1.Start());
-  CHECK(runner2.Start());
+  runner1.Start();
+  runner2.Start();
   runner1.Join();
   runner2.Join();
   EXPECT_EQ(0u, result1);
@@ -193,7 +193,7 @@ TEST_F(CancelableTaskManagerTest, RemoveBeforeCancelAndWait) {
   CancelableTaskManager::Id id = runner1.task_id();
   EXPECT_EQ(1u, id);
   EXPECT_EQ(TryAbortResult::kTaskAborted, manager()->TryAbort(id));
-  CHECK(runner1.Start());
+  runner1.Start();
   runner1.Join();
   CancelAndWait();
   EXPECT_EQ(0u, result1);
@@ -204,7 +204,7 @@ TEST_F(CancelableTaskManagerTest, RemoveAfterCancelAndWait) {
   ThreadedRunner runner1(NewTask(&result1));
   CancelableTaskManager::Id id = runner1.task_id();
   EXPECT_EQ(1u, id);
-  CHECK(runner1.Start());
+  runner1.Start();
   runner1.Join();
   CancelAndWait();
   EXPECT_EQ(TryAbortResult::kTaskRemoved, manager()->TryAbort(id));
@@ -231,8 +231,8 @@ TEST_F(CancelableTaskManagerTest, ThreadedMultipleTasksNotRunTryAbortAll) {
   ThreadedRunner runner2(NewTask(&result2, TestTask::kCheckNotRun));
   EXPECT_EQ(TryAbortResult::kTaskAborted, TryAbortAll());
   // Tasks are canceled, hence the runner will bail out and not update result.
-  CHECK(runner1.Start());
-  CHECK(runner2.Start());
+  runner1.Start();
+  runner2.Start();
   runner1.Join();
   runner2.Join();
   EXPECT_EQ(0u, result1);
@@ -245,7 +245,7 @@ TEST_F(CancelableTaskManagerTest, ThreadedMultipleTasksStartedTryAbortAll) {
   ResultType result2{0};
   ThreadedRunner runner1(NewTask(&result1, TestTask::kWaitTillCancelTriggered));
   ThreadedRunner runner2(NewTask(&result2, TestTask::kWaitTillCancelTriggered));
-  CHECK(runner1.Start());
+  runner1.Start();
   // Busy wait on result to make sure task1 is done.
   while (result1.load() == 0) {
   }
@@ -255,7 +255,7 @@ TEST_F(CancelableTaskManagerTest, ThreadedMultipleTasksStartedTryAbortAll) {
   EXPECT_THAT(TryAbortAll(),
               testing::AnyOf(testing::Eq(TryAbortResult::kTaskAborted),
                              testing::Eq(TryAbortResult::kTaskRunning)));
-  CHECK(runner2.Start());
+  runner2.Start();
   runner1.Join();
   runner2.Join();
   EXPECT_EQ(1u, result1);

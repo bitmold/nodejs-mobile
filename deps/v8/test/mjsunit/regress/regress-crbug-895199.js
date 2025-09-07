@@ -10,9 +10,8 @@ function foo() {
   a[1] = 25.1234;
   %DeoptimizeNow();
   return a[2];
-};
-%PrepareFunctionForOptimization(foo);
+}
 foo();
 foo();
 %OptimizeFunctionOnNextCall(foo);
-foo();
+foo()

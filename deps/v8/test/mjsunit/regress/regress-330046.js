@@ -40,7 +40,6 @@ function f(n, x, b) {
   }
   return sum;
 }
-%PrepareFunctionForOptimization(f);
 
 f(10, o3);
 f(20, o3);
@@ -52,7 +51,6 @@ f(100000, o3);
 
 // This causes all code for f to be lazily deopted.
 o2.a = 5;
-%PrepareFunctionForOptimization(f);
 
 // If OSR did not evict the old code, it will be installed in f here.
 %OptimizeFunctionOnNextCall(f);

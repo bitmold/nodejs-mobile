@@ -4,17 +4,17 @@
 
 // Flags: --expose-wasm --experimental-wasm-eh
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 let builder = new WasmModuleBuilder();
-let except = builder.addTag(kSig_v_i);
+let except = builder.addException(kSig_v_i);
 builder.addFunction("rethrow0", kSig_v_v)
     .addBody([
-      kExprTry, kWasmVoid,
+      kExprTry, kWasmStmt,
         kExprI32Const, 23,
         kExprThrow, except,
-      kExprCatch, except,
-        kExprRethrow, 0,
+      kExprCatch,
+        kExprRethrow,
       kExprEnd,
 ]).exportFunc();
 let instance = builder.instantiate();

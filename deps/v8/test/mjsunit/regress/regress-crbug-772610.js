@@ -11,7 +11,6 @@ function f() {
   %_DeoptimizeNow();
   return o.length;
 }
-%PrepareFunctionForOptimization(f);
 assertEquals(1, f());
 assertEquals(1, f());
 %OptimizeFunctionOnNextCall(f);

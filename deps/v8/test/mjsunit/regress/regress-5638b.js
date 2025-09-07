@@ -18,7 +18,6 @@ class B extends A {
     construction_counter++;
   }
 }
-%PrepareFunctionForOptimization(B);
 
 var superclass_counter = 0;
 

@@ -5,8 +5,6 @@
 #ifndef V8_INSPECTOR_REMOTE_OBJECT_ID_H_
 #define V8_INSPECTOR_REMOTE_OBJECT_ID_H_
 
-#include <memory>
-
 #include "src/inspector/protocol/Forward.h"
 
 namespace v8_inspector {
@@ -15,18 +13,16 @@ using protocol::Response;
 
 class RemoteObjectIdBase {
  public:
-  uint64_t isolateId() const { return m_isolateId; }
   int contextId() const { return m_injectedScriptId; }
 
  protected:
   RemoteObjectIdBase();
   ~RemoteObjectIdBase() = default;
 
-  bool parseId(const String16&);
+  std::unique_ptr<protocol::DictionaryValue> parseInjectedScriptId(
+      const String16&);
 
-  uint64_t m_isolateId;
   int m_injectedScriptId;
-  int m_id;
 };
 
 class RemoteObjectId final : public RemoteObjectIdBase {
@@ -35,7 +31,10 @@ class RemoteObjectId final : public RemoteObjectIdBase {
   ~RemoteObjectId() = default;
   int id() const { return m_id; }
 
-  static String16 serialize(uint64_t isolateId, int injectedScriptId, int id);
+ private:
+  RemoteObjectId();
+
+  int m_id;
 };
 
 class RemoteCallFrameId final : public RemoteObjectIdBase {
@@ -43,10 +42,14 @@ class RemoteCallFrameId final : public RemoteObjectIdBase {
   static Response parse(const String16&, std::unique_ptr<RemoteCallFrameId>*);
   ~RemoteCallFrameId() = default;
 
-  int frameOrdinal() const { return m_id; }
+  int frameOrdinal() const { return m_frameOrdinal; }
 
-  static String16 serialize(uint64_t isolateId, int injectedScriptId,
-                            int frameOrdinal);
+  static String16 serialize(int injectedScriptId, int frameOrdinal);
+
+ private:
+  RemoteCallFrameId();
+
+  int m_frameOrdinal;
 };
 
 }  // namespace v8_inspector

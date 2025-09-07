@@ -1,1 +1,5 @@
-file:../../src/inspector/OWNERS
+alph@chromium.org
+dgozman@chromium.org
+kozyatinskiy@chromium.org
+
+# COMPONENT: Platform>DevTools>JavaScript

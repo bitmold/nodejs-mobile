@@ -38,7 +38,6 @@ function f(a) {
   a[0] = 0;
   a[1] = 0;
 }
-%PrepareFunctionForOptimization(f);
 
 var a = new Int32Array(2);
 for (var i = 0; i < 5; i++) {
@@ -168,12 +167,10 @@ assertEquals(2, a.BYTES_PER_ELEMENT);
 // Test Float64Arrays.
 function get(a, index) {
   return a[index];
-};
-%PrepareFunctionForOptimization(get);
+}
 function set(a, index, value) {
   a[index] = value;
-};
-%PrepareFunctionForOptimization(set);
+}
 function temp() {
 var array = new Float64Array(2);
 for (var i = 0; i < 5; i++) {
@@ -296,7 +293,6 @@ function test_store_nan(array, sum) {
 const kRuns = 10;
 
 function run_test(test_func, array, expected_result) {
-  %PrepareFunctionForOptimization(test_func);
   for (var i = 0; i < 5; i++) test_func(array, 0);
   %OptimizeFunctionOnNextCall(test_func);
   var sum = 0;
@@ -348,7 +344,6 @@ for (var t = 0; t < types.length; t++) {
     assertTrue(delete a.length);
 
     // Make sure bounds checks are handled correctly for external arrays.
-    %PrepareFunctionForOptimization(run_bounds_test);
     run_bounds_test(a);
     run_bounds_test(a);
     run_bounds_test(a);
@@ -369,7 +364,6 @@ for (var t = 0; t < types.length; t++) {
     return a[0] = a[0] = 1;
   }
 
-  %PrepareFunctionForOptimization(array_load_set_smi_check2);
   array_load_set_smi_check2(a);
   %OptimizeFunctionOnNextCall(array_load_set_smi_check2);
   array_load_set_smi_check2(a);
@@ -384,7 +378,6 @@ function store_float32_undefined(ext_array) {
   ext_array[0] = undefined;
 }
 
-%PrepareFunctionForOptimization(store_float32_undefined);
 var float32_array = new Float32Array(1);
 // Make sure runtime does it right
 store_float32_undefined(float32_array);
@@ -401,7 +394,6 @@ function store_float64_undefined(ext_array) {
   ext_array[0] = undefined;
 }
 
-%PrepareFunctionForOptimization(store_float64_undefined);
 var float64_array = new Float64Array(1);
 // Make sure runtime does it right
 store_float64_undefined(float64_array);
@@ -614,7 +606,7 @@ a61.set(a62)
 assertArrayPrefix([1, 12], a61)
 
 // Invalid source
-a.set(0); // does not throw
+assertThrows(function() { a.set(0); }, TypeError);
 assertArrayPrefix([1,2,3,4,5,6], a);
 a.set({}); // does not throw
 assertArrayPrefix([1,2,3,4,5,6], a);
@@ -647,8 +639,6 @@ function boo(a, i, v) {
 
 function do_tagged_index_external_array_test(constructor) {
   var t_array = new constructor([1, 2, 3, 4, 5, 6]);
-  %PrepareFunctionForOptimization(goo);
-  %PrepareFunctionForOptimization(boo);
   assertEquals(1, goo(t_array, 0));
   assertEquals(1, goo(t_array, 0));
   boo(t_array, 0, 13);
@@ -671,8 +661,6 @@ do_tagged_index_external_array_test(Float32Array);
 do_tagged_index_external_array_test(Float64Array);
 
 var built_in_array = new Array(1, 2, 3, 4, 5, 6);
-%PrepareFunctionForOptimization(goo);
-%PrepareFunctionForOptimization(boo);
 assertEquals(1, goo(built_in_array, 0));
 assertEquals(1, goo(built_in_array, 0));
 %OptimizeFunctionOnNextCall(goo);
@@ -683,8 +671,6 @@ assertEquals(11, goo(built_in_array, 0));
 %ClearFunctionFeedback(boo);
 
 built_in_array = new Array(1.5, 2, 3, 4, 5, 6);
-%PrepareFunctionForOptimization(goo);
-%PrepareFunctionForOptimization(boo);
 assertEquals(1.5, goo(built_in_array, 0));
 assertEquals(1.5, goo(built_in_array, 0));
 %OptimizeFunctionOnNextCall(goo);

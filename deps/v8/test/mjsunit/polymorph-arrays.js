@@ -45,7 +45,6 @@ function testPolymorphicLoads() {
     function load(a, i) {
       return a[i];
     }
-    %PrepareFunctionForOptimization(load);
 
     var object_array = new Object;
     var sparse_object_array = new Object;
@@ -111,7 +110,6 @@ function testPolymorphicStores() {
     function store(a, i, val) {
       a[i] = val;
     }
-    %PrepareFunctionForOptimization(store);
 
     var object_array = new Object;
     var sparse_object_array = new Object;

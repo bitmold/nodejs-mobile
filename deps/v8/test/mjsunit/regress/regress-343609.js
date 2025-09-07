@@ -2,7 +2,8 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --allow-natives-syntax --expose-gc
+// Flags: --allow-natives-syntax --block-concurrent-recompilation
+// Flags: --expose-gc
 
 function Ctor() {
   this.a = 1;
@@ -26,7 +27,6 @@ function dummy() {
   (function () {
     var o = {c: 10};
     var f1 = get_closure2();
-    %PrepareFunctionForOptimization(f1);
     f1(o);
     f1(o);
     %OptimizeFunctionOnNextCall(f1);
@@ -38,7 +38,6 @@ var o = new Ctor();
 function opt() {
   (function () {
     var f1 = get_closure();
-    %PrepareFunctionForOptimization(f1);
     f1(new Ctor());
     f1(new Ctor());
     %OptimizeFunctionOnNextCall(f1);

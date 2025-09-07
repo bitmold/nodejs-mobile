@@ -4,10 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-function foo() {
-  return [+0, false].indexOf(-(4 / 3));
-};
-%PrepareFunctionForOptimization(foo);
+function foo() { return [+0,false].indexOf(-(4/3)); }
 foo();
 foo();
 %OptimizeFunctionOnNextCall(foo);

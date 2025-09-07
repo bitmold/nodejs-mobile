@@ -96,7 +96,7 @@ static void alloc_cb(uv_handle_t* handle,
 
 
 static void close_cb(uv_handle_t* handle) {
-  ASSERT_NOT_NULL(handle);
+  ASSERT(handle != NULL);
   close_cb_called++;
 }
 
@@ -111,7 +111,7 @@ static void shutdown_cb(uv_shutdown_t* req, int status) {
 
 
 static void read_cb(uv_stream_t* tcp, ssize_t nread, const uv_buf_t* buf) {
-  ASSERT_NOT_NULL(tcp);
+  ASSERT(tcp != NULL);
 
   if (nread >= 0) {
     ASSERT(nread == 4);
@@ -126,7 +126,7 @@ static void read_cb(uv_stream_t* tcp, ssize_t nread, const uv_buf_t* buf) {
 
 static void read1_cb(uv_stream_t* tcp, ssize_t nread, const uv_buf_t* buf) {
   int i;
-  ASSERT_NOT_NULL(tcp);
+  ASSERT(tcp != NULL);
 
   if (nread >= 0) {
     for (i = 0; i < nread; ++i)
@@ -140,7 +140,7 @@ static void read1_cb(uv_stream_t* tcp, ssize_t nread, const uv_buf_t* buf) {
 
 
 static void write_cb(uv_write_t* req, int status) {
-  ASSERT_NOT_NULL(req);
+  ASSERT(req != NULL);
 
   if (status) {
     fprintf(stderr, "uv_write error: %s\n", uv_strerror(status));
@@ -155,7 +155,7 @@ static void write1_cb(uv_write_t* req, int status) {
   uv_buf_t buf;
   int r;
 
-  ASSERT_NOT_NULL(req);
+  ASSERT(req != NULL);
   if (status) {
     ASSERT(shutdown_cb_called);
     return;
@@ -237,7 +237,6 @@ TEST_IMPL(tcp_open) {
   struct sockaddr_in addr;
   uv_os_sock_t sock;
   int r;
-  uv_tcp_t client2;
 
   ASSERT(0 == uv_ip4_addr("127.0.0.1", TEST_PORT, &addr));
 
@@ -258,6 +257,8 @@ TEST_IMPL(tcp_open) {
 
 #ifndef _WIN32
   {
+    uv_tcp_t client2;
+
     r = uv_tcp_init(uv_default_loop(), &client2);
     ASSERT(r == 0);
 
@@ -266,9 +267,7 @@ TEST_IMPL(tcp_open) {
 
     uv_close((uv_handle_t*) &client2, NULL);
   }
-#else  /* _WIN32 */
-  (void)client2;
-#endif
+#endif  /* !_WIN32 */
 
   uv_run(uv_default_loop(), UV_RUN_DEFAULT);
 

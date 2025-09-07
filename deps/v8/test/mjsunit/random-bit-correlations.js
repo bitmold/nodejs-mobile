@@ -2,11 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Overwrite the random seed provided by the test runner to make this test less
-// flaky. Due to flag contradiction checking, this requires
-// --allow-overwriting-for-next-flag to avoid an error.
-// Flags: --allow-overwriting-for-next-flag --random-seed=20
-// Flags: --nostress-opt --noalways-opt --predictable
+// Flags: --random-seed=20 --nostress-opt --noalways-opt --predictable
 
 (function() {
   var kHistory = 2;

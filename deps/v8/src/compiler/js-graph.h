@@ -34,13 +34,11 @@ class V8_EXPORT_PRIVATE JSGraph : public MachineGraph {
         simplified_(simplified) {
   }
 
-  JSGraph(const JSGraph&) = delete;
-  JSGraph& operator=(const JSGraph&) = delete;
-
   // CEntryStubs are cached depending on the result size and other flags.
-  Node* CEntryStubConstant(
-      int result_size, SaveFPRegsMode save_doubles = SaveFPRegsMode::kIgnore,
-      ArgvMode argv_mode = ArgvMode::kStack, bool builtin_exit_frame = false);
+  Node* CEntryStubConstant(int result_size,
+                           SaveFPRegsMode save_doubles = kDontSaveFPRegs,
+                           ArgvMode argv_mode = kArgvOnStack,
+                           bool builtin_exit_frame = false);
 
   // Used for padding frames. (alias: the hole)
   Node* PaddingConstant() { return TheHoleConstant(); }
@@ -48,12 +46,16 @@ class V8_EXPORT_PRIVATE JSGraph : public MachineGraph {
   // Used for stubs and runtime functions with no context. (alias: SMI zero)
   Node* NoContextConstant() { return ZeroConstant(); }
 
-  // Creates a HeapConstant node, possibly canonicalized.
+  // Creates a HeapConstant node, possibly canonicalized, and may access the
+  // heap to inspect the object.
   Node* HeapConstant(Handle<HeapObject> value);
 
   // Creates a Constant node of the appropriate type for the given object.
-  // Inspect the (serialized) object and determine whether one of the
+  // Accesses the heap to inspect the object and determine whether one of the
   // canonicalized globals or a number constant should be returned.
+  Node* Constant(Handle<Object> value);
+
+  // Like above, but doesn't access the heap directly.
   Node* Constant(const ObjectRef& value);
 
   // Creates a NumberConstant node, usually canonicalized.
@@ -78,36 +80,31 @@ class V8_EXPORT_PRIVATE JSGraph : public MachineGraph {
   void GetCachedNodes(NodeVector* nodes);
 
 // Cached global nodes.
-#define CACHED_GLOBAL_LIST(V)                     \
-  V(AllocateInYoungGenerationStubConstant)        \
-  V(AllocateRegularInYoungGenerationStubConstant) \
-  V(AllocateInOldGenerationStubConstant)          \
-  V(AllocateRegularInOldGenerationStubConstant)   \
-  V(ArrayConstructorStubConstant)                 \
-  V(BigIntMapConstant)                            \
-  V(BooleanMapConstant)                           \
-  V(ToNumberBuiltinConstant)                      \
-  V(PlainPrimitiveToNumberBuiltinConstant)        \
-  V(EmptyFixedArrayConstant)                      \
-  V(EmptyStringConstant)                          \
-  V(FixedArrayMapConstant)                        \
-  V(PropertyArrayMapConstant)                     \
-  V(FixedDoubleArrayMapConstant)                  \
-  V(WeakFixedArrayMapConstant)                    \
-  V(HeapNumberMapConstant)                        \
-  V(OptimizedOutConstant)                         \
-  V(StaleRegisterConstant)                        \
-  V(UndefinedConstant)                            \
-  V(TheHoleConstant)                              \
-  V(TrueConstant)                                 \
-  V(FalseConstant)                                \
-  V(NullConstant)                                 \
-  V(ZeroConstant)                                 \
-  V(MinusZeroConstant)                            \
-  V(OneConstant)                                  \
-  V(MinusOneConstant)                             \
-  V(NaNConstant)                                  \
-  V(EmptyStateValues)                             \
+#define CACHED_GLOBAL_LIST(V)              \
+  V(AllocateInYoungGenerationStubConstant) \
+  V(AllocateInOldGenerationStubConstant)   \
+  V(ArrayConstructorStubConstant)          \
+  V(BigIntMapConstant)                     \
+  V(BooleanMapConstant)                    \
+  V(ToNumberBuiltinConstant)               \
+  V(EmptyFixedArrayConstant)               \
+  V(EmptyStringConstant)                   \
+  V(FixedArrayMapConstant)                 \
+  V(PropertyArrayMapConstant)              \
+  V(FixedDoubleArrayMapConstant)           \
+  V(HeapNumberMapConstant)                 \
+  V(OptimizedOutConstant)                  \
+  V(StaleRegisterConstant)                 \
+  V(UndefinedConstant)                     \
+  V(TheHoleConstant)                       \
+  V(TrueConstant)                          \
+  V(FalseConstant)                         \
+  V(NullConstant)                          \
+  V(ZeroConstant)                          \
+  V(OneConstant)                           \
+  V(NaNConstant)                           \
+  V(MinusOneConstant)                      \
+  V(EmptyStateValues)                      \
   V(SingleDeadTypedStateValues)
 
 // Cached global node accessor methods.
@@ -134,6 +131,8 @@ class V8_EXPORT_PRIVATE JSGraph : public MachineGraph {
 
   // Internal helper to canonicalize a number constant.
   Node* NumberConstant(double value);
+
+  DISALLOW_COPY_AND_ASSIGN(JSGraph);
 };
 
 }  // namespace compiler

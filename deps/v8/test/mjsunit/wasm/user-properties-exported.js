@@ -4,7 +4,7 @@
 
 // Flags: --expose-wasm --expose-gc --verify-heap
 
-d8.file.execute("test/mjsunit/wasm/user-properties-common.js");
+load("test/mjsunit/wasm/user-properties-common.js");
 
 (function ExportedFunctionTest() {
   print("ExportedFunctionTest");
@@ -13,7 +13,7 @@ d8.file.execute("test/mjsunit/wasm/user-properties-common.js");
   var builder = new WasmModuleBuilder();
   builder.addFunction("exp", kSig_i_i)
     .addBody([
-      kExprLocalGet, 0,
+      kExprGetLocal, 0,
       kExprCallFunction, 0])
     .exportAs("exp");
   let module1 = builder.toModule();
@@ -22,7 +22,7 @@ d8.file.execute("test/mjsunit/wasm/user-properties-common.js");
 
   testProperties(g);
 
-  // The Wasm-internal fields of {g} are only inspected when {g} is
+  // The WASM-internal fields of {g} are only inspected when {g} is
   // used as an import into another instance.
   print("  instance 2, importing");
   var builder = new WasmModuleBuilder();

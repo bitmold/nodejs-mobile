@@ -39,7 +39,7 @@ $L$SEH_begin_rsaz_512_sqr:
 	sub	rsp,128+24
 
 $L$sqr_body:
-DB	102,72,15,110,202
+	mov	rbp,rdx
 	mov	rdx,QWORD[rsi]
 	mov	rax,QWORD[8+rsi]
 	mov	QWORD[128+rsp],rcx
@@ -54,7 +54,6 @@ $L$oop_sqr:
 	mov	DWORD[((128+8))+rsp],r8d
 
 	mov	rbx,rdx
-	mov	rbp,rax
 	mul	rdx
 	mov	r8,rax
 	mov	rax,QWORD[16+rsi]
@@ -93,29 +92,31 @@ $L$oop_sqr:
 	mul	rbx
 	add	r14,rax
 	mov	rax,rbx
-	adc	rdx,0
-
-	xor	rcx,rcx
-	add	r8,r8
 	mov	r15,rdx
-	adc	rcx,0
+	adc	r15,0
+
+	add	r8,r8
+	mov	rcx,r9
+	adc	r9,r9
 
 	mul	rax
-	add	rdx,r8
-	adc	rcx,0
-
 	mov	QWORD[rsp],rax
-	mov	QWORD[8+rsp],rdx
+	add	r8,rdx
+	adc	r9,0
+
+	mov	QWORD[8+rsp],r8
+	shr	rcx,63
 
 
+	mov	r8,QWORD[8+rsi]
 	mov	rax,QWORD[16+rsi]
-	mul	rbp
+	mul	r8
 	add	r10,rax
 	mov	rax,QWORD[24+rsi]
 	mov	rbx,rdx
 	adc	rbx,0
 
-	mul	rbp
+	mul	r8
 	add	r11,rax
 	mov	rax,QWORD[32+rsi]
 	adc	rdx,0
@@ -123,7 +124,7 @@ $L$oop_sqr:
 	mov	rbx,rdx
 	adc	rbx,0
 
-	mul	rbp
+	mul	r8
 	add	r12,rax
 	mov	rax,QWORD[40+rsi]
 	adc	rdx,0
@@ -131,7 +132,7 @@ $L$oop_sqr:
 	mov	rbx,rdx
 	adc	rbx,0
 
-	mul	rbp
+	mul	r8
 	add	r13,rax
 	mov	rax,QWORD[48+rsi]
 	adc	rdx,0
@@ -139,7 +140,7 @@ $L$oop_sqr:
 	mov	rbx,rdx
 	adc	rbx,0
 
-	mul	rbp
+	mul	r8
 	add	r14,rax
 	mov	rax,QWORD[56+rsi]
 	adc	rdx,0
@@ -147,39 +148,39 @@ $L$oop_sqr:
 	mov	rbx,rdx
 	adc	rbx,0
 
-	mul	rbp
+	mul	r8
 	add	r15,rax
-	mov	rax,rbp
+	mov	rax,r8
 	adc	rdx,0
 	add	r15,rbx
-	adc	rdx,0
-
-	xor	rbx,rbx
-	add	r9,r9
 	mov	r8,rdx
-	adc	r10,r10
-	adc	rbx,0
+	mov	rdx,r10
+	adc	r8,0
+
+	add	rdx,rdx
+	lea	r10,[r10*2+rcx]
+	mov	rbx,r11
+	adc	r11,r11
 
 	mul	rax
-
-	add	rax,rcx
-	mov	rbp,QWORD[16+rsi]
 	add	r9,rax
-	mov	rax,QWORD[24+rsi]
 	adc	r10,rdx
-	adc	rbx,0
+	adc	r11,0
 
 	mov	QWORD[16+rsp],r9
 	mov	QWORD[24+rsp],r10
+	shr	rbx,63
 
 
-	mul	rbp
+	mov	r9,QWORD[16+rsi]
+	mov	rax,QWORD[24+rsi]
+	mul	r9
 	add	r12,rax
 	mov	rax,QWORD[32+rsi]
 	mov	rcx,rdx
 	adc	rcx,0
 
-	mul	rbp
+	mul	r9
 	add	r13,rax
 	mov	rax,QWORD[40+rsi]
 	adc	rdx,0
@@ -187,7 +188,7 @@ $L$oop_sqr:
 	mov	rcx,rdx
 	adc	rcx,0
 
-	mul	rbp
+	mul	r9
 	add	r14,rax
 	mov	rax,QWORD[48+rsi]
 	adc	rdx,0
@@ -195,7 +196,9 @@ $L$oop_sqr:
 	mov	rcx,rdx
 	adc	rcx,0
 
-	mul	rbp
+	mul	r9
+	mov	r10,r12
+	lea	r12,[r12*2+rbx]
 	add	r15,rax
 	mov	rax,QWORD[56+rsi]
 	adc	rdx,0
@@ -203,40 +206,36 @@ $L$oop_sqr:
 	mov	rcx,rdx
 	adc	rcx,0
 
-	mul	rbp
+	mul	r9
+	shr	r10,63
 	add	r8,rax
-	mov	rax,rbp
+	mov	rax,r9
 	adc	rdx,0
 	add	r8,rcx
-	adc	rdx,0
-
-	xor	rcx,rcx
-	add	r11,r11
 	mov	r9,rdx
-	adc	r12,r12
-	adc	rcx,0
+	adc	r9,0
+
+	mov	rcx,r13
+	lea	r13,[r13*2+r10]
 
 	mul	rax
-
-	add	rax,rbx
-	mov	r10,QWORD[24+rsi]
 	add	r11,rax
-	mov	rax,QWORD[32+rsi]
 	adc	r12,rdx
-	adc	rcx,0
+	adc	r13,0
 
 	mov	QWORD[32+rsp],r11
 	mov	QWORD[40+rsp],r12
+	shr	rcx,63
 
 
-	mov	r11,rax
+	mov	r10,QWORD[24+rsi]
+	mov	rax,QWORD[32+rsi]
 	mul	r10
 	add	r14,rax
 	mov	rax,QWORD[40+rsi]
 	mov	rbx,rdx
 	adc	rbx,0
 
-	mov	r12,rax
 	mul	r10
 	add	r15,rax
 	mov	rax,QWORD[48+rsi]
@@ -245,8 +244,9 @@ $L$oop_sqr:
 	mov	rbx,rdx
 	adc	rbx,0
 
-	mov	rbp,rax
 	mul	r10
+	mov	r12,r14
+	lea	r14,[r14*2+rcx]
 	add	r8,rax
 	mov	rax,QWORD[56+rsi]
 	adc	rdx,0
@@ -255,33 +255,32 @@ $L$oop_sqr:
 	adc	rbx,0
 
 	mul	r10
+	shr	r12,63
 	add	r9,rax
 	mov	rax,r10
 	adc	rdx,0
 	add	r9,rbx
-	adc	rdx,0
-
-	xor	rbx,rbx
-	add	r13,r13
 	mov	r10,rdx
-	adc	r14,r14
-	adc	rbx,0
+	adc	r10,0
+
+	mov	rbx,r15
+	lea	r15,[r15*2+r12]
 
 	mul	rax
-
-	add	rax,rcx
 	add	r13,rax
-	mov	rax,r12
 	adc	r14,rdx
-	adc	rbx,0
+	adc	r15,0
 
 	mov	QWORD[48+rsp],r13
 	mov	QWORD[56+rsp],r14
+	shr	rbx,63
 
 
+	mov	r11,QWORD[32+rsi]
+	mov	rax,QWORD[40+rsi]
 	mul	r11
 	add	r8,rax
-	mov	rax,rbp
+	mov	rax,QWORD[48+rsi]
 	mov	rcx,rdx
 	adc	rcx,0
 
@@ -289,99 +288,97 @@ $L$oop_sqr:
 	add	r9,rax
 	mov	rax,QWORD[56+rsi]
 	adc	rdx,0
+	mov	r12,r8
+	lea	r8,[r8*2+rbx]
 	add	r9,rcx
 	mov	rcx,rdx
 	adc	rcx,0
 
-	mov	r14,rax
 	mul	r11
+	shr	r12,63
 	add	r10,rax
 	mov	rax,r11
 	adc	rdx,0
 	add	r10,rcx
-	adc	rdx,0
-
-	xor	rcx,rcx
-	add	r15,r15
 	mov	r11,rdx
-	adc	r8,r8
-	adc	rcx,0
+	adc	r11,0
+
+	mov	rcx,r9
+	lea	r9,[r9*2+r12]
 
 	mul	rax
-
-	add	rax,rbx
 	add	r15,rax
-	mov	rax,rbp
 	adc	r8,rdx
-	adc	rcx,0
+	adc	r9,0
 
 	mov	QWORD[64+rsp],r15
 	mov	QWORD[72+rsp],r8
+	shr	rcx,63
 
 
+	mov	r12,QWORD[40+rsi]
+	mov	rax,QWORD[48+rsi]
 	mul	r12
 	add	r10,rax
-	mov	rax,r14
+	mov	rax,QWORD[56+rsi]
 	mov	rbx,rdx
 	adc	rbx,0
 
 	mul	r12
 	add	r11,rax
 	mov	rax,r12
+	mov	r15,r10
+	lea	r10,[r10*2+rcx]
 	adc	rdx,0
+	shr	r15,63
 	add	r11,rbx
-	adc	rdx,0
-
-	xor	rbx,rbx
-	add	r9,r9
 	mov	r12,rdx
-	adc	r10,r10
-	adc	rbx,0
+	adc	r12,0
+
+	mov	rbx,r11
+	lea	r11,[r11*2+r15]
 
 	mul	rax
-
-	add	rax,rcx
 	add	r9,rax
-	mov	rax,r14
 	adc	r10,rdx
-	adc	rbx,0
+	adc	r11,0
 
 	mov	QWORD[80+rsp],r9
 	mov	QWORD[88+rsp],r10
 
 
-	mul	rbp
+	mov	r13,QWORD[48+rsi]
+	mov	rax,QWORD[56+rsi]
+	mul	r13
 	add	r12,rax
-	mov	rax,rbp
-	adc	rdx,0
-
-	xor	rcx,rcx
-	add	r11,r11
+	mov	rax,r13
 	mov	r13,rdx
+	adc	r13,0
+
+	xor	r14,r14
+	shl	rbx,1
 	adc	r12,r12
-	adc	rcx,0
+	adc	r13,r13
+	adc	r14,r14
 
 	mul	rax
-
-	add	rax,rbx
 	add	r11,rax
-	mov	rax,r14
 	adc	r12,rdx
-	adc	rcx,0
+	adc	r13,0
 
 	mov	QWORD[96+rsp],r11
 	mov	QWORD[104+rsp],r12
 
 
-	xor	rbx,rbx
-	add	r13,r13
-	adc	rbx,0
-
+	mov	rax,QWORD[56+rsi]
 	mul	rax
+	add	r13,rax
+	adc	rdx,0
 
-	add	rax,rcx
-	add	rax,r13
-	adc	rdx,rbx
+	add	r14,rdx
+
+	mov	QWORD[112+rsp],r13
+	mov	QWORD[120+rsp],r14
 
 	mov	r8,QWORD[rsp]
 	mov	r9,QWORD[8+rsp]
@@ -391,10 +388,6 @@ $L$oop_sqr:
 	mov	r13,QWORD[40+rsp]
 	mov	r14,QWORD[48+rsp]
 	mov	r15,QWORD[56+rsp]
-DB	102,72,15,126,205
-
-	mov	QWORD[112+rsp],rax
-	mov	QWORD[120+rsp],rdx
 
 	call	__rsaz_512_reduce
 
@@ -423,9 +416,9 @@ ALIGN	32
 $L$oop_sqrx:
 	mov	DWORD[((128+8))+rsp],r8d
 DB	102,72,15,110,199
+DB	102,72,15,110,205
 
 	mulx	r9,r8,rax
-	mov	rbx,rax
 
 	mulx	r10,rcx,QWORD[16+rsi]
 	xor	rbp,rbp
@@ -433,39 +426,40 @@ DB	102,72,15,110,199
 	mulx	r11,rax,QWORD[24+rsi]
 	adcx	r9,rcx
 
-DB	0xc4,0x62,0xf3,0xf6,0xa6,0x20,0x00,0x00,0x00
+	mulx	r12,rcx,QWORD[32+rsi]
 	adcx	r10,rax
 
-DB	0xc4,0x62,0xfb,0xf6,0xae,0x28,0x00,0x00,0x00
+	mulx	r13,rax,QWORD[40+rsi]
 	adcx	r11,rcx
 
-	mulx	r14,rcx,QWORD[48+rsi]
+DB	0xc4,0x62,0xf3,0xf6,0xb6,0x30,0x00,0x00,0x00
 	adcx	r12,rax
 	adcx	r13,rcx
 
-	mulx	r15,rax,QWORD[56+rsi]
+DB	0xc4,0x62,0xfb,0xf6,0xbe,0x38,0x00,0x00,0x00
 	adcx	r14,rax
 	adcx	r15,rbp
 
-	mulx	rdi,rax,rdx
-	mov	rdx,rbx
-	xor	rcx,rcx
-	adox	r8,r8
-	adcx	r8,rdi
-	adox	rcx,rbp
-	adcx	rcx,rbp
+	mov	rcx,r9
+	shld	r9,r8,1
+	shl	r8,1
+
+	xor	ebp,ebp
+	mulx	rdx,rax,rdx
+	adcx	r8,rdx
+	mov	rdx,QWORD[8+rsi]
+	adcx	r9,rbp
 
 	mov	QWORD[rsp],rax
 	mov	QWORD[8+rsp],r8
 
 
-DB	0xc4,0xe2,0xfb,0xf6,0x9e,0x10,0x00,0x00,0x00
+	mulx	rbx,rax,QWORD[16+rsi]
 	adox	r10,rax
 	adcx	r11,rbx
 
-	mulx	r8,rdi,QWORD[24+rsi]
+DB	0xc4,0x62,0xc3,0xf6,0x86,0x18,0x00,0x00,0x00
 	adox	r11,rdi
-DB	0x66
 	adcx	r12,r8
 
 	mulx	rbx,rax,QWORD[32+rsi]
@@ -483,25 +477,24 @@ DB	0xc4,0xe2,0xfb,0xf6,0x9e,0x30,0x00,0x00,0x00
 DB	0xc4,0x62,0xc3,0xf6,0x86,0x38,0x00,0x00,0x00
 	adox	r15,rdi
 	adcx	r8,rbp
-	mulx	rdi,rax,rdx
 	adox	r8,rbp
-DB	0x48,0x8b,0x96,0x10,0x00,0x00,0x00
 
-	xor	rbx,rbx
-	adox	r9,r9
+	mov	rbx,r11
+	shld	r11,r10,1
+	shld	r10,rcx,1
 
-	adcx	rax,rcx
-	adox	r10,r10
+	xor	ebp,ebp
+	mulx	rcx,rax,rdx
+	mov	rdx,QWORD[16+rsi]
 	adcx	r9,rax
-	adox	rbx,rbp
-	adcx	r10,rdi
-	adcx	rbx,rbp
+	adcx	r10,rcx
+	adcx	r11,rbp
 
 	mov	QWORD[16+rsp],r9
 DB	0x4c,0x89,0x94,0x24,0x18,0x00,0x00,0x00
 
 
-	mulx	r9,rdi,QWORD[24+rsi]
+DB	0xc4,0x62,0xc3,0xf6,0x8e,0x18,0x00,0x00,0x00
 	adox	r12,rdi
 	adcx	r13,r9
 
@@ -509,7 +502,7 @@ DB	0x4c,0x89,0x94,0x24,0x18,0x00,0x00,0x00
 	adox	r13,rax
 	adcx	r14,rcx
 
-DB	0xc4,0x62,0xc3,0xf6,0x8e,0x28,0x00,0x00,0x00
+	mulx	r9,rdi,QWORD[40+rsi]
 	adox	r14,rdi
 	adcx	r15,r9
 
@@ -517,28 +510,27 @@ DB	0xc4,0xe2,0xfb,0xf6,0x8e,0x30,0x00,0x00,0x00
 	adox	r15,rax
 	adcx	r8,rcx
 
-	mulx	r9,rdi,QWORD[56+rsi]
+DB	0xc4,0x62,0xc3,0xf6,0x8e,0x38,0x00,0x00,0x00
 	adox	r8,rdi
 	adcx	r9,rbp
-	mulx	rdi,rax,rdx
 	adox	r9,rbp
-	mov	rdx,QWORD[24+rsi]
 
-	xor	rcx,rcx
-	adox	r11,r11
+	mov	rcx,r13
+	shld	r13,r12,1
+	shld	r12,rbx,1
 
-	adcx	rax,rbx
-	adox	r12,r12
+	xor	ebp,ebp
+	mulx	rdx,rax,rdx
 	adcx	r11,rax
-	adox	rcx,rbp
-	adcx	r12,rdi
-	adcx	rcx,rbp
+	adcx	r12,rdx
+	mov	rdx,QWORD[24+rsi]
+	adcx	r13,rbp
 
 	mov	QWORD[32+rsp],r11
-	mov	QWORD[40+rsp],r12
+DB	0x4c,0x89,0xa4,0x24,0x28,0x00,0x00,0x00
 
 
-	mulx	rbx,rax,QWORD[32+rsi]
+DB	0xc4,0xe2,0xfb,0xf6,0x9e,0x20,0x00,0x00,0x00
 	adox	r14,rax
 	adcx	r15,rbx
 
@@ -553,25 +545,25 @@ DB	0xc4,0xe2,0xfb,0xf6,0x8e,0x30,0x00,0x00,0x00
 	mulx	r10,rdi,QWORD[56+rsi]
 	adox	r9,rdi
 	adcx	r10,rbp
-	mulx	rdi,rax,rdx
 	adox	r10,rbp
-	mov	rdx,QWORD[32+rsi]
 
-	xor	rbx,rbx
-	adox	r13,r13
+DB	0x66
+	mov	rbx,r15
+	shld	r15,r14,1
+	shld	r14,rcx,1
 
-	adcx	rax,rcx
-	adox	r14,r14
+	xor	ebp,ebp
+	mulx	rdx,rax,rdx
 	adcx	r13,rax
-	adox	rbx,rbp
-	adcx	r14,rdi
-	adcx	rbx,rbp
+	adcx	r14,rdx
+	mov	rdx,QWORD[32+rsi]
+	adcx	r15,rbp
 
 	mov	QWORD[48+rsp],r13
 	mov	QWORD[56+rsp],r14
 
 
-	mulx	r11,rdi,QWORD[40+rsi]
+DB	0xc4,0x62,0xc3,0xf6,0x9e,0x28,0x00,0x00,0x00
 	adox	r8,rdi
 	adcx	r9,r11
 
@@ -582,19 +574,18 @@ DB	0xc4,0xe2,0xfb,0xf6,0x8e,0x30,0x00,0x00,0x00
 	mulx	r11,rdi,QWORD[56+rsi]
 	adox	r10,rdi
 	adcx	r11,rbp
-	mulx	rdi,rax,rdx
-	mov	rdx,QWORD[40+rsi]
 	adox	r11,rbp
 
-	xor	rcx,rcx
-	adox	r15,r15
+	mov	rcx,r9
+	shld	r9,r8,1
+	shld	r8,rbx,1
 
-	adcx	rax,rbx
-	adox	r8,r8
+	xor	ebp,ebp
+	mulx	rdx,rax,rdx
 	adcx	r15,rax
-	adox	rcx,rbp
-	adcx	r8,rdi
-	adcx	rcx,rbp
+	adcx	r8,rdx
+	mov	rdx,QWORD[40+rsi]
+	adcx	r9,rbp
 
 	mov	QWORD[64+rsp],r15
 	mov	QWORD[72+rsp],r8
@@ -607,19 +598,18 @@ DB	0xc4,0xe2,0xfb,0xf6,0x9e,0x30,0x00,0x00,0x00
 DB	0xc4,0x62,0xc3,0xf6,0xa6,0x38,0x00,0x00,0x00
 	adox	r11,rdi
 	adcx	r12,rbp
-	mulx	rdi,rax,rdx
 	adox	r12,rbp
-	mov	rdx,QWORD[48+rsi]
 
-	xor	rbx,rbx
-	adox	r9,r9
+	mov	rbx,r11
+	shld	r11,r10,1
+	shld	r10,rcx,1
 
-	adcx	rax,rcx
-	adox	r10,r10
+	xor	ebp,ebp
+	mulx	rdx,rax,rdx
 	adcx	r9,rax
-	adcx	r10,rdi
-	adox	rbx,rbp
-	adcx	rbx,rbp
+	adcx	r10,rdx
+	mov	rdx,QWORD[48+rsi]
+	adcx	r11,rbp
 
 	mov	QWORD[80+rsp],r9
 	mov	QWORD[88+rsp],r10
@@ -629,31 +619,31 @@ DB	0xc4,0x62,0xfb,0xf6,0xae,0x38,0x00,0x00,0x00
 	adox	r12,rax
 	adox	r13,rbp
 
-	mulx	rdi,rax,rdx
-	xor	rcx,rcx
-	mov	rdx,QWORD[56+rsi]
-	adox	r11,r11
+	xor	r14,r14
+	shld	r14,r13,1
+	shld	r13,r12,1
+	shld	r12,rbx,1
 
-	adcx	rax,rbx
-	adox	r12,r12
+	xor	ebp,ebp
+	mulx	rdx,rax,rdx
 	adcx	r11,rax
-	adox	rcx,rbp
-	adcx	r12,rdi
-	adcx	rcx,rbp
+	adcx	r12,rdx
+	mov	rdx,QWORD[56+rsi]
+	adcx	r13,rbp
 
 DB	0x4c,0x89,0x9c,0x24,0x60,0x00,0x00,0x00
 DB	0x4c,0x89,0xa4,0x24,0x68,0x00,0x00,0x00
 
 
 	mulx	rdx,rax,rdx
-	xor	rbx,rbx
-	adox	r13,r13
+	adox	r13,rax
+	adox	rdx,rbp
 
-	adcx	rax,rcx
-	adox	rbx,rbp
-	adcx	rax,r13
-	adcx	rbx,rdx
+DB	0x66
+	add	r14,rdx
 
+	mov	QWORD[112+rsp],r13
+	mov	QWORD[120+rsp],r14
 DB	102,72,15,126,199
 DB	102,72,15,126,205
 
@@ -666,9 +656,6 @@ DB	102,72,15,126,205
 	mov	r13,QWORD[40+rsp]
 	mov	r14,QWORD[48+rsp]
 	mov	r15,QWORD[56+rsp]
-
-	mov	QWORD[112+rsp],rax
-	mov	QWORD[120+rsp],rbx
 
 	call	__rsaz_512_reducex
 
@@ -1515,7 +1502,6 @@ $L$SEH_end_rsaz_512_mul_by_one:
 
 ALIGN	32
 __rsaz_512_reduce:
-
 	mov	rbx,r8
 	imul	rbx,QWORD[((128+8))+rsp]
 	mov	rax,QWORD[rbp]
@@ -1597,10 +1583,8 @@ $L$reduction_loop:
 	DB	0F3h,0C3h		;repret
 
 
-
 ALIGN	32
 __rsaz_512_reducex:
-
 
 	imul	rdx,r8
 	xor	rsi,rsi
@@ -1655,10 +1639,8 @@ DB	0xc4,0x62,0xfb,0xf6,0xb5,0x30,0x00,0x00,0x00
 	DB	0F3h,0C3h		;repret
 
 
-
 ALIGN	32
 __rsaz_512_subtract:
-
 	mov	QWORD[rdi],r8
 	mov	QWORD[8+rdi],r9
 	mov	QWORD[16+rdi],r10
@@ -1714,10 +1696,8 @@ __rsaz_512_subtract:
 	DB	0F3h,0C3h		;repret
 
 
-
 ALIGN	32
 __rsaz_512_mul:
-
 	lea	rdi,[8+rsp]
 
 	mov	rax,QWORD[rsi]
@@ -1858,10 +1838,8 @@ $L$oop_mul:
 	DB	0F3h,0C3h		;repret
 
 
-
 ALIGN	32
 __rsaz_512_mulx:
-
 	mulx	r8,rbx,QWORD[rsi]
 	mov	rcx,-6
 
@@ -1979,12 +1957,10 @@ DB	0xc4,0x62,0xfb,0xf6,0xbe,0x38,0x00,0x00,0x00
 
 	DB	0F3h,0C3h		;repret
 
-
 global	rsaz_512_scatter4
 
 ALIGN	16
 rsaz_512_scatter4:
-
 	lea	rcx,[r8*8+rcx]
 	mov	r9d,8
 	jmp	NEAR $L$oop_scatter
@@ -1999,12 +1975,10 @@ $L$oop_scatter:
 	DB	0F3h,0C3h		;repret
 
 
-
 global	rsaz_512_gather4
 
 ALIGN	16
 rsaz_512_gather4:
-
 $L$SEH_begin_rsaz_512_gather4:
 DB	0x48,0x81,0xec,0xa8,0x00,0x00,0x00
 DB	0x0f,0x29,0x34,0x24
@@ -2091,7 +2065,6 @@ $L$oop_gather:
 	add	rsp,0xa8
 	DB	0F3h,0C3h		;repret
 $L$SEH_end_rsaz_512_gather4:
-
 
 
 ALIGN	64

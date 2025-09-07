@@ -2,11 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/base/strings.h"
+#include "src/strings/string-builder-inl.h"
+
 #include "src/execution/isolate-inl.h"
 #include "src/objects/fixed-array-inl.h"
 #include "src/objects/js-array-inl.h"
-#include "src/strings/string-builder-inl.h"
 
 namespace v8 {
 namespace internal {
@@ -14,7 +14,7 @@ namespace internal {
 template <typename sinkchar>
 void StringBuilderConcatHelper(String special, sinkchar* sink,
                                FixedArray fixed_array, int array_length) {
-  DisallowGarbageCollection no_gc;
+  DisallowHeapAllocation no_gc;
   int position = 0;
   for (int i = 0; i < array_length; i++) {
     Object element = fixed_array.get(i);
@@ -34,7 +34,7 @@ void StringBuilderConcatHelper(String special, sinkchar* sink,
         pos = Smi::ToInt(obj);
         len = -encoded_slice;
       }
-      String::WriteToFlat(special, sink + position, pos, len);
+      String::WriteToFlat(special, sink + position, pos, pos + len);
       position += len;
     } else {
       String string = String::cast(element);
@@ -49,14 +49,13 @@ template void StringBuilderConcatHelper<uint8_t>(String special, uint8_t* sink,
                                                  FixedArray fixed_array,
                                                  int array_length);
 
-template void StringBuilderConcatHelper<base::uc16>(String special,
-                                                    base::uc16* sink,
-                                                    FixedArray fixed_array,
-                                                    int array_length);
+template void StringBuilderConcatHelper<uc16>(String special, uc16* sink,
+                                              FixedArray fixed_array,
+                                              int array_length);
 
 int StringBuilderConcatLength(int special_length, FixedArray fixed_array,
                               int array_length, bool* one_byte) {
-  DisallowGarbageCollection no_gc;
+  DisallowHeapAllocation no_gc;
   int position = 0;
   for (int i = 0; i < array_length; i++) {
     int increment = 0;
@@ -201,7 +200,7 @@ MaybeHandle<String> ReplacementStringBuilder::ToString() {
         isolate, seq, isolate->factory()->NewRawOneByteString(character_count_),
         String);
 
-    DisallowGarbageCollection no_gc;
+    DisallowHeapAllocation no_gc;
     uint8_t* char_buffer = seq->GetChars(no_gc);
     StringBuilderConcatHelper(*subject_, char_buffer, *array_builder_.array(),
                               array_builder_.length());
@@ -213,8 +212,8 @@ MaybeHandle<String> ReplacementStringBuilder::ToString() {
         isolate, seq, isolate->factory()->NewRawTwoByteString(character_count_),
         String);
 
-    DisallowGarbageCollection no_gc;
-    base::uc16* char_buffer = seq->GetChars(no_gc);
+    DisallowHeapAllocation no_gc;
+    uc16* char_buffer = seq->GetChars(no_gc);
     StringBuilderConcatHelper(*subject_, char_buffer, *array_builder_.array(),
                               array_builder_.length());
     joined_string = Handle<String>::cast(seq);
@@ -225,7 +224,7 @@ MaybeHandle<String> ReplacementStringBuilder::ToString() {
 void ReplacementStringBuilder::AddElement(Handle<Object> element) {
   DCHECK(element->IsSmi() || element->IsString());
   EnsureCapacity(1);
-  DisallowGarbageCollection no_gc;
+  DisallowHeapAllocation no_gc;
   array_builder_.Add(*element);
 }
 
@@ -244,10 +243,6 @@ IncrementalStringBuilder::IncrementalStringBuilder(Isolate* isolate)
 
 int IncrementalStringBuilder::Length() const {
   return accumulator_->length() + current_index_;
-}
-
-bool IncrementalStringBuilder::HasValidCurrentIndex() const {
-  return current_index_ < part_length_;
 }
 
 void IncrementalStringBuilder::Accumulate(Handle<String> new_part) {
@@ -289,41 +284,7 @@ MaybeHandle<String> IncrementalStringBuilder::Finish() {
   return accumulator();
 }
 
-// Short strings can be copied directly to {current_part_}.
-// Requires the IncrementalStringBuilder to either have two byte encoding or
-// the incoming string to have one byte representation "underneath" (The
-// one byte check requires the string to be flat).
-bool IncrementalStringBuilder::CanAppendByCopy(Handle<String> string) {
-  constexpr int kMaxStringLengthForCopy = 16;
-  const bool representation_ok =
-      encoding_ == String::TWO_BYTE_ENCODING ||
-      (string->IsFlat() && String::IsOneByteRepresentationUnderneath(*string));
-
-  return representation_ok && string->length() <= kMaxStringLengthForCopy &&
-         CurrentPartCanFit(string->length());
-}
-
-void IncrementalStringBuilder::AppendStringByCopy(Handle<String> string) {
-  DCHECK(CanAppendByCopy(string));
-
-  Handle<SeqOneByteString> part =
-      Handle<SeqOneByteString>::cast(current_part());
-  {
-    DisallowGarbageCollection no_gc;
-    String::WriteToFlat(*string, part->GetChars(no_gc) + current_index_, 0,
-                        string->length());
-  }
-  current_index_ += string->length();
-  DCHECK(current_index_ <= part_length_);
-  if (current_index_ == part_length_) Extend();
-}
-
 void IncrementalStringBuilder::AppendString(Handle<String> string) {
-  if (CanAppendByCopy(string)) {
-    AppendStringByCopy(string);
-    return;
-  }
-
   ShrinkCurrentPart();
   part_length_ = kInitialPartLength;  // Allocate conservatively.
   Extend();  // Attach current part and allocate new part.

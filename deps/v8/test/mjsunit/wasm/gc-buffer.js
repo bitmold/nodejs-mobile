@@ -4,7 +4,7 @@
 
 // Flags: --expose-wasm --gc-interval=500 --stress-compaction --expose-gc
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 function run(f) {
   // wrap the creation in a closure so that the only thing returned is
@@ -14,7 +14,7 @@ function run(f) {
     builder.addImport("mod", "the_name_of_my_import", kSig_i_i);
     builder.addFunction("main", kSig_i_i)
       .addBody([
-        kExprLocalGet, 0,
+        kExprGetLocal, 0,
         kExprCallFunction, 0])
       .exportAs("main");
     print("module");

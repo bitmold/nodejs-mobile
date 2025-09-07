@@ -2,6 +2,9 @@
 # Use of this source code is governed by a BSD-style license that can be
 # found in the LICENSE file.
 
+# for py2/py3 compatibility
+from __future__ import print_function
+
 import os
 
 from testrunner.local import command
@@ -45,7 +48,6 @@ class TestLoader(testsuite.TestLoader):
     # TODO create an ExecutableTestLoader for refactoring this similar to
     # JSTestLoader.
     test_names = []
-    test_case = ''
     for line in output.stdout.splitlines():
       test_desc = line.strip().split()[0]
       if test_desc.endswith('.'):

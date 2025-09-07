@@ -2,11 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// The test needs --wasm-tier-up because we can't serialize and deserialize
-// Liftoff code.
-// Flags: --expose-wasm --allow-natives-syntax --expose-gc --no-liftoff
+// Flags: --expose-wasm --allow-natives-syntax --expose-gc
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 (function SerializeAndDeserializeModule() {
   print(arguments.callee.name);
@@ -19,11 +17,11 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 
   builder.addFunction("main", kSig_i_i)
     .addBody([
-      kExprLocalGet, 0,
+      kExprGetLocal, 0,
       kExprI32LoadMem, 0, 0,
       kExprI32Const, 1,
       kExprCallIndirect, signature, kTableZero,
-      kExprLocalGet,0,
+      kExprGetLocal,0,
       kExprI32LoadMem,0, 0,
       kExprCallFunction, 0,
       kExprI32Add
@@ -33,7 +31,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   // return mem[i] + some_value();
   builder.addFunction("_wrap_writer", signature)
     .addBody([
-      kExprLocalGet, 0,
+      kExprGetLocal, 0,
       kExprCallFunction, 1]);
   builder.appendToTable([2, 3]);
 
@@ -177,13 +175,13 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   builder.addGlobal(kWasmI32, true);
   builder.addFunction("read", kSig_i_v)
     .addBody([
-      kExprGlobalGet, 0])
+      kExprGetGlobal, 0])
     .exportFunc();
 
   builder.addFunction("write", kSig_v_i)
     .addBody([
-      kExprLocalGet, 0,
-      kExprGlobalSet, 0])
+      kExprGetLocal, 0,
+      kExprSetGlobal, 0])
     .exportFunc();
 
   var wire_bytes = builder.toBuffer();
@@ -215,12 +213,12 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 
     builder.addFunction("main", kSig_i_ii)
       .addBody([
-        kExprLocalGet, 0,   // --
+        kExprGetLocal, 0,   // --
         kExprCallIndirect, sig_index1, kTableZero])  // --
       .exportAs("main");
 
     builder.setTableBounds(kTableSize, kTableSize);
-    builder.addActiveElementSegment(0, WasmInitExpr.I32Const(0), [f1.index]);
+    builder.addElementSegment(0, 0, false, [f1.index]);
     builder.addExportOfKind("table", kExternalTable, 0);
 
     return new WebAssembly.Module(builder.toBuffer());
@@ -236,12 +234,12 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 
   builder.addFunction("main", kSig_i_ii)
     .addBody([
-      kExprLocalGet, 0,   // --
+      kExprGetLocal, 0,   // --
       kExprCallIndirect, sig_index2, kTableZero])  // --
     .exportAs("main");
 
   builder.addImportedTable("z", "table", kTableSize, kTableSize);
-  builder.addActiveElementSegment(0, WasmInitExpr.I32Const(1), [f2.index]);
+  builder.addElementSegment(0, 1, false, [f2.index]);
   var m2_bytes = builder.toBuffer();
   var m2 = new WebAssembly.Module(m2_bytes);
 
@@ -295,7 +293,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
     const builder = new WasmModuleBuilder();
     builder.addMemory(1, 1);
     builder.addFunction('main', kSig_i_i)
-        .addBody([kExprLocalGet, 0, kExprI32LoadMem, 0, 0])
+        .addBody([kExprGetLocal, 0, kExprI32LoadMem, 0, 0])
         .exportFunc();
     const wire_bytes = builder.toBuffer();
     const module = new WebAssembly.Module(wire_bytes);
@@ -359,14 +357,14 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   print(arguments.callee.name);
   const builder = new WasmModuleBuilder();
   builder.addFunction('main', kSig_i_i)
-      .addBody([kExprBlock, kWasmVoid,
-                  kExprBlock, kWasmVoid,
-                    kExprBlock, kWasmVoid,
-                      kExprBlock, kWasmVoid,
-                        kExprBlock, kWasmVoid,
-                          kExprBlock, kWasmVoid,
-                            kExprBlock, kWasmVoid,
-                              kExprLocalGet, 0,
+      .addBody([kExprBlock, kWasmStmt,
+                  kExprBlock, kWasmStmt,
+                    kExprBlock, kWasmStmt,
+                      kExprBlock, kWasmStmt,
+                        kExprBlock, kWasmStmt,
+                          kExprBlock, kWasmStmt,
+                            kExprBlock, kWasmStmt,
+                              kExprGetLocal, 0,
                               kExprBrTable, 6, 0, 1, 2, 3, 4, 5, 6,
                             kExprEnd,
                             kExprI32Const, 3,

@@ -38,8 +38,8 @@ public:
 
     virtual ~UnifiedCacheBase();
 private:
-    UnifiedCacheBase(const UnifiedCacheBase &) = delete;
-    UnifiedCacheBase &operator=(const UnifiedCacheBase &) = delete;
+    UnifiedCacheBase(const UnifiedCacheBase &);
+    UnifiedCacheBase &operator=(const UnifiedCacheBase &);
 };
 
 /**
@@ -57,14 +57,14 @@ public:
     SharedObject() :
             softRefCount(0),
             hardRefCount(0),
-            cachePtr(nullptr) {}
+            cachePtr(NULL) {}
 
     /** Initializes totalRefCount, softRefCount to 0. */
     SharedObject(const SharedObject &other) :
             UObject(other),
             softRefCount(0),
             hardRefCount(0),
-            cachePtr(nullptr) {}
+            cachePtr(NULL) {}
 
     virtual ~SharedObject();
 
@@ -78,7 +78,7 @@ public:
      * Decrements the number of hard references to this object, and
      * arrange for possible cache-eviction and/or deletion if ref
      * count goes to zero. Thread-safe.
-     * 
+     *
      * Not for use from within the UnifiedCache implementation.
      */
     void removeRef() const;
@@ -90,13 +90,13 @@ public:
     int32_t getRefCount() const;
 
     /**
-     * If noHardReferences() == true then this object has no hard references.
+     * If noHardReferences() == TRUE then this object has no hard references.
      * Must be called only from within the internals of UnifiedCache.
      */
     inline UBool noHardReferences() const { return getRefCount() == 0; }
 
     /**
-     * If hasHardReferences() == true then this object has hard references.
+     * If hasHardReferences() == TRUE then this object has hard references.
      * Must be called only from within the internals of UnifiedCache.
      */
     inline UBool hasHardReferences() const { return getRefCount() != 0; }
@@ -108,15 +108,15 @@ public:
      */
     void deleteIfZeroRefCount() const;
 
-        
+
     /**
      * Returns a writable version of ptr.
      * If there is exactly one owner, then ptr itself is returned as a
      *  non-const pointer.
-     * If there are multiple owners, then ptr is replaced with a 
+     * If there are multiple owners, then ptr is replaced with a
      * copy-constructed clone,
      * and that is returned.
-     * Returns nullptr if cloning failed.
+     * Returns NULL if cloning failed.
      *
      * T must be a subclass of SharedObject.
      */
@@ -125,7 +125,7 @@ public:
         const T *p = ptr;
         if(p->getRefCount() <= 1) { return const_cast<T *>(p); }
         T *p2 = new T(*p);
-        if(p2 == nullptr) { return nullptr; }
+        if(p2 == NULL) { return NULL; }
         p->removeRef();
         ptr = p2;
         p2->addRef();
@@ -135,28 +135,28 @@ public:
     /**
      * Makes dest an owner of the object pointed to by src while adjusting
      * reference counts and deleting the previous object dest pointed to
-     * if necessary. Before this call is made, dest must either be nullptr or
-     * be included in the reference count of the object it points to. 
+     * if necessary. Before this call is made, dest must either be NULL or
+     * be included in the reference count of the object it points to.
      *
      * T must be a subclass of SharedObject.
      */
     template<typename T>
     static void copyPtr(const T *src, const T *&dest) {
         if(src != dest) {
-            if(dest != nullptr) { dest->removeRef(); }
+            if(dest != NULL) { dest->removeRef(); }
             dest = src;
-            if(src != nullptr) { src->addRef(); }
+            if(src != NULL) { src->addRef(); }
         }
     }
 
     /**
-     * Equivalent to copyPtr(nullptr, dest).
+     * Equivalent to copyPtr(NULL, dest).
      */
     template<typename T>
     static void clearPtr(const T *&ptr) {
-        if (ptr != nullptr) {
+        if (ptr != NULL) {
             ptr->removeRef();
-            ptr = nullptr;
+            ptr = NULL;
         }
     }
 
@@ -174,7 +174,7 @@ private:
      * Reference count, excluding references from within the UnifiedCache implementation.
      */
     mutable u_atomic_int32_t hardRefCount;
-    
+
     mutable const UnifiedCacheBase *cachePtr;
 
 };

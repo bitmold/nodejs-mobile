@@ -1,6 +1,13 @@
+set noparent
+
 ahaas@chromium.org
-clemensb@chromium.org
+bbudge@chromium.org
+binji@chromium.org
+clemensh@chromium.org
 gdeepti@chromium.org
-jkummerow@chromium.org
-manoskouk@chromium.org
-thibaudm@chromium.org
+mstarzinger@chromium.org
+titzer@chromium.org
+
+per-file wasm-js.*=adamk@chromium.org
+
+# COMPONENT: Blink>JavaScript>WebAssembly

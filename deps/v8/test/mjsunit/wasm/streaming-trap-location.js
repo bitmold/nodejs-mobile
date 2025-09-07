@@ -4,4 +4,4 @@
 
 // Flags: --wasm-test-streaming --expose-wasm
 
-d8.file.execute("test/mjsunit/wasm/trap-location.js");
+load("test/mjsunit/wasm/trap-location.js");

@@ -4,14 +4,11 @@
 
 // Flags: --allow-natives-syntax
 
-let a = [1, 2];
-function f(skip) {
-  g(undefined, skip);
-};
-%PrepareFunctionForOptimization(f);
+let a = [1,2];
+function f(skip) { g(undefined, skip) }
 function g(x, skip) {
   if (skip) return;
-  return a[x + 1];
+  return a[x+1];
 }
 g(0, false);
 g(0, false);

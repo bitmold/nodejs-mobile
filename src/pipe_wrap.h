@@ -26,11 +26,9 @@
 
 #include "async_wrap.h"
 #include "connection_wrap.h"
+#include "env.h"
 
 namespace node {
-
-class ExternalReferenceRegistry;
-class Environment;
 
 class PipeWrap : public ConnectionWrap<PipeWrap, uv_pipe_t> {
  public:
@@ -48,7 +46,6 @@ class PipeWrap : public ConnectionWrap<PipeWrap, uv_pipe_t> {
                          v8::Local<v8::Context> context,
                          void* priv);
 
-  static void RegisterExternalReferences(ExternalReferenceRegistry* registry);
   SET_NO_MEMORY_INFO()
   SET_MEMORY_INFO_NAME(PipeWrap)
   SET_SELF_SIZE(PipeWrap)

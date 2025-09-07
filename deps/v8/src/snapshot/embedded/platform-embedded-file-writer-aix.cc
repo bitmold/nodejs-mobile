@@ -4,8 +4,6 @@
 
 #include "src/snapshot/embedded/platform-embedded-file-writer-aix.h"
 
-#include "src/objects/code.h"
-
 namespace v8 {
 namespace internal {
 
@@ -29,7 +27,7 @@ const char* DirectiveAsString(DataDirective directive) {
 }  // namespace
 
 void PlatformEmbeddedFileWriterAIX::SectionText() {
-  fprintf(fp_, ".csect [GL], 6\n");
+  fprintf(fp_, ".csect .text[PR]\n");
 }
 
 void PlatformEmbeddedFileWriterAIX::SectionData() {
@@ -59,29 +57,14 @@ void PlatformEmbeddedFileWriterAIX::DeclarePointerToSymbol(const char* name,
 }
 
 void PlatformEmbeddedFileWriterAIX::DeclareSymbolGlobal(const char* name) {
-  // These symbols are not visible outside of the final binary, this allows for
-  // reduced binary size, and less work for the dynamic linker.
-  fprintf(fp_, ".globl %s, hidden\n", name);
+  fprintf(fp_, ".globl %s\n", name);
 }
 
 void PlatformEmbeddedFileWriterAIX::AlignToCodeAlignment() {
-#if V8_TARGET_ARCH_X64
-  // On x64 use 64-bytes code alignment to allow 64-bytes loop header alignment.
-  STATIC_ASSERT((1 << 6) >= kCodeAlignment);
-  fprintf(fp_, ".align 6\n");
-#elif V8_TARGET_ARCH_PPC64
-  // 64 byte alignment is needed on ppc64 to make sure p10 prefixed instructions
-  // don't cross 64-byte boundaries.
-  STATIC_ASSERT((1 << 6) >= kCodeAlignment);
-  fprintf(fp_, ".align 6\n");
-#else
-  STATIC_ASSERT((1 << 5) >= kCodeAlignment);
   fprintf(fp_, ".align 5\n");
-#endif
 }
 
 void PlatformEmbeddedFileWriterAIX::AlignToDataAlignment() {
-  STATIC_ASSERT((1 << 3) >= Code::kMetadataAlignment);
   fprintf(fp_, ".align 3\n");
 }
 
@@ -90,9 +73,7 @@ void PlatformEmbeddedFileWriterAIX::Comment(const char* string) {
 }
 
 void PlatformEmbeddedFileWriterAIX::DeclareLabel(const char* name) {
-  // .global is required on AIX, if the label is used/referenced in another file
-  // later to be linked.
-  fprintf(fp_, ".globl %s\n", name);
+  DeclareSymbolGlobal(name);
   fprintf(fp_, "%s:\n", name);
 }
 
@@ -101,13 +82,9 @@ void PlatformEmbeddedFileWriterAIX::SourceInfo(int fileid, const char* filename,
   fprintf(fp_, ".xline %d, \"%s\"\n", line, filename);
 }
 
-// TODO(mmarchini): investigate emitting size annotations for AIX
-void PlatformEmbeddedFileWriterAIX::DeclareFunctionBegin(const char* name,
-                                                         uint32_t size) {
+void PlatformEmbeddedFileWriterAIX::DeclareFunctionBegin(const char* name) {
   Newline();
-  if (ENABLE_CONTROL_FLOW_INTEGRITY_BOOL) {
-    DeclareSymbolGlobal(name);
-  }
+  DeclareSymbolGlobal(name);
   fprintf(fp_, ".csect %s[DS]\n", name);  // function descriptor
   fprintf(fp_, "%s:\n", name);
   fprintf(fp_, ".llong .%s, 0, 0\n", name);
@@ -116,6 +93,10 @@ void PlatformEmbeddedFileWriterAIX::DeclareFunctionBegin(const char* name,
 }
 
 void PlatformEmbeddedFileWriterAIX::DeclareFunctionEnd(const char* name) {}
+
+int PlatformEmbeddedFileWriterAIX::HexLiteral(uint64_t value) {
+  return fprintf(fp_, "0x%" PRIx64, value);
+}
 
 void PlatformEmbeddedFileWriterAIX::FilePrologue() {}
 
@@ -137,6 +118,12 @@ DataDirective PlatformEmbeddedFileWriterAIX::ByteChunkDataDirective() const {
   // PPC uses a fixed 4 byte instruction set, using .long
   // to prevent any unnecessary padding.
   return kLong;
+}
+
+int PlatformEmbeddedFileWriterAIX::WriteByteChunk(const uint8_t* data) {
+  DCHECK_EQ(ByteChunkDataDirective(), kLong);
+  const uint32_t* long_ptr = reinterpret_cast<const uint32_t*>(data);
+  return HexLiteral(*long_ptr);
 }
 
 #undef SYMBOL_PREFIX

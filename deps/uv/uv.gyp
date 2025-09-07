@@ -3,12 +3,6 @@
     'conditions': [
       ['OS=="win"', {
         'shared_unix_defines': [ ],
-      }, 'OS=="android" and target_arch in ("arm","ia32")', {
-        # Android on API < 24 will miss function definitions for
-        #_FILE_OFFSET_BITS=64
-        'shared_unix_defines': [
-          '_LARGEFILE_SOURCE',
-        ],
       }, {
         'shared_unix_defines': [
           '_LARGEFILE_SOURCE',
@@ -26,7 +20,6 @@
           '_UNIX03_SOURCE',
           '_UNIX03_WITHDRAWN',
           '_OPEN_SYS_IF_EXT',
-          '_OPEN_SYS_SOCK_EXT3',
           '_OPEN_SYS_SOCK_IPV6',
           '_OPEN_MSGQ_EXT',
           '_XOPEN_SOURCE_EXTENDED',
@@ -81,11 +74,8 @@
         'src/idna.h',
         'src/inet.c',
         'src/queue.h',
-        'src/random.c',
         'src/strscpy.c',
         'src/strscpy.h',
-        'src/strtok.c',
-        'src/strtok.h',
         'src/threadpool.c',
         'src/timer.c',
         'src/uv-data-getter-setters.c',
@@ -101,7 +91,7 @@
           '-Wno-unused-parameter',
           '-Wstrict-prototypes',
         ],
-        'OTHER_CFLAGS': [ '-g', '--std=gnu89' ],
+        'OTHER_CFLAGS': [ '-g', '--std=gnu89', '-pedantic' ],
       },
       'conditions': [
         [ 'OS=="win"', {
@@ -176,7 +166,6 @@
             'src/unix/pipe.c',
             'src/unix/poll.c',
             'src/unix/process.c',
-            'src/unix/random-devurandom.c',
             'src/unix/signal.c',
             'src/unix/spinlock.h',
             'src/unix/stream.c',
@@ -225,19 +214,18 @@
             '-fvisibility=hidden',
             '-g',
             '--std=gnu89',
+            '-pedantic',
             '-Wall',
             '-Wextra',
             '-Wno-unused-parameter',
             '-Wstrict-prototypes',
-            '-fno-strict-aliasing',
           ],
         }],
         [ 'OS in "mac ios"', {
           'sources': [
             'src/unix/darwin.c',
             'src/unix/fsevents.c',
-            'src/unix/darwin-proctitle.c',
-            'src/unix/random-getentropy.c',
+            'src/unix/darwin-proctitle.c'
           ],
           'defines': [
             '_DARWIN_USE_64_BIT_INODE=1',
@@ -247,33 +235,28 @@
         [ 'OS=="linux"', {
           'defines': [ '_GNU_SOURCE' ],
           'sources': [
-            'src/unix/epoll.c',
             'src/unix/linux-core.c',
             'src/unix/linux-inotify.c',
             'src/unix/linux-syscalls.c',
             'src/unix/linux-syscalls.h',
             'src/unix/procfs-exepath.c',
-            'src/unix/random-getrandom.c',
-            'src/unix/random-sysctl-linux.c',
+            'src/unix/sysinfo-loadavg.c',
           ],
           'link_settings': {
             'libraries': [ '-ldl', '-lrt' ],
           },
         }],
         [ 'OS=="android"', {
-          'defines': [
-            '_GNU_SOURCE',
-          ],
           'sources': [
             'src/unix/linux-core.c',
             'src/unix/linux-inotify.c',
             'src/unix/linux-syscalls.c',
-            'src/unix/procfs-exepath.c',
+            'src/unix/linux-syscalls.h',
             'src/unix/pthread-fixes.c',
-            'src/unix/random-getentropy.c',
-            'src/unix/random-getrandom.c',
-            'src/unix/random-sysctl-linux.c',
-            'src/unix/epoll.c',
+            'src/unix/android-ifaddrs.c',
+            'src/unix/procfs-exepath.c',
+            'src/unix/sysinfo-loadavg.c',
+            'src/unix/sysinfo-memory.c',
           ],
           'link_settings': {
             'libraries': [ '-ldl' ],
@@ -287,7 +270,6 @@
           'defines': [
             '__EXTENSIONS__',
             '_XOPEN_SOURCE=500',
-            '_REENTRANT',
           ],
           'link_settings': {
             'libraries': [
@@ -334,32 +316,11 @@
             }],
           ]
         }],
-        [ 'OS=="os400"', {
-          'sources': [
-            'src/unix/aix-common.c',
-            'src/unix/ibmi.c',
-            'src/unix/posix-poll.c',
-            'src/unix/no-fsevents.c',
-            'src/unix/no-proctitle.c',
-          ],
-          'defines': [
-            '_ALL_SOURCE',
-            '_XOPEN_SOURCE=500',
-            '_LINUX_SOURCE_COMPAT',
-            '_THREAD_SAFE',
-          ],
-        }],
         [ 'OS=="freebsd" or OS=="dragonflybsd"', {
           'sources': [ 'src/unix/freebsd.c' ],
         }],
-        [ 'OS=="freebsd"', {
-          'sources': [ 'src/unix/random-getrandom.c' ],
-        }],
         [ 'OS=="openbsd"', {
-          'sources': [
-            'src/unix/openbsd.c',
-            'src/unix/random-getentropy.c',
-          ],
+          'sources': [ 'src/unix/openbsd.c' ],
         }],
         [ 'OS=="netbsd"', {
           'link_settings': {

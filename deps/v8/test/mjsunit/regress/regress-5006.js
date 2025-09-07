@@ -4,10 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-function foo(x) {
-  return Math.imul(x | 0, 2);
-};
-%PrepareFunctionForOptimization(foo);
+function foo(x) { return Math.imul(x|0, 2); }
 print(foo(1));
 print(foo(1));
 %OptimizeFunctionOnNextCall(foo);

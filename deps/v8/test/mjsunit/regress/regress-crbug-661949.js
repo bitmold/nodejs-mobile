@@ -4,14 +4,11 @@
 
 // Flags: --allow-natives-syntax
 
-var foo = function() {
+var foo = (function() {
   'use asm';
-  function foo() {
-    ''[0];
-  };
-  %PrepareFunctionForOptimization(foo);
+  function foo() { ''[0]; }
   return foo;
-}();
+})();
 
 foo();
 %OptimizeFunctionOnNextCall(foo);

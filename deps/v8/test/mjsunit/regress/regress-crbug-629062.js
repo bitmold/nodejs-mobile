@@ -5,9 +5,9 @@
 // Flags: --allow-natives-syntax
 
 function foo(x) {
-  return 1 + (1 == 0 && undefined);
-};
-%PrepareFunctionForOptimization(foo);
+  return 1 + ((1 == 0) && undefined);
+}
+
 foo(false);
 foo(false);
 %OptimizeFunctionOnNextCall(foo);

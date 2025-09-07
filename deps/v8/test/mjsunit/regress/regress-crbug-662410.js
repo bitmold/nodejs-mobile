@@ -4,9 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-function g(v) {
-  return v.constructor;
-}
+function g(v) { return v.constructor; }
 
 g({});
 g({});
@@ -17,7 +15,7 @@ function f() {
     i = i + 1;
     g(i);
   } while (i < 1);
-};
-%PrepareFunctionForOptimization(f);
+}
+
 %OptimizeFunctionOnNextCall(f);
 f();

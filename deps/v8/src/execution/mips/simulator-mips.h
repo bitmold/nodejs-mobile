@@ -15,28 +15,10 @@
 // globals.h defines USE_SIMULATOR.
 #include "src/common/globals.h"
 
-template <typename T>
-int Compare(const T& a, const T& b) {
-  if (a == b)
-    return 0;
-  else if (a < b)
-    return -1;
-  else
-    return 1;
-}
-
-// Returns the negative absolute value of its argument.
-template <typename T,
-          typename = typename std::enable_if<std::is_signed<T>::value>::type>
-T Nabs(T a) {
-  return a < 0 ? a : -a;
-}
-
 #if defined(USE_SIMULATOR)
 // Running with a simulator.
 
 #include "src/base/hashmap.h"
-#include "src/base/strings.h"
 #include "src/codegen/assembler.h"
 #include "src/codegen/mips/constants-mips.h"
 #include "src/execution/simulator-base.h"
@@ -268,7 +250,6 @@ class Simulator : public SimulatorBase {
   void set_msa_register(int wreg, const T* value);
   void set_fcsr_bit(uint32_t cc, bool value);
   bool test_fcsr_bit(uint32_t cc);
-  void clear_fcsr_cause();
   void set_fcsr_rounding_mode(FPURoundingMode mode);
   void set_msacsr_rounding_mode(FPURoundingMode mode);
   unsigned int get_fcsr_rounding_mode();
@@ -277,16 +258,16 @@ class Simulator : public SimulatorBase {
   bool set_fcsr_round_error(float original, float rounded);
   bool set_fcsr_round64_error(double original, double rounded);
   bool set_fcsr_round64_error(float original, float rounded);
-  void round_according_to_fcsr(double toRound, double* rounded,
-                               int32_t* rounded_int, double fs);
-  void round_according_to_fcsr(float toRound, float* rounded,
-                               int32_t* rounded_int, float fs);
+  void round_according_to_fcsr(double toRound, double& rounded,
+                               int32_t& rounded_int, double fs);
+  void round_according_to_fcsr(float toRound, float& rounded,
+                               int32_t& rounded_int, float fs);
   template <typename Tfp, typename Tint>
-  void round_according_to_msacsr(Tfp toRound, Tfp* rounded, Tint* rounded_int);
-  void round64_according_to_fcsr(double toRound, double* rounded,
-                                 int64_t* rounded_int, double fs);
-  void round64_according_to_fcsr(float toRound, float* rounded,
-                                 int64_t* rounded_int, float fs);
+  void round_according_to_msacsr(Tfp toRound, Tfp& rounded, Tint& rounded_int);
+  void round64_according_to_fcsr(double toRound, double& rounded,
+                                 int64_t& rounded_int, double fs);
+  void round64_according_to_fcsr(float toRound, float& rounded,
+                                 int64_t& rounded_int, float fs);
   // Special case of set_register and get_register to access the raw PC value.
   void set_pc(int32_t value);
   int32_t get_pc() const;
@@ -405,7 +386,7 @@ class Simulator : public SimulatorBase {
   void TraceMemRd(int32_t addr, T value);
   template <typename T>
   void TraceMemWr(int32_t addr, T value);
-  base::EmbeddedVector<char, 128> trace_buf_;
+  EmbeddedVector<char, 128> trace_buf_;
 
   // Operations depending on endianness.
   // Get Double Higher / Lower word.
@@ -549,7 +530,7 @@ class Simulator : public SimulatorBase {
             instr->OpcodeValue());
     }
     InstructionDecode(instr);
-    base::SNPrintF(trace_buf_, " ");
+    SNPrintF(trace_buf_, " ");
   }
 
   // ICache.
@@ -592,7 +573,8 @@ class Simulator : public SimulatorBase {
   uint32_t MSACSR_;
 
   // Simulator support.
-  size_t stack_size_;
+  // Allocate 1MB for stack.
+  static const size_t stack_size_ = 1 * 1024 * 1024;
   char* stack_;
   bool pc_modified_;
   uint64_t icount_;

@@ -10,7 +10,7 @@
 #include "src/heap/heap.h"
 
 // Helper types to make boolean flag easier to read at call-site.
-enum class InvokeType { kCall, kJump };
+enum InvokeFlag { CALL_FUNCTION, JUMP_FUNCTION };
 
 // Flags used for the AllocateInNewSpace functions.
 enum AllocationFlags {
@@ -28,14 +28,6 @@ enum AllocationFlags {
   PRETENURE = 1 << 3,
 };
 
-enum class JumpMode {
-  kJump,          // Does a direct jump to the given address
-  kPushAndReturn  // Pushes the given address as the current return address and
-                  // does a return
-};
-
-enum class SmiCheck { kOmit, kInline };
-
 // This is the only place allowed to include the platform-specific headers.
 #define INCLUDED_FROM_MACRO_ASSEMBLER_H
 #if V8_TARGET_ARCH_IA32
@@ -48,7 +40,7 @@ enum class SmiCheck { kOmit, kInline };
 #elif V8_TARGET_ARCH_ARM
 #include "src/codegen/arm/constants-arm.h"
 #include "src/codegen/arm/macro-assembler-arm.h"
-#elif V8_TARGET_ARCH_PPC || V8_TARGET_ARCH_PPC64
+#elif V8_TARGET_ARCH_PPC
 #include "src/codegen/ppc/constants-ppc.h"
 #include "src/codegen/ppc/macro-assembler-ppc.h"
 #elif V8_TARGET_ARCH_MIPS
@@ -57,15 +49,9 @@ enum class SmiCheck { kOmit, kInline };
 #elif V8_TARGET_ARCH_MIPS64
 #include "src/codegen/mips64/constants-mips64.h"
 #include "src/codegen/mips64/macro-assembler-mips64.h"
-#elif V8_TARGET_ARCH_LOONG64
-#include "src/codegen/loong64/constants-loong64.h"
-#include "src/codegen/loong64/macro-assembler-loong64.h"
 #elif V8_TARGET_ARCH_S390
 #include "src/codegen/s390/constants-s390.h"
 #include "src/codegen/s390/macro-assembler-s390.h"
-#elif V8_TARGET_ARCH_RISCV64
-#include "src/codegen/riscv64/constants-riscv64.h"
-#include "src/codegen/riscv64/macro-assembler-riscv64.h"
 #else
 #error Unsupported target architecture.
 #endif
@@ -74,66 +60,43 @@ enum class SmiCheck { kOmit, kInline };
 namespace v8 {
 namespace internal {
 
-// Maximum number of parameters supported in calls to C/C++. The C++ standard
-// defines a limit of 256 parameters but in simulator builds we provide only
-// limited support.
-#ifdef USE_SIMULATOR
-static constexpr int kMaxCParameters = 20;
-#else
-static constexpr int kMaxCParameters = 256;
-#endif
+// Simulators only support C calls with up to kMaxCParameters parameters.
+static constexpr int kMaxCParameters = 9;
 
-class V8_NODISCARD FrameScope {
+class FrameScope {
  public:
   explicit FrameScope(TurboAssembler* tasm, StackFrame::Type type)
-      :
-#ifdef V8_CODE_COMMENTS
-        comment_(tasm, frame_name(type)),
-#endif
-        tasm_(tasm),
-        type_(type),
-        old_has_frame_(tasm->has_frame()) {
+      : tasm_(tasm), type_(type), old_has_frame_(tasm->has_frame()) {
     tasm->set_has_frame(true);
-    if (type != StackFrame::MANUAL && type_ != StackFrame::NO_FRAME_TYPE) {
+    if (type != StackFrame::MANUAL && type_ != StackFrame::NONE) {
       tasm->EnterFrame(type);
     }
   }
 
   ~FrameScope() {
-    if (type_ != StackFrame::MANUAL && type_ != StackFrame::NO_FRAME_TYPE) {
+    if (type_ != StackFrame::MANUAL && type_ != StackFrame::NONE) {
       tasm_->LeaveFrame(type_);
     }
     tasm_->set_has_frame(old_has_frame_);
   }
 
- private:
-#ifdef V8_CODE_COMMENTS
-  const char* frame_name(StackFrame::Type type) {
-    switch (type) {
-      case StackFrame::NO_FRAME_TYPE:
-        return "Frame: NO_FRAME_TYPE";
-      case StackFrame::MANUAL:
-        return "Frame: MANUAL";
-#define FRAME_TYPE_CASE(type, field) \
-  case StackFrame::type:             \
-    return "Frame: " #type;
-        STACK_FRAME_TYPE_LIST(FRAME_TYPE_CASE)
-#undef FRAME_TYPE_CASE
-      case StackFrame::NUMBER_OF_TYPES:
-        break;
-    }
-    return "Frame";
+  // Normally we generate the leave-frame code when this object goes
+  // out of scope.  Sometimes we may need to generate the code somewhere else
+  // in addition.  Calling this will achieve that, but the object stays in
+  // scope, the MacroAssembler is still marked as being in a frame scope, and
+  // the code will be generated again when it goes out of scope.
+  void GenerateLeaveFrame() {
+    DCHECK(type_ != StackFrame::MANUAL && type_ != StackFrame::NONE);
+    tasm_->LeaveFrame(type_);
   }
 
-  Assembler::CodeComment comment_;
-#endif  // V8_CODE_COMMENTS
-
+ private:
   TurboAssembler* tasm_;
-  StackFrame::Type const type_;
-  bool const old_has_frame_;
+  StackFrame::Type type_;
+  bool old_has_frame_;
 };
 
-class V8_NODISCARD FrameAndConstantPoolScope {
+class FrameAndConstantPoolScope {
  public:
   FrameAndConstantPoolScope(MacroAssembler* masm, StackFrame::Type type)
       : masm_(masm),
@@ -145,7 +108,7 @@ class V8_NODISCARD FrameAndConstantPoolScope {
     if (FLAG_enable_embedded_constant_pool) {
       masm->set_constant_pool_available(true);
     }
-    if (type_ != StackFrame::MANUAL && type_ != StackFrame::NO_FRAME_TYPE) {
+    if (type_ != StackFrame::MANUAL && type_ != StackFrame::NONE) {
       masm->EnterFrame(type, !old_constant_pool_available_);
     }
   }
@@ -158,6 +121,16 @@ class V8_NODISCARD FrameAndConstantPoolScope {
     }
   }
 
+  // Normally we generate the leave-frame code when this object goes
+  // out of scope.  Sometimes we may need to generate the code somewhere else
+  // in addition.  Calling this will achieve that, but the object stays in
+  // scope, the MacroAssembler is still marked as being in a frame scope, and
+  // the code will be generated again when it goes out of scope.
+  void GenerateLeaveFrame() {
+    DCHECK(type_ != StackFrame::MANUAL && type_ != StackFrame::NONE);
+    masm_->LeaveFrame(type_);
+  }
+
  private:
   MacroAssembler* masm_;
   StackFrame::Type type_;
@@ -168,7 +141,7 @@ class V8_NODISCARD FrameAndConstantPoolScope {
 };
 
 // Class for scoping the the unavailability of constant pool access.
-class V8_NODISCARD ConstantPoolUnavailableScope {
+class ConstantPoolUnavailableScope {
  public:
   explicit ConstantPoolUnavailableScope(Assembler* assembler)
       : assembler_(assembler),
@@ -191,15 +164,15 @@ class V8_NODISCARD ConstantPoolUnavailableScope {
   DISALLOW_IMPLICIT_CONSTRUCTORS(ConstantPoolUnavailableScope);
 };
 
-class V8_NODISCARD AllowExternalCallThatCantCauseGC : public FrameScope {
+class AllowExternalCallThatCantCauseGC : public FrameScope {
  public:
   explicit AllowExternalCallThatCantCauseGC(MacroAssembler* masm)
-      : FrameScope(masm, StackFrame::NO_FRAME_TYPE) {}
+      : FrameScope(masm, StackFrame::NONE) {}
 };
 
 // Prevent the use of the RootArray during the lifetime of this
 // scope object.
-class V8_NODISCARD NoRootArrayScope {
+class NoRootArrayScope {
  public:
   explicit NoRootArrayScope(TurboAssembler* masm)
       : masm_(masm), old_value_(masm->root_array_available()) {
@@ -211,6 +184,34 @@ class V8_NODISCARD NoRootArrayScope {
  private:
   TurboAssembler* masm_;
   bool old_value_;
+};
+
+// Wrapper class for passing expected and actual parameter counts as
+// either registers or immediate values. Used to make sure that the
+// caller provides exactly the expected number of parameters to the
+// callee.
+class ParameterCount {
+ public:
+  explicit ParameterCount(Register reg) : reg_(reg), immediate_(0) {}
+  explicit ParameterCount(uint16_t imm) : reg_(no_reg), immediate_(imm) {}
+
+  bool is_reg() const { return reg_.is_valid(); }
+  bool is_immediate() const { return !is_reg(); }
+
+  Register reg() const {
+    DCHECK(is_reg());
+    return reg_;
+  }
+  uint16_t immediate() const {
+    DCHECK(is_immediate());
+    return immediate_;
+  }
+
+ private:
+  const Register reg_;
+  const uint16_t immediate_;
+
+  DISALLOW_IMPLICIT_CONSTRUCTORS(ParameterCount);
 };
 
 }  // namespace internal

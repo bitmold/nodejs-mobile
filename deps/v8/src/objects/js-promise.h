@@ -5,18 +5,14 @@
 #ifndef V8_OBJECTS_JS_PROMISE_H_
 #define V8_OBJECTS_JS_PROMISE_H_
 
-#include "include/v8-promise.h"
 #include "src/objects/js-objects.h"
 #include "src/objects/promise.h"
-#include "torque-generated/bit-fields.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
 
 namespace v8 {
 namespace internal {
-
-#include "torque-generated/src/objects/js-promise-tq.inc"
 
 // Representation of promise objects in the specification. Our layout of
 // JSPromise differs a bit from the layout in the specification, for example
@@ -28,14 +24,19 @@ namespace internal {
 // We also overlay the result and reactions fields on the JSPromise, since
 // the reactions are only necessary for pending promises, whereas the result
 // is only meaningful for settled promises.
-class JSPromise
-    : public TorqueGeneratedJSPromise<JSPromise, JSObjectWithEmbedderSlots> {
+class JSPromise : public JSObject {
  public:
+  // [reactions_or_result]: Smi 0 terminated list of PromiseReaction objects
+  // in case the JSPromise was not settled yet, otherwise the result.
+  DECL_ACCESSORS(reactions_or_result, Object)
+
   // [result]: Checks that the promise is settled and returns the result.
   inline Object result() const;
 
   // [reactions]: Checks that the promise is pending and returns the reactions.
   inline Object reactions() const;
+
+  DECL_INT_ACCESSORS(flags)
 
   // [has_handler]: Whether this promise has a reject handler or not.
   DECL_BOOLEAN_ACCESSORS(has_handler)
@@ -43,10 +44,6 @@ class JSPromise
   // [handled_hint]: Whether this promise will be handled by a catch
   // block in an async function.
   DECL_BOOLEAN_ACCESSORS(handled_hint)
-
-  // [is_silent]: Whether this promise should cause the debugger to pause when
-  // rejected.
-  DECL_BOOLEAN_ACCESSORS(is_silent)
 
   int async_task_id() const;
   void set_async_task_id(int id);
@@ -65,16 +62,27 @@ class JSPromise
   V8_WARN_UNUSED_RESULT static MaybeHandle<Object> Resolve(
       Handle<JSPromise> promise, Handle<Object> resolution);
 
+  DECL_CAST(JSPromise)
+
   // Dispatched behavior.
   DECL_PRINTER(JSPromise)
   DECL_VERIFIER(JSPromise)
 
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                TORQUE_GENERATED_JSPROMISE_FIELDS)
+
   static const int kSizeWithEmbedderFields =
-      kHeaderSize + v8::Promise::kEmbedderFieldCount * kEmbedderDataSlotSize;
+      kSize + v8::Promise::kEmbedderFieldCount * kEmbedderDataSlotSize;
 
   // Flags layout.
-  DEFINE_TORQUE_GENERATED_JS_PROMISE_FLAGS()
+  // The first two bits store the v8::Promise::PromiseState.
+  static const int kStatusBits = 2;
+  static const int kHasHandlerBit = 2;
+  static const int kHandledHintBit = 3;
+  class AsyncTaskIdField : public BitField<int, kHandledHintBit + 1, 22> {};
 
+  static const int kStatusShift = 0;
+  static const int kStatusMask = 0x3;
   STATIC_ASSERT(v8::Promise::kPending == 0);
   STATIC_ASSERT(v8::Promise::kFulfilled == 1);
   STATIC_ASSERT(v8::Promise::kRejected == 2);
@@ -86,7 +94,7 @@ class JSPromise
                                                 Handle<Object> argument,
                                                 PromiseReaction::Type type);
 
-  TQ_OBJECT_CONSTRUCTORS(JSPromise)
+  OBJECT_CONSTRUCTORS(JSPromise, JSObject);
 };
 
 }  // namespace internal

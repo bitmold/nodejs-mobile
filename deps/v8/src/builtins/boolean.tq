@@ -3,43 +3,40 @@
 // found in the LICENSE file.
 
 namespace boolean {
-transitioning macro ThisBooleanValue(implicit context: Context)(
-    receiver: JSAny, method: constexpr string): Boolean {
-  return UnsafeCast<Boolean>(
-      ToThisValue(receiver, PrimitiveType::kBoolean, method));
-}
+  const kNameDictionaryInitialCapacity:
+      constexpr int32 generates 'NameDictionary::kInitialCapacity';
 
-javascript builtin
-BooleanConstructor(
-    js-implicit context: NativeContext, receiver: JSAny, newTarget: JSAny,
-    target: JSFunction)(...arguments): JSAny {
-  const value = SelectBooleanConstant(ToBoolean(arguments[0]));
+  extern macro ConstructorBuiltinsAssembler::IsDictionaryMap(Map): bool;
+  extern macro CodeStubAssembler::AllocateNameDictionary(constexpr int32):
+      NameDictionary;
 
-  if (newTarget == Undefined) {
-    return value;
+  // TODO(v8:9120): This is a workaround to get access to target and new.target
+  // in javascript builtins. Requires cleanup once this is fully supported by
+  // torque.
+  const NEW_TARGET_INDEX:
+      constexpr int32 generates 'Descriptor::kJSNewTarget';
+  const TARGET_INDEX: constexpr int32 generates 'Descriptor::kJSTarget';
+  extern macro Parameter(constexpr int32): Object;
+
+  javascript builtin
+  BooleanConstructor(context: Context, receiver: Object, ...arguments): Object {
+    const value = SelectBooleanConstant(ToBoolean(arguments[0]));
+
+    const newTarget = Parameter(NEW_TARGET_INDEX);
+    if (newTarget == Undefined) {
+      return value;
+    }
+
+    const target = UnsafeCast<JSFunction>(Parameter(TARGET_INDEX));
+    const map = GetDerivedMap(target, UnsafeCast<JSReceiver>(newTarget));
+    let properties = kEmptyFixedArray;
+    if (IsDictionaryMap(map)) {
+      properties = AllocateNameDictionary(kNameDictionaryInitialCapacity);
+    }
+
+    const obj = UnsafeCast<JSValue>(AllocateJSObjectFromMap(
+        map, properties, kEmptyFixedArray, kNone, kWithSlackTracking));
+    obj.value = value;
+    return obj;
   }
-
-  const map = GetDerivedMap(target, UnsafeCast<JSReceiver>(newTarget));
-
-  const obj =
-      UnsafeCast<JSPrimitiveWrapper>(AllocateFastOrSlowJSObjectFromMap(map));
-  obj.value = value;
-  return obj;
-}
-
-// ES #sec-boolean.prototype.tostring
-transitioning javascript builtin BooleanPrototypeToString(
-    js-implicit context: NativeContext, receiver: JSAny)(): JSAny {
-  // 1. Let b be ? thisBooleanValue(this value).
-  const b = ThisBooleanValue(receiver, 'Boolean.prototype.toString');
-  // 2. If b is true, return "true"; else return "false".
-  return b.to_string;
-}
-
-// ES #sec-boolean.prototype.valueof
-transitioning javascript builtin BooleanPrototypeValueOf(
-    js-implicit context: NativeContext, receiver: JSAny)(): JSAny {
-  // 1. Return ? thisBooleanValue(this value).
-  return ThisBooleanValue(receiver, 'Boolean.prototype.valueOf');
-}
 }

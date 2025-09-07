@@ -13,8 +13,7 @@
     try { throw 0 } catch(e) {
       return b.forEach(callback);
     }
-  };
-  %PrepareFunctionForOptimization(f);
+  }
   f();
   f();
   %OptimizeFunctionOnNextCall(f);

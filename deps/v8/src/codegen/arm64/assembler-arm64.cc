@@ -32,92 +32,27 @@
 
 #include "src/base/bits.h"
 #include "src/base/cpu.h"
-#include "src/base/small-vector.h"
 #include "src/codegen/arm64/assembler-arm64-inl.h"
 #include "src/codegen/register-configuration.h"
-#include "src/codegen/safepoint-table.h"
 #include "src/codegen/string-constants.h"
 #include "src/execution/frame-constants.h"
 
 namespace v8 {
 namespace internal {
 
-namespace {
-
-#ifdef USE_SIMULATOR
-unsigned SimulatorFeaturesFromCommandLine() {
-  if (strcmp(FLAG_sim_arm64_optional_features, "none") == 0) {
-    return 0;
-  }
-  if (strcmp(FLAG_sim_arm64_optional_features, "all") == 0) {
-    return (1u << NUMBER_OF_CPU_FEATURES) - 1;
-  }
-  fprintf(
-      stderr,
-      "Error: unrecognised value for --sim-arm64-optional-features ('%s').\n",
-      FLAG_sim_arm64_optional_features);
-  fprintf(stderr,
-          "Supported values are:  none\n"
-          "                       all\n");
-  FATAL("sim-arm64-optional-features");
-}
-#endif  // USE_SIMULATOR
-
-constexpr unsigned CpuFeaturesFromCompiler() {
-  unsigned features = 0;
-#if defined(__ARM_FEATURE_JCVT)
-  features |= 1u << JSCVT;
-#endif
-  return features;
-}
-
-constexpr unsigned CpuFeaturesFromTargetOS() {
-  unsigned features = 0;
-#if defined(V8_TARGET_OS_MACOS)
-  features |= 1u << JSCVT;
-#endif
-  return features;
-}
-
-}  // namespace
-
 // -----------------------------------------------------------------------------
 // CpuFeatures implementation.
-bool CpuFeatures::SupportsWasmSimd128() { return true; }
 
 void CpuFeatures::ProbeImpl(bool cross_compile) {
+  // AArch64 has no configuration options, no further probing is required.
+  supported_ = 0;
+
   // Only use statically determined features for cross compile (snapshot).
-  if (cross_compile) {
-    supported_ |= CpuFeaturesFromCompiler();
-    supported_ |= CpuFeaturesFromTargetOS();
-    return;
-  }
+  if (cross_compile) return;
 
   // We used to probe for coherent cache support, but on older CPUs it
   // causes crashes (crbug.com/524337), and newer CPUs don't even have
   // the feature any more.
-
-#ifdef USE_SIMULATOR
-  supported_ |= SimulatorFeaturesFromCommandLine();
-#else
-  // Probe for additional features at runtime.
-  base::CPU cpu;
-  unsigned runtime = 0;
-  if (cpu.has_jscvt()) {
-    runtime |= 1u << JSCVT;
-  }
-
-  // Use the best of the features found by CPU detection and those inferred from
-  // the build system.
-  supported_ |= CpuFeaturesFromCompiler();
-  supported_ |= runtime;
-#endif  // USE_SIMULATOR
-
-  // Set a static value on whether Simd is supported.
-  // This variable is only used for certain archs to query SupportWasmSimd128()
-  // at runtime in builtins using an extern ref. Other callers should use
-  // CpuFeatures::SupportWasmSimd128().
-  CpuFeatures::supports_wasm_simd_128_ = CpuFeatures::SupportsWasmSimd128();
 }
 
 void CpuFeatures::PrintTarget() {}
@@ -127,16 +62,18 @@ void CpuFeatures::PrintFeatures() {}
 // CPURegList utilities.
 
 CPURegister CPURegList::PopLowestIndex() {
+  DCHECK(IsValid());
   if (IsEmpty()) {
     return NoCPUReg;
   }
-  int index = base::bits::CountTrailingZeros(list_);
+  int index = CountTrailingZeros(list_, kRegListSizeInBits);
   DCHECK((1LL << index) & list_);
   Remove(index);
   return CPURegister::Create(index, size_, type_);
 }
 
 CPURegister CPURegList::PopHighestIndex() {
+  DCHECK(IsValid());
   if (IsEmpty()) {
     return NoCPUReg;
   }
@@ -145,6 +82,18 @@ CPURegister CPURegList::PopHighestIndex() {
   DCHECK((1LL << index) & list_);
   Remove(index);
   return CPURegister::Create(index, size_, type_);
+}
+
+void CPURegList::RemoveCalleeSaved() {
+  if (type() == CPURegister::kRegister) {
+    Remove(GetCalleeSaved(RegisterSizeInBits()));
+  } else if (type() == CPURegister::kVRegister) {
+    Remove(GetCalleeSavedV(RegisterSizeInBits()));
+  } else {
+    DCHECK_EQ(type(), CPURegister::kNoRegister);
+    DCHECK(IsEmpty());
+    // The list must already be empty, so do nothing.
+  }
 }
 
 void CPURegList::Align() {
@@ -161,7 +110,7 @@ void CPURegList::Align() {
 }
 
 CPURegList CPURegList::GetCalleeSaved(int size) {
-  return CPURegList(CPURegister::kRegister, size, 19, 28);
+  return CPURegList(CPURegister::kRegister, size, 19, 29);
 }
 
 CPURegList CPURegList::GetCalleeSavedV(int size) {
@@ -170,8 +119,9 @@ CPURegList CPURegList::GetCalleeSavedV(int size) {
 
 CPURegList CPURegList::GetCallerSaved(int size) {
   // x18 is the platform register and is reserved for the use of platform ABIs.
-  // Registers x0-x17 are caller-saved.
+  // Registers x0-x17 and lr (x30) are caller-saved.
   CPURegList list = CPURegList(CPURegister::kRegister, size, 0, 17);
+  list.Combine(lr);
   return list;
 }
 
@@ -179,6 +129,34 @@ CPURegList CPURegList::GetCallerSavedV(int size) {
   // Registers d0-d7 and d16-d31 are caller-saved.
   CPURegList list = CPURegList(CPURegister::kVRegister, size, 0, 7);
   list.Combine(CPURegList(CPURegister::kVRegister, size, 16, 31));
+  return list;
+}
+
+// This function defines the list of registers which are associated with a
+// safepoint slot. Safepoint register slots are saved contiguously on the stack.
+// MacroAssembler::SafepointRegisterStackIndex handles mapping from register
+// code to index in the safepoint register slots. Any change here can affect
+// this mapping.
+CPURegList CPURegList::GetSafepointSavedRegisters() {
+  CPURegList list = CPURegList::GetCalleeSaved();
+  list.Combine(
+      CPURegList(CPURegister::kRegister, kXRegSizeInBits, kJSCallerSaved));
+
+  // Note that unfortunately we can't use symbolic names for registers and have
+  // to directly use register codes. This is because this function is used to
+  // initialize some static variables and we can't rely on register variables
+  // to be initialized due to static initialization order issues in C++.
+
+  // Drop ip0 and ip1 (i.e. x16 and x17), as they should not be expected to be
+  // preserved outside of the macro assembler.
+  list.Remove(16);
+  list.Remove(17);
+
+  // x18 is the platform register and is reserved for the use of platform ABIs.
+
+  // Add the link register (x30) to the safepoint list.
+  list.Combine(30);
+
   return list;
 }
 
@@ -204,9 +182,7 @@ bool RelocInfo::IsCodedSpecially() {
 
 bool RelocInfo::IsInConstantPool() {
   Instruction* instr = reinterpret_cast<Instruction*>(pc_);
-  DCHECK_IMPLIES(instr->IsLdrLiteralW(), COMPRESS_POINTERS_BOOL);
-  return instr->IsLdrLiteralX() ||
-         (COMPRESS_POINTERS_BOOL && instr->IsLdrLiteralW());
+  return instr->IsLdrLiteralX();
 }
 
 uint32_t RelocInfo::wasm_call_tag() const {
@@ -228,20 +204,20 @@ bool AreAliased(const CPURegister& reg1, const CPURegister& reg2,
   int number_of_valid_regs = 0;
   int number_of_valid_fpregs = 0;
 
-  uint64_t unique_regs = 0;
-  uint64_t unique_fpregs = 0;
+  RegList unique_regs = 0;
+  RegList unique_fpregs = 0;
 
   const CPURegister regs[] = {reg1, reg2, reg3, reg4, reg5, reg6, reg7, reg8};
 
   for (unsigned i = 0; i < arraysize(regs); i++) {
     if (regs[i].IsRegister()) {
       number_of_valid_regs++;
-      unique_regs |= (uint64_t{1} << regs[i].code());
+      unique_regs |= regs[i].bit();
     } else if (regs[i].IsVRegister()) {
       number_of_valid_fpregs++;
-      unique_fpregs |= (uint64_t{1} << regs[i].code());
+      unique_fpregs |= regs[i].bit();
     } else {
-      DCHECK(!regs[i].is_valid());
+      DCHECK(!regs[i].IsValid());
     }
   }
 
@@ -261,50 +237,55 @@ bool AreSameSizeAndType(const CPURegister& reg1, const CPURegister& reg2,
                         const CPURegister& reg3, const CPURegister& reg4,
                         const CPURegister& reg5, const CPURegister& reg6,
                         const CPURegister& reg7, const CPURegister& reg8) {
-  DCHECK(reg1.is_valid());
+  DCHECK(reg1.IsValid());
   bool match = true;
-  match &= !reg2.is_valid() || reg2.IsSameSizeAndType(reg1);
-  match &= !reg3.is_valid() || reg3.IsSameSizeAndType(reg1);
-  match &= !reg4.is_valid() || reg4.IsSameSizeAndType(reg1);
-  match &= !reg5.is_valid() || reg5.IsSameSizeAndType(reg1);
-  match &= !reg6.is_valid() || reg6.IsSameSizeAndType(reg1);
-  match &= !reg7.is_valid() || reg7.IsSameSizeAndType(reg1);
-  match &= !reg8.is_valid() || reg8.IsSameSizeAndType(reg1);
+  match &= !reg2.IsValid() || reg2.IsSameSizeAndType(reg1);
+  match &= !reg3.IsValid() || reg3.IsSameSizeAndType(reg1);
+  match &= !reg4.IsValid() || reg4.IsSameSizeAndType(reg1);
+  match &= !reg5.IsValid() || reg5.IsSameSizeAndType(reg1);
+  match &= !reg6.IsValid() || reg6.IsSameSizeAndType(reg1);
+  match &= !reg7.IsValid() || reg7.IsSameSizeAndType(reg1);
+  match &= !reg8.IsValid() || reg8.IsSameSizeAndType(reg1);
   return match;
 }
 
 bool AreSameFormat(const VRegister& reg1, const VRegister& reg2,
                    const VRegister& reg3, const VRegister& reg4) {
-  DCHECK(reg1.is_valid());
-  return (!reg2.is_valid() || reg2.IsSameFormat(reg1)) &&
-         (!reg3.is_valid() || reg3.IsSameFormat(reg1)) &&
-         (!reg4.is_valid() || reg4.IsSameFormat(reg1));
+  DCHECK(reg1.IsValid());
+  return (!reg2.IsValid() || reg2.IsSameFormat(reg1)) &&
+         (!reg3.IsValid() || reg3.IsSameFormat(reg1)) &&
+         (!reg4.IsValid() || reg4.IsSameFormat(reg1));
 }
 
 bool AreConsecutive(const VRegister& reg1, const VRegister& reg2,
                     const VRegister& reg3, const VRegister& reg4) {
-  DCHECK(reg1.is_valid());
-  if (!reg2.is_valid()) {
-    DCHECK(!reg3.is_valid() && !reg4.is_valid());
+  DCHECK(reg1.IsValid());
+  if (!reg2.IsValid()) {
+    DCHECK(!reg3.IsValid() && !reg4.IsValid());
     return true;
   } else if (reg2.code() != ((reg1.code() + 1) % kNumberOfVRegisters)) {
     return false;
   }
 
-  if (!reg3.is_valid()) {
-    DCHECK(!reg4.is_valid());
+  if (!reg3.IsValid()) {
+    DCHECK(!reg4.IsValid());
     return true;
   } else if (reg3.code() != ((reg2.code() + 1) % kNumberOfVRegisters)) {
     return false;
   }
 
-  if (!reg4.is_valid()) {
+  if (!reg4.IsValid()) {
     return true;
   } else if (reg4.code() != ((reg3.code() + 1) % kNumberOfVRegisters)) {
     return false;
   }
 
   return true;
+}
+
+void Immediate::InitializeHandle(Handle<HeapObject> handle) {
+  value_ = static_cast<intptr_t>(handle.address());
+  rmode_ = RelocInfo::FULL_EMBEDDED_OBJECT;
 }
 
 bool Operand::NeedsRelocation(const Assembler* assembler) const {
@@ -314,27 +295,236 @@ bool Operand::NeedsRelocation(const Assembler* assembler) const {
     return assembler->options().record_reloc_info_for_serialization;
   }
 
-  return !RelocInfo::IsNoInfo(rmode);
+  return !RelocInfo::IsNone(rmode);
+}
+
+bool ConstPool::AddSharedEntry(SharedEntryMap& entry_map, uint64_t data,
+                               int offset) {
+  auto existing = entry_map.find(data);
+  if (existing == entry_map.end()) {
+    entry_map[data] = static_cast<int>(entries_.size());
+    entries_.push_back(std::make_pair(data, std::vector<int>(1, offset)));
+    return true;
+  }
+  int index = existing->second;
+  entries_[index].second.push_back(offset);
+  return false;
+}
+
+// Constant Pool.
+bool ConstPool::RecordEntry(intptr_t data, RelocInfo::Mode mode) {
+  DCHECK(mode != RelocInfo::CONST_POOL && mode != RelocInfo::VENEER_POOL &&
+         mode != RelocInfo::DEOPT_SCRIPT_OFFSET &&
+         mode != RelocInfo::DEOPT_INLINING_ID &&
+         mode != RelocInfo::DEOPT_REASON && mode != RelocInfo::DEOPT_ID);
+
+  bool write_reloc_info = true;
+
+  uint64_t raw_data = static_cast<uint64_t>(data);
+  int offset = assm_->pc_offset();
+  if (IsEmpty()) {
+    first_use_ = offset;
+  }
+
+  if (RelocInfo::IsShareableRelocMode(mode)) {
+    write_reloc_info = AddSharedEntry(shared_entries_, raw_data, offset);
+  } else if (mode == RelocInfo::CODE_TARGET && raw_data != 0) {
+    // A zero data value is a placeholder and must not be shared.
+    write_reloc_info = AddSharedEntry(handle_to_index_map_, raw_data, offset);
+  } else {
+    entries_.push_back(std::make_pair(raw_data, std::vector<int>(1, offset)));
+  }
+
+  if (EntryCount() > Assembler::kApproxMaxPoolEntryCount) {
+    // Request constant pool emission after the next instruction.
+    assm_->SetNextConstPoolCheckIn(1);
+  }
+
+  return write_reloc_info;
+}
+
+int ConstPool::DistanceToFirstUse() {
+  DCHECK_GE(first_use_, 0);
+  return assm_->pc_offset() - first_use_;
+}
+
+int ConstPool::MaxPcOffset() {
+  // There are no pending entries in the pool so we can never get out of
+  // range.
+  if (IsEmpty()) return kMaxInt;
+
+  // Entries are not necessarily emitted in the order they are added so in the
+  // worst case the first constant pool use will be accessing the last entry.
+  return first_use_ + kMaxLoadLiteralRange - WorstCaseSize();
+}
+
+int ConstPool::WorstCaseSize() {
+  if (IsEmpty()) return 0;
+
+  // Max size prologue:
+  //   b   over
+  //   ldr xzr, #pool_size
+  //   blr xzr
+  //   nop
+  // All entries are 64-bit for now.
+  return 4 * kInstrSize + EntryCount() * kSystemPointerSize;
+}
+
+int ConstPool::SizeIfEmittedAtCurrentPc(bool require_jump) {
+  if (IsEmpty()) return 0;
+
+  // Prologue is:
+  //   b   over  ;; if require_jump
+  //   ldr xzr, #pool_size
+  //   blr xzr
+  //   nop       ;; if not 64-bit aligned
+  int prologue_size = require_jump ? kInstrSize : 0;
+  prologue_size += 2 * kInstrSize;
+  prologue_size +=
+      IsAligned(assm_->pc_offset() + prologue_size, 8) ? 0 : kInstrSize;
+
+  // All entries are 64-bit for now.
+  return prologue_size + EntryCount() * kSystemPointerSize;
+}
+
+void ConstPool::Emit(bool require_jump) {
+  DCHECK(!assm_->is_const_pool_blocked());
+  // Prevent recursive pool emission and protect from veneer pools.
+  Assembler::BlockPoolsScope block_pools(assm_);
+
+  int size = SizeIfEmittedAtCurrentPc(require_jump);
+  Label size_check;
+  assm_->bind(&size_check);
+
+  assm_->RecordConstPool(size);
+  // Emit the constant pool. It is preceded by an optional branch if
+  // require_jump and a header which will:
+  //  1) Encode the size of the constant pool, for use by the disassembler.
+  //  2) Terminate the program, to try to prevent execution from accidentally
+  //     flowing into the constant pool.
+  //  3) align the pool entries to 64-bit.
+  // The header is therefore made of up to three arm64 instructions:
+  //   ldr xzr, #<size of the constant pool in 32-bit words>
+  //   blr xzr
+  //   nop
+  //
+  // If executed, the header will likely segfault and lr will point to the
+  // instruction following the offending blr.
+  // TODO(all): Make the alignment part less fragile. Currently code is
+  // allocated as a byte array so there are no guarantees the alignment will
+  // be preserved on compaction. Currently it works as allocation seems to be
+  // 64-bit aligned.
+
+  // Emit branch if required
+  Label after_pool;
+  if (require_jump) {
+    assm_->b(&after_pool);
+  }
+
+  // Emit the header.
+  assm_->RecordComment("[ Constant Pool");
+  EmitMarker();
+  EmitGuard();
+  assm_->Align(8);
+
+  // Emit constant pool entries.
+  // TODO(all): currently each relocated constant is 64 bits, consider adding
+  // support for 32-bit entries.
+  EmitEntries();
+  assm_->RecordComment("]");
+
+  if (after_pool.is_linked()) {
+    assm_->bind(&after_pool);
+  }
+
+  DCHECK(assm_->SizeOfCodeGeneratedSince(&size_check) ==
+         static_cast<unsigned>(size));
+}
+
+void ConstPool::Clear() {
+  shared_entries_.clear();
+  handle_to_index_map_.clear();
+  entries_.clear();
+  first_use_ = -1;
+}
+
+void ConstPool::EmitMarker() {
+  // A constant pool size is expressed in number of 32-bits words.
+  // Currently all entries are 64-bit.
+  // + 1 is for the crash guard.
+  // + 0/1 for alignment.
+  int word_count =
+      EntryCount() * 2 + 1 + (IsAligned(assm_->pc_offset(), 8) ? 0 : 1);
+  assm_->Emit(LDR_x_lit | Assembler::ImmLLiteral(word_count) |
+              Assembler::Rt(xzr));
+}
+
+MemOperand::PairResult MemOperand::AreConsistentForPair(
+    const MemOperand& operandA, const MemOperand& operandB,
+    int access_size_log2) {
+  DCHECK_GE(access_size_log2, 0);
+  DCHECK_LE(access_size_log2, 3);
+  // Step one: check that they share the same base, that the mode is Offset
+  // and that the offset is a multiple of access size.
+  if (!operandA.base().Is(operandB.base()) || (operandA.addrmode() != Offset) ||
+      (operandB.addrmode() != Offset) ||
+      ((operandA.offset() & ((1 << access_size_log2) - 1)) != 0)) {
+    return kNotPair;
+  }
+  // Step two: check that the offsets are contiguous and that the range
+  // is OK for ldp/stp.
+  if ((operandB.offset() == operandA.offset() + (1LL << access_size_log2)) &&
+      is_int7(operandA.offset() >> access_size_log2)) {
+    return kPairAB;
+  }
+  if ((operandA.offset() == operandB.offset() + (1LL << access_size_log2)) &&
+      is_int7(operandB.offset() >> access_size_log2)) {
+    return kPairBA;
+  }
+  return kNotPair;
+}
+
+void ConstPool::EmitGuard() {
+#ifdef DEBUG
+  Instruction* instr = reinterpret_cast<Instruction*>(assm_->pc());
+  DCHECK(instr->preceding()->IsLdrLiteralX() &&
+         instr->preceding()->Rt() == xzr.code());
+#endif
+  assm_->EmitPoolGuard();
+}
+
+void ConstPool::EmitEntries() {
+  DCHECK(IsAligned(assm_->pc_offset(), 8));
+
+  // Emit entries.
+  for (const auto& entry : entries_) {
+    for (const auto& pc : entry.second) {
+      Instruction* instr = assm_->InstructionAt(pc);
+
+      // Instruction to patch must be 'ldr rd, [pc, #offset]' with offset == 0.
+      DCHECK(instr->IsLdrLiteral() && instr->ImmLLiteral() == 0);
+      instr->SetImmPCOffsetTarget(assm_->options(), assm_->pc());
+    }
+
+    assm_->dc64(entry.first);
+  }
+  Clear();
 }
 
 // Assembler
 Assembler::Assembler(const AssemblerOptions& options,
                      std::unique_ptr<AssemblerBuffer> buffer)
     : AssemblerBase(options, std::move(buffer)),
-      unresolved_branches_(),
-      constpool_(this) {
+      constpool_(this),
+      unresolved_branches_() {
+  const_pool_blocked_nesting_ = 0;
   veneer_pool_blocked_nesting_ = 0;
   Reset();
-
-#if defined(V8_OS_WIN)
-  if (options.collect_win64_unwind_info) {
-    xdata_encoder_ = std::make_unique<win64_unwindinfo::XdataEncoder>(*this);
-  }
-#endif
 }
 
 Assembler::~Assembler() {
   DCHECK(constpool_.IsEmpty());
+  DCHECK_EQ(const_pool_blocked_nesting_, 0);
   DCHECK_EQ(veneer_pool_blocked_nesting_, 0);
 }
 
@@ -343,6 +533,7 @@ void Assembler::AbortedCodeGeneration() { constpool_.Clear(); }
 void Assembler::Reset() {
 #ifdef DEBUG
   DCHECK((pc_ >= buffer_start_) && (pc_ < buffer_start_ + buffer_->size()));
+  DCHECK_EQ(const_pool_blocked_nesting_, 0);
   DCHECK_EQ(veneer_pool_blocked_nesting_, 0);
   DCHECK(unresolved_branches_.empty());
   memset(buffer_start_, 0, pc_ - buffer_start_);
@@ -350,16 +541,10 @@ void Assembler::Reset() {
   pc_ = buffer_start_;
   reloc_info_writer.Reposition(buffer_start_ + buffer_->size(), pc_);
   constpool_.Clear();
+  next_constant_pool_check_ = 0;
   next_veneer_pool_check_ = kMaxInt;
+  no_const_pool_before_ = 0;
 }
-
-#if defined(V8_OS_WIN)
-win64_unwindinfo::BuiltinUnwindInfo Assembler::GetUnwindInfo() const {
-  DCHECK(options().collect_win64_unwind_info);
-  DCHECK_NOT_NULL(xdata_encoder_);
-  return xdata_encoder_->unwinding_info();
-}
-#endif
 
 void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
   DCHECK_IMPLIES(isolate == nullptr, heap_object_requests_.empty());
@@ -367,19 +552,16 @@ void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
     Address pc = reinterpret_cast<Address>(buffer_start_) + request.offset();
     switch (request.kind()) {
       case HeapObjectRequest::kHeapNumber: {
-        Handle<HeapObject> object =
-            isolate->factory()->NewHeapNumber<AllocationType::kOld>(
-                request.heap_number());
-        EmbeddedObjectIndex index = AddEmbeddedObject(object);
-        set_embedded_object_index_referenced_from(pc, index);
+        Handle<HeapObject> object = isolate->factory()->NewHeapNumber(
+            request.heap_number(), AllocationType::kOld);
+        set_target_address_at(pc, 0 /* unused */, object.address());
         break;
       }
       case HeapObjectRequest::kStringConstant: {
         const StringConstantBase* str = request.string();
         CHECK_NOT_NULL(str);
-        EmbeddedObjectIndex index =
-            AddEmbeddedObject(str->AllocateStringConstant(isolate));
-        set_embedded_object_index_referenced_from(pc, index);
+        set_target_address_at(pc, 0 /* unused */,
+                              str->AllocateStringConstant(isolate).address());
         break;
       }
     }
@@ -389,17 +571,8 @@ void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
 void Assembler::GetCode(Isolate* isolate, CodeDesc* desc,
                         SafepointTableBuilder* safepoint_table_builder,
                         int handler_table_offset) {
-  // As a crutch to avoid having to add manual Align calls wherever we use a
-  // raw workflow to create Code objects (mostly in tests), add another Align
-  // call here. It does no harm - the end of the Code object is aligned to the
-  // (larger) kCodeAlignment anyways.
-  // TODO(jgruber): Consider moving responsibility for proper alignment to
-  // metadata table builders (safepoint, handler, constant pool, code
-  // comments).
-  DataAlign(Code::kMetadataAlignment);
-
   // Emit constant pool if necessary.
-  ForceConstantPoolEmissionWithoutJump();
+  CheckConstPool(true, false);
   DCHECK(constpool_.IsEmpty());
 
   int code_comments_size = WriteCodeComments();
@@ -420,7 +593,7 @@ void Assembler::GetCode(Isolate* isolate, CodeDesc* desc,
   const int safepoint_table_offset =
       (safepoint_table_builder == kNoSafepointTable)
           ? handler_table_offset2
-          : safepoint_table_builder->safepoint_table_offset();
+          : safepoint_table_builder->GetCodeOffset();
   const int reloc_info_offset =
       static_cast<int>(reloc_info_writer.pos() - buffer_->start());
   CodeDesc::Initialize(desc, this, safepoint_table_offset,
@@ -429,9 +602,7 @@ void Assembler::GetCode(Isolate* isolate, CodeDesc* desc,
 }
 
 void Assembler::Align(int m) {
-  // If not, the loop below won't terminate.
-  DCHECK(IsAligned(pc_offset(), kInstrSize));
-  DCHECK(m >= kInstrSize && base::bits::IsPowerOfTwo(m));
+  DCHECK(m >= 4 && base::bits::IsPowerOfTwo(m));
   while ((pc_offset() & (m - 1)) != 0) {
     nop();
   }
@@ -582,7 +753,8 @@ void Assembler::bind(Label* label) {
       // Internal references do not get patched to an instruction but directly
       // to an address.
       internal_reference_positions_.push_back(linkoffset);
-      memcpy(link, &pc_, kSystemPointerSize);
+      PatchingAssembler patcher(options(), reinterpret_cast<byte*>(link), 2);
+      patcher.dc64(reinterpret_cast<uintptr_t>(pc_));
     } else {
       link->SetImmPCOffsetTarget(options(),
                                  reinterpret_cast<Instruction*>(pc_));
@@ -698,6 +870,32 @@ void Assembler::DeleteUnresolvedBranchInfoForLabel(Label* label) {
   }
 }
 
+void Assembler::StartBlockConstPool() {
+  if (const_pool_blocked_nesting_++ == 0) {
+    // Prevent constant pool checks happening by setting the next check to
+    // the biggest possible offset.
+    next_constant_pool_check_ = kMaxInt;
+  }
+}
+
+void Assembler::EndBlockConstPool() {
+  if (--const_pool_blocked_nesting_ == 0) {
+    // Check the constant pool hasn't been blocked for too long.
+    DCHECK(pc_offset() < constpool_.MaxPcOffset());
+    // Two cases:
+    //  * no_const_pool_before_ >= next_constant_pool_check_ and the emission is
+    //    still blocked
+    //  * no_const_pool_before_ < next_constant_pool_check_ and the next emit
+    //    will trigger a check.
+    next_constant_pool_check_ = no_const_pool_before_;
+  }
+}
+
+bool Assembler::is_const_pool_blocked() const {
+  return (const_pool_blocked_nesting_ > 0) ||
+         (pc_offset() < no_const_pool_before_);
+}
+
 bool Assembler::IsConstantPoolAt(Instruction* instr) {
   // The constant pool marker is made of two instructions. These instructions
   // will never be emitted by the JIT, so checking for the first one is enough:
@@ -762,7 +960,7 @@ void Assembler::blr(const Register& xn) {
   DCHECK(xn.Is64Bits());
   // The pattern 'blr xzr' is used as a guard to detect when execution falls
   // through the constant pool. It should not be emitted.
-  DCHECK_NE(xn, xzr);
+  DCHECK(!xn.Is(xzr));
   Emit(BLR | Rn(xn));
 }
 
@@ -1189,35 +1387,6 @@ void Assembler::cls(const Register& rd, const Register& rn) {
   DataProcessing1Source(rd, rn, CLS);
 }
 
-void Assembler::pacib1716() { Emit(PACIB1716); }
-void Assembler::autib1716() { Emit(AUTIB1716); }
-void Assembler::pacibsp() { Emit(PACIBSP); }
-void Assembler::autibsp() { Emit(AUTIBSP); }
-
-void Assembler::bti(BranchTargetIdentifier id) {
-  SystemHint op;
-  switch (id) {
-    case BranchTargetIdentifier::kBti:
-      op = BTI;
-      break;
-    case BranchTargetIdentifier::kBtiCall:
-      op = BTI_c;
-      break;
-    case BranchTargetIdentifier::kBtiJump:
-      op = BTI_j;
-      break;
-    case BranchTargetIdentifier::kBtiJumpCall:
-      op = BTI_jc;
-      break;
-    case BranchTargetIdentifier::kNone:
-    case BranchTargetIdentifier::kPacibsp:
-      // We always want to generate a BTI instruction here, so disallow
-      // skipping its generation or generating a PACIBSP instead.
-      UNREACHABLE();
-  }
-  hint(op);
-}
-
 void Assembler::ldp(const CPURegister& rt, const CPURegister& rt2,
                     const MemOperand& src) {
   LoadStorePair(rt, rt2, src, LoadPairOpFor(rt, rt2));
@@ -1226,12 +1395,6 @@ void Assembler::ldp(const CPURegister& rt, const CPURegister& rt2,
 void Assembler::stp(const CPURegister& rt, const CPURegister& rt2,
                     const MemOperand& dst) {
   LoadStorePair(rt, rt2, dst, StorePairOpFor(rt, rt2));
-
-#if defined(V8_OS_WIN)
-  if (xdata_encoder_ && rt == x29 && rt2 == lr && dst.base().IsSP()) {
-    xdata_encoder_->onSaveFpLr();
-  }
-#endif
 }
 
 void Assembler::ldpsw(const Register& rt, const Register& rt2,
@@ -1243,7 +1406,7 @@ void Assembler::ldpsw(const Register& rt, const Register& rt2,
 void Assembler::LoadStorePair(const CPURegister& rt, const CPURegister& rt2,
                               const MemOperand& addr, LoadStorePairOp op) {
   // 'rt' and 'rt2' can only be aliased for stores.
-  DCHECK(((op & LoadStorePairLBit) == 0) || rt != rt2);
+  DCHECK(((op & LoadStorePairLBit) == 0) || !rt.Is(rt2));
   DCHECK(AreSameSizeAndType(rt, rt2));
   DCHECK(IsImmLSPair(addr.offset(), CalcLSPairDataSize(op)));
   int offset = static_cast<int>(addr.offset());
@@ -1256,8 +1419,8 @@ void Assembler::LoadStorePair(const CPURegister& rt, const CPURegister& rt2,
     addrmodeop = LoadStorePairOffsetFixed;
   } else {
     // Pre-index and post-index modes.
-    DCHECK_NE(rt, addr.base());
-    DCHECK_NE(rt2, addr.base());
+    DCHECK(!rt.Is(addr.base()));
+    DCHECK(!rt2.Is(addr.base()));
     DCHECK_NE(addr.offset(), 0);
     if (addr.IsPreIndex()) {
       addrmodeop = LoadStorePairPreIndexFixed;
@@ -1334,7 +1497,6 @@ Operand Operand::EmbeddedStringConstant(const StringConstantBase* str) {
 
 void Assembler::ldr(const CPURegister& rt, const Operand& operand) {
   if (operand.IsHeapObjectRequest()) {
-    BlockPoolsScope no_pool_before_ldr_of_heap_object_request(this);
     RequestHeapObject(operand.heap_object_request());
     ldr(rt, operand.immediate_for_heap_object_request());
   } else {
@@ -1343,8 +1505,11 @@ void Assembler::ldr(const CPURegister& rt, const Operand& operand) {
 }
 
 void Assembler::ldr(const CPURegister& rt, const Immediate& imm) {
-  BlockPoolsScope no_pool_before_ldr_pcrel_instr(this);
+  // Currently we only support 64-bit literals.
+  DCHECK(rt.Is64Bits());
+
   RecordRelocInfo(imm.rmode(), imm.value());
+  BlockConstPoolFor(1);
   // The load will be patched when the constpool is emitted, patching code
   // expect a load literal with offset 0.
   ldr_pcrel(rt, 0);
@@ -1371,7 +1536,7 @@ void Assembler::stlr(const Register& rt, const Register& rn) {
 void Assembler::stlxr(const Register& rs, const Register& rt,
                       const Register& rn) {
   DCHECK(rn.Is64Bits());
-  DCHECK(rs != rt && rs != rn);
+  DCHECK(!rs.Is(rt) && !rs.Is(rn));
   LoadStoreAcquireReleaseOp op = rt.Is32Bits() ? STLXR_w : STLXR_x;
   Emit(op | Rs(rs) | Rt2(x31) | RnSP(rn) | Rt(rt));
 }
@@ -1399,7 +1564,7 @@ void Assembler::stlxrb(const Register& rs, const Register& rt,
   DCHECK(rs.Is32Bits());
   DCHECK(rt.Is32Bits());
   DCHECK(rn.Is64Bits());
-  DCHECK(rs != rt && rs != rn);
+  DCHECK(!rs.Is(rt) && !rs.Is(rn));
   Emit(STLXR_b | Rs(rs) | Rt2(x31) | RnSP(rn) | Rt(rt));
 }
 
@@ -1426,7 +1591,7 @@ void Assembler::stlxrh(const Register& rs, const Register& rt,
   DCHECK(rs.Is32Bits());
   DCHECK(rt.Is32Bits());
   DCHECK(rn.Is64Bits());
-  DCHECK(rs != rt && rs != rn);
+  DCHECK(!rs.Is(rt) && !rs.Is(rn));
   Emit(STLXR_h | Rs(rs) | Rt2(x31) | RnSP(rn) | Rt(rt));
 }
 
@@ -2316,7 +2481,7 @@ void Assembler::LoadStoreStructVerify(const VRegister& vt,
       default:
         UNREACHABLE();
     }
-    DCHECK(addr.regoffset() != NoReg || addr.offset() == offset);
+    DCHECK(!addr.regoffset().Is(NoReg) || addr.offset() == offset);
   }
 #else
   USE(vt);
@@ -2627,7 +2792,7 @@ void Assembler::fmov(const VRegister& vd, float imm) {
     DCHECK(vd.Is1S());
     Emit(FMOV_s_imm | Rd(vd) | ImmFP(imm));
   } else {
-    DCHECK(vd.Is2S() || vd.Is4S());
+    DCHECK(vd.Is2S() | vd.Is4S());
     Instr op = NEONModifiedImmediate_MOVI;
     Instr q = vd.Is4S() ? NEON_Q : 0;
     Emit(q | op | ImmNEONFP(imm) | NEONCmode(0xF) | Rd(vd));
@@ -2786,11 +2951,6 @@ void Assembler::fcvtxn2(const VRegister& vd, const VRegister& vn) {
   DCHECK(vd.Is4S() && vn.Is2D());
   Instr format = 1 << NEONSize_offset;
   Emit(NEON_Q | format | NEON_FCVTXN | Rn(vn) | Rd(vd));
-}
-
-void Assembler::fjcvtzs(const Register& rd, const VRegister& vn) {
-  DCHECK(rd.IsW() && vn.Is1D());
-  Emit(FJCVTZS | Rn(vn) | Rd(rd));
 }
 
 #define NEON_FP2REGMISC_FCVT_LIST(V) \
@@ -3226,11 +3386,9 @@ void Assembler::movi(const VRegister& vd, const uint64_t imm, Shift shift,
     Emit(q | NEONModImmOp(1) | NEONModifiedImmediate_MOVI |
          ImmNEONabcdefgh(imm8) | NEONCmode(0xE) | Rd(vd));
   } else if (shift == LSL) {
-    DCHECK(is_uint8(imm));
     NEONModifiedImmShiftLsl(vd, static_cast<int>(imm), shift_amount,
                             NEONModifiedImmediate_MOVI);
   } else {
-    DCHECK(is_uint8(imm));
     NEONModifiedImmShiftMsl(vd, static_cast<int>(imm), shift_amount,
                             NEONModifiedImmediate_MOVI);
   }
@@ -3521,7 +3679,6 @@ void Assembler::dup(const VRegister& vd, const VRegister& vn, int vn_index) {
 }
 
 void Assembler::dcptr(Label* label) {
-  BlockPoolsScope no_pool_inbetween(this);
   RecordRelocInfo(RelocInfo::INTERNAL_REFERENCE);
   if (label->is_bound()) {
     // The label is bound, so it does not need to be updated and the internal
@@ -3695,13 +3852,11 @@ void Assembler::EmitStringData(const char* string) {
 }
 
 void Assembler::debug(const char* message, uint32_t code, Instr params) {
+#ifdef USE_SIMULATOR
   if (options().enable_simulator_code) {
-    size_t size_of_debug_sequence =
-        4 * kInstrSize + RoundUp<kInstrSize>(strlen(message) + 1);
-
     // The arguments to the debug marker need to be contiguous in memory, so
     // make sure we don't try to emit pools.
-    BlockPoolsScope scope(this, size_of_debug_sequence);
+    BlockPoolsScope scope(this);
 
     Label start;
     bind(&start);
@@ -3716,10 +3871,15 @@ void Assembler::debug(const char* message, uint32_t code, Instr params) {
     DCHECK_EQ(SizeOfCodeGeneratedSince(&start), kDebugMessageOffset);
     EmitStringData(message);
     hlt(kImmExceptionIsUnreachable);
-    DCHECK_EQ(SizeOfCodeGeneratedSince(&start), size_of_debug_sequence);
 
     return;
   }
+  // Fall through if Serializer is enabled.
+#else
+  // Make sure we haven't dynamically enabled simulator code when there is no
+  // simulator built in.
+  DCHECK(!options().enable_simulator_code);
+#endif
 
   if (params & BREAK) {
     brk(0);
@@ -3985,7 +4145,7 @@ void Assembler::LoadStore(const CPURegister& rt, const MemOperand& addr,
          ExtendMode(ext) | ImmShiftLS((shift_amount > 0) ? 1 : 0));
   } else {
     // Pre-index and post-index modes.
-    DCHECK_NE(rt, addr.base());
+    DCHECK(!rt.Is(addr.base()));
     if (IsImmLSUnscaled(addr.offset())) {
       int offset = static_cast<int>(addr.offset());
       if (addr.IsPreIndex()) {
@@ -4004,24 +4164,19 @@ void Assembler::LoadStore(const CPURegister& rt, const MemOperand& addr,
 bool Assembler::IsImmLSUnscaled(int64_t offset) { return is_int9(offset); }
 
 bool Assembler::IsImmLSScaled(int64_t offset, unsigned size) {
-  bool offset_is_size_multiple =
-      (static_cast<int64_t>(static_cast<uint64_t>(offset >> size) << size) ==
-       offset);
+  bool offset_is_size_multiple = (((offset >> size) << size) == offset);
   return offset_is_size_multiple && is_uint12(offset >> size);
 }
 
 bool Assembler::IsImmLSPair(int64_t offset, unsigned size) {
-  bool offset_is_size_multiple =
-      (static_cast<int64_t>(static_cast<uint64_t>(offset >> size) << size) ==
-       offset);
+  bool offset_is_size_multiple = (((offset >> size) << size) == offset);
   return offset_is_size_multiple && is_int7(offset >> size);
 }
 
 bool Assembler::IsImmLLiteral(int64_t offset) {
   int inst_size = static_cast<int>(kInstrSizeLog2);
   bool offset_is_inst_multiple =
-      (static_cast<int64_t>(static_cast<uint64_t>(offset >> inst_size)
-                            << inst_size) == offset);
+      (((offset >> inst_size) << inst_size) == offset);
   DCHECK_GT(offset, 0);
   offset >>= kLoadLiteralScaleLog2;
   return offset_is_inst_multiple && is_intn(offset, ImmLLiteral_width);
@@ -4220,9 +4375,9 @@ bool Assembler::IsImmLogical(uint64_t value, unsigned width, unsigned* n,
   //    1110ss     4    UInt(ss)
   //    11110s     2    UInt(s)
   //
-  // So we 'or' (-d * 2) with our computed s to form imms.
+  // So we 'or' (-d << 1) with our computed s to form imms.
   *n = out_n;
-  *imm_s = ((-d * 2) | (s - 1)) & 0x3F;
+  *imm_s = ((-d << 1) | (s - 1)) & 0x3F;
   *imm_r = r;
 
   return true;
@@ -4316,10 +4471,8 @@ void Assembler::GrowBuffer() {
 
   // Relocate internal references.
   for (auto pos : internal_reference_positions_) {
-    Address address = reinterpret_cast<intptr_t>(buffer_start_) + pos;
-    intptr_t internal_ref = ReadUnalignedValue<intptr_t>(address);
-    internal_ref += pc_delta;
-    WriteUnalignedValue<intptr_t>(address, internal_ref);
+    intptr_t* p = reinterpret_cast<intptr_t*>(buffer_start_ + pos);
+    *p += pc_delta;
   }
 
   // Pending relocation entries are also relative, no need to relocate.
@@ -4328,47 +4481,27 @@ void Assembler::GrowBuffer() {
 void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data,
                                 ConstantPoolMode constant_pool_mode) {
   if ((rmode == RelocInfo::INTERNAL_REFERENCE) ||
-      (rmode == RelocInfo::DATA_EMBEDDED_OBJECT) ||
       (rmode == RelocInfo::CONST_POOL) || (rmode == RelocInfo::VENEER_POOL) ||
       (rmode == RelocInfo::DEOPT_SCRIPT_OFFSET) ||
       (rmode == RelocInfo::DEOPT_INLINING_ID) ||
-      (rmode == RelocInfo::DEOPT_REASON) || (rmode == RelocInfo::DEOPT_ID) ||
-      (rmode == RelocInfo::LITERAL_CONSTANT) ||
-      (rmode == RelocInfo::DEOPT_NODE_ID)) {
+      (rmode == RelocInfo::DEOPT_REASON) || (rmode == RelocInfo::DEOPT_ID)) {
     // Adjust code for new modes.
     DCHECK(RelocInfo::IsDeoptReason(rmode) || RelocInfo::IsDeoptId(rmode) ||
-           RelocInfo::IsDeoptNodeId(rmode) ||
            RelocInfo::IsDeoptPosition(rmode) ||
            RelocInfo::IsInternalReference(rmode) ||
-           RelocInfo::IsDataEmbeddedObject(rmode) ||
-           RelocInfo::IsLiteralConstant(rmode) ||
            RelocInfo::IsConstPool(rmode) || RelocInfo::IsVeneerPool(rmode));
     // These modes do not need an entry in the constant pool.
   } else if (constant_pool_mode == NEEDS_POOL_ENTRY) {
-    if (RelocInfo::IsEmbeddedObjectMode(rmode)) {
-      Handle<HeapObject> handle(reinterpret_cast<Address*>(data));
-      data = AddEmbeddedObject(handle);
-    }
-    if (rmode == RelocInfo::COMPRESSED_EMBEDDED_OBJECT) {
-      if (constpool_.RecordEntry(static_cast<uint32_t>(data), rmode) ==
-          RelocInfoStatus::kMustOmitForDuplicate) {
-        return;
-      }
-    } else {
-      if (constpool_.RecordEntry(static_cast<uint64_t>(data), rmode) ==
-          RelocInfoStatus::kMustOmitForDuplicate) {
-        return;
-      }
-    }
+    bool new_constpool_entry = constpool_.RecordEntry(data, rmode);
+    // Make sure the constant pool is not emitted in place of the next
+    // instruction for which we just recorded relocation info.
+    BlockConstPoolFor(1);
+    if (!new_constpool_entry) return;
   }
   // For modes that cannot use the constant pool, a different sequence of
   // instructions will be emitted by this function's caller.
 
   if (!ShouldRecordRelocInfo(rmode)) return;
-
-  // Callers should ensure that constant pool emission is blocked until the
-  // instruction the reloc info is associated with has been emitted.
-  DCHECK(constpool_.IsBlocked());
 
   // We do not try to reuse pool constants.
   RelocInfo rinfo(reinterpret_cast<Address>(pc_), rmode, data, Code());
@@ -4378,133 +4511,104 @@ void Assembler::RecordRelocInfo(RelocInfo::Mode rmode, intptr_t data,
 }
 
 void Assembler::near_jump(int offset, RelocInfo::Mode rmode) {
-  BlockPoolsScope no_pool_before_b_instr(this);
-  if (!RelocInfo::IsNoInfo(rmode))
-    RecordRelocInfo(rmode, offset, NO_POOL_ENTRY);
+  if (!RelocInfo::IsNone(rmode)) RecordRelocInfo(rmode, offset, NO_POOL_ENTRY);
   b(offset);
 }
 
 void Assembler::near_call(int offset, RelocInfo::Mode rmode) {
-  BlockPoolsScope no_pool_before_bl_instr(this);
-  if (!RelocInfo::IsNoInfo(rmode))
-    RecordRelocInfo(rmode, offset, NO_POOL_ENTRY);
+  if (!RelocInfo::IsNone(rmode)) RecordRelocInfo(rmode, offset, NO_POOL_ENTRY);
   bl(offset);
 }
 
 void Assembler::near_call(HeapObjectRequest request) {
-  BlockPoolsScope no_pool_before_bl_instr(this);
   RequestHeapObject(request);
-  EmbeddedObjectIndex index = AddEmbeddedObject(Handle<CodeT>());
+  int index = AddCodeTarget(Handle<Code>());
   RecordRelocInfo(RelocInfo::CODE_TARGET, index, NO_POOL_ENTRY);
-  DCHECK(is_int32(index));
-  bl(static_cast<int>(index));
+  bl(index);
 }
 
-// Constant Pool
+void Assembler::BlockConstPoolFor(int instructions) {
+  int pc_limit = pc_offset() + instructions * kInstrSize;
+  if (no_const_pool_before_ < pc_limit) {
+    no_const_pool_before_ = pc_limit;
+    // Make sure the pool won't be blocked for too long.
+    DCHECK(pc_limit < constpool_.MaxPcOffset());
+  }
 
-void ConstantPool::EmitPrologue(Alignment require_alignment) {
-  // Recorded constant pool size is expressed in number of 32-bits words,
-  // and includes prologue and alignment, but not the jump around the pool
-  // and the size of the marker itself.
-  const int marker_size = 1;
-  int word_count =
-      ComputeSize(Jump::kOmitted, require_alignment) / kInt32Size - marker_size;
-  assm_->Emit(LDR_x_lit | Assembler::ImmLLiteral(word_count) |
-              Assembler::Rt(xzr));
-  assm_->EmitPoolGuard();
+  if (next_constant_pool_check_ < no_const_pool_before_) {
+    next_constant_pool_check_ = no_const_pool_before_;
+  }
 }
 
-int ConstantPool::PrologueSize(Jump require_jump) const {
-  // Prologue is:
-  //   b   over  ;; if require_jump
-  //   ldr xzr, #pool_size
-  //   blr xzr
-  int prologue_size = require_jump == Jump::kRequired ? kInstrSize : 0;
-  prologue_size += 2 * kInstrSize;
-  return prologue_size;
-}
-
-void ConstantPool::SetLoadOffsetToConstPoolEntry(int load_offset,
-                                                 Instruction* entry_offset,
-                                                 const ConstantPoolKey& key) {
-  Instruction* instr = assm_->InstructionAt(load_offset);
-  // Instruction to patch must be 'ldr rd, [pc, #offset]' with offset == 0.
-  DCHECK(instr->IsLdrLiteral() && instr->ImmLLiteral() == 0);
-  instr->SetImmPCOffsetTarget(assm_->options(), entry_offset);
-}
-
-void ConstantPool::Check(Emission force_emit, Jump require_jump,
-                         size_t margin) {
-  // Some short sequence of instruction must not be broken up by constant pool
-  // emission, such sequences are protected by a ConstPool::BlockScope.
-  if (IsBlocked()) {
+void Assembler::CheckConstPool(bool force_emit, bool require_jump) {
+  // Some short sequence of instruction mustn't be broken up by constant pool
+  // emission, such sequences are protected by calls to BlockConstPoolFor and
+  // BlockConstPoolScope.
+  if (is_const_pool_blocked()) {
     // Something is wrong if emission is forced and blocked at the same time.
-    DCHECK_EQ(force_emit, Emission::kIfNeeded);
+    DCHECK(!force_emit);
     return;
   }
 
-  // We emit a constant pool only if :
-  //  * it is not empty
-  //  * emission is forced by parameter force_emit (e.g. at function end).
-  //  * emission is mandatory or opportune according to {ShouldEmitNow}.
-  if (!IsEmpty() && (force_emit == Emission::kForced ||
-                     ShouldEmitNow(require_jump, margin))) {
-    // Emit veneers for branches that would go out of range during emission of
-    // the constant pool.
-    int worst_case_size = ComputeSize(Jump::kRequired, Alignment::kRequired);
-    assm_->CheckVeneerPool(false, require_jump == Jump::kRequired,
-                           assm_->kVeneerDistanceMargin + worst_case_size +
-                               static_cast<int>(margin));
-
-    // Check that the code buffer is large enough before emitting the constant
-    // pool (this includes the gap to the relocation information).
-    int needed_space = worst_case_size + assm_->kGap;
-    while (assm_->buffer_space() <= needed_space) {
-      assm_->GrowBuffer();
-    }
-
-    EmitAndClear(require_jump);
+  // There is nothing to do if there are no pending constant pool entries.
+  if (constpool_.IsEmpty()) {
+    // Calculate the offset of the next check.
+    SetNextConstPoolCheckIn(kCheckConstPoolInterval);
+    return;
   }
-  // Since a constant pool is (now) empty, move the check offset forward by
+
+  // We emit a constant pool when:
+  //  * requested to do so by parameter force_emit (e.g. after each function).
+  //  * the distance to the first instruction accessing the constant pool is
+  //    kApproxMaxDistToConstPool or more.
+  //  * the number of entries in the pool is kApproxMaxPoolEntryCount or more.
+  int dist = constpool_.DistanceToFirstUse();
+  int count = constpool_.EntryCount();
+  if (!force_emit && (dist < kApproxMaxDistToConstPool) &&
+      (count < kApproxMaxPoolEntryCount)) {
+    return;
+  }
+
+  // Emit veneers for branches that would go out of range during emission of the
+  // constant pool.
+  int worst_case_size = constpool_.WorstCaseSize();
+  CheckVeneerPool(false, require_jump, kVeneerDistanceMargin + worst_case_size);
+
+  // Check that the code buffer is large enough before emitting the constant
+  // pool (this includes the gap to the relocation information).
+  int needed_space = worst_case_size + kGap + 1 * kInstrSize;
+  while (buffer_space() <= needed_space) {
+    GrowBuffer();
+  }
+
+  Label size_check;
+  bind(&size_check);
+  constpool_.Emit(require_jump);
+  DCHECK(SizeOfCodeGeneratedSince(&size_check) <=
+         static_cast<unsigned>(worst_case_size));
+
+  // Since a constant pool was just emitted, move the check offset forward by
   // the standard interval.
-  SetNextCheckIn(ConstantPool::kCheckInterval);
+  SetNextConstPoolCheckIn(kCheckConstPoolInterval);
 }
 
-// Pool entries are accessed with pc relative load therefore this cannot be more
-// than 1 * MB. Since constant pool emission checks are interval based, and we
-// want to keep entries close to the code, we try to emit every 64KB.
-const size_t ConstantPool::kMaxDistToPool32 = 1 * MB;
-const size_t ConstantPool::kMaxDistToPool64 = 1 * MB;
-const size_t ConstantPool::kCheckInterval = 128 * kInstrSize;
-const size_t ConstantPool::kApproxDistToPool32 = 64 * KB;
-const size_t ConstantPool::kApproxDistToPool64 = kApproxDistToPool32;
-
-const size_t ConstantPool::kOpportunityDistToPool32 = 64 * KB;
-const size_t ConstantPool::kOpportunityDistToPool64 = 64 * KB;
-const size_t ConstantPool::kApproxMaxEntryCount = 512;
-
-intptr_t Assembler::MaxPCOffsetAfterVeneerPoolIfEmittedNow(size_t margin) {
-  // Account for the branch and guard around the veneers.
-  static constexpr int kBranchSizeInBytes = kInstrSize;
-  static constexpr int kGuardSizeInBytes = kInstrSize;
-  const size_t max_veneer_size_in_bytes =
-      unresolved_branches_.size() * kVeneerCodeSize;
-  return static_cast<intptr_t>(pc_offset() + kBranchSizeInBytes +
-                               kGuardSizeInBytes + max_veneer_size_in_bytes +
-                               margin);
+bool Assembler::ShouldEmitVeneer(int max_reachable_pc, int margin) {
+  // Account for the branch around the veneers and the guard.
+  int protection_offset = 2 * kInstrSize;
+  return pc_offset() >
+         max_reachable_pc - margin - protection_offset -
+             static_cast<int>(unresolved_branches_.size() * kMaxVeneerCodeSize);
 }
 
 void Assembler::RecordVeneerPool(int location_offset, int size) {
-  Assembler::BlockPoolsScope block_pools(this, PoolEmissionCheck::kSkip);
   RelocInfo rinfo(reinterpret_cast<Address>(buffer_start_) + location_offset,
                   RelocInfo::VENEER_POOL, static_cast<intptr_t>(size), Code());
   reloc_info_writer.Write(&rinfo);
 }
 
-void Assembler::EmitVeneers(bool force_emit, bool need_protection,
-                            size_t margin) {
-  ASM_CODE_COMMENT(this);
-  BlockPoolsScope scope(this, PoolEmissionCheck::kSkip);
+void Assembler::EmitVeneers(bool force_emit, bool need_protection, int margin) {
+  BlockPoolsScope scope(this);
+  RecordComment("[ Veneers");
 
   // The exact size of the veneer pool must be recorded (see the comment at the
   // declaration site of RecordConstPool()), but computing the number of
@@ -4522,42 +4626,44 @@ void Assembler::EmitVeneers(bool force_emit, bool need_protection,
 
   EmitVeneersGuard();
 
-  // We only emit veneers if needed (unless emission is forced), i.e. when the
-  // max-reachable-pc of the branch has been exhausted by the current codegen
-  // state. Specifically, we emit when the max-reachable-pc of the branch <= the
-  // max-pc-after-veneers (over-approximated).
-  const intptr_t max_pc_after_veneers =
-      MaxPCOffsetAfterVeneerPoolIfEmittedNow(margin);
+#ifdef DEBUG
+  Label veneer_size_check;
+#endif
 
-  // The `unresolved_branches_` multimap is sorted by max-reachable-pc in
-  // ascending order. For efficiency reasons, we want to call
-  // RemoveBranchFromLabelLinkChain in descending order. The actual veneers are
-  // then generated in ascending order.
-  // TODO(jgruber): This is still inefficient in multiple ways, thoughts on how
-  // we could improve in the future:
-  // - Don't erase individual elements from the multimap, erase a range instead.
-  // - Replace the multimap by a simpler data structure (like a plain vector or
-  //   a circular array).
-  // - Refactor s.t. RemoveBranchFromLabelLinkChain does not need the linear
-  //   lookup in the link chain.
+  std::multimap<int, FarBranchInfo>::iterator it, it_to_delete;
 
-  static constexpr int kStaticTasksSize = 16;  // Arbitrary.
-  base::SmallVector<FarBranchInfo, kStaticTasksSize> tasks;
+  it = unresolved_branches_.begin();
+  while (it != unresolved_branches_.end()) {
+    if (force_emit || ShouldEmitVeneer(it->first, margin)) {
+      Instruction* branch = InstructionAt(it->second.pc_offset_);
+      Label* label = it->second.label_;
 
-  {
-    auto it = unresolved_branches_.begin();
-    while (it != unresolved_branches_.end()) {
-      const int max_reachable_pc = it->first;
-      if (!force_emit && max_reachable_pc > max_pc_after_veneers) break;
+#ifdef DEBUG
+      bind(&veneer_size_check);
+#endif
+      // Patch the branch to point to the current position, and emit a branch
+      // to the label.
+      Instruction* veneer = reinterpret_cast<Instruction*>(pc_);
+      RemoveBranchFromLabelLinkChain(branch, label, veneer);
+      branch->SetImmPCOffsetTarget(options(), veneer);
+      b(label);
+#ifdef DEBUG
+      DCHECK(SizeOfCodeGeneratedSince(&veneer_size_check) <=
+             static_cast<uint64_t>(kMaxVeneerCodeSize));
+      veneer_size_check.Unuse();
+#endif
 
-      // Found a task. We'll emit a veneer for this.
-      tasks.emplace_back(it->second);
-      auto eraser_it = it++;
-      unresolved_branches_.erase(eraser_it);
+      it_to_delete = it++;
+      unresolved_branches_.erase(it_to_delete);
+    } else {
+      ++it;
     }
   }
 
-  // Update next_veneer_pool_check_ (tightly coupled with unresolved_branches_).
+  // Record the veneer pool size.
+  int pool_size = static_cast<int>(SizeOfCodeGeneratedSince(&size_check));
+  RecordVeneerPool(veneer_pool_relocinfo_loc, pool_size);
+
   if (unresolved_branches_.empty()) {
     next_veneer_pool_check_ = kMaxInt;
   } else {
@@ -4565,42 +4671,13 @@ void Assembler::EmitVeneers(bool force_emit, bool need_protection,
         unresolved_branches_first_limit() - kVeneerDistanceCheckMargin;
   }
 
-  // Reminder: We iterate in reverse order to avoid duplicate linked-list
-  // iteration in RemoveBranchFromLabelLinkChain (which starts at the target
-  // label, and iterates backwards through linked branch instructions).
-
-  const int tasks_size = static_cast<int>(tasks.size());
-  for (int i = tasks_size - 1; i >= 0; i--) {
-    Instruction* branch = InstructionAt(tasks[i].pc_offset_);
-    Instruction* veneer = reinterpret_cast<Instruction*>(
-        reinterpret_cast<uintptr_t>(pc_) + i * kVeneerCodeSize);
-    RemoveBranchFromLabelLinkChain(branch, tasks[i].label_, veneer);
-  }
-
-  // Now emit the actual veneer and patch up the incoming branch.
-
-  for (const FarBranchInfo& info : tasks) {
-#ifdef DEBUG
-    Label veneer_size_check;
-    bind(&veneer_size_check);
-#endif
-    Instruction* branch = InstructionAt(info.pc_offset_);
-    Instruction* veneer = reinterpret_cast<Instruction*>(pc_);
-    branch->SetImmPCOffsetTarget(options(), veneer);
-    b(info.label_);  // This may end up pointing at yet another veneer later on.
-    DCHECK_EQ(SizeOfCodeGeneratedSince(&veneer_size_check),
-              static_cast<uint64_t>(kVeneerCodeSize));
-  }
-
-  // Record the veneer pool size.
-  int pool_size = static_cast<int>(SizeOfCodeGeneratedSince(&size_check));
-  RecordVeneerPool(veneer_pool_relocinfo_loc, pool_size);
-
   bind(&end);
+
+  RecordComment("]");
 }
 
 void Assembler::CheckVeneerPool(bool force_emit, bool require_jump,
-                                size_t margin) {
+                                int margin) {
   // There is nothing to do if there are no pending veneer pool entries.
   if (unresolved_branches_.empty()) {
     DCHECK_EQ(next_veneer_pool_check_, kMaxInt);
@@ -4636,7 +4713,6 @@ int Assembler::buffer_space() const {
 void Assembler::RecordConstPool(int size) {
   // We only need this for debugger support, to correctly compute offsets in the
   // code.
-  Assembler::BlockPoolsScope block_pools(this);
   RecordRelocInfo(RelocInfo::CONST_POOL, static_cast<intptr_t>(size));
 }
 

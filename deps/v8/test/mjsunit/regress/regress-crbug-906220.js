@@ -4,10 +4,8 @@
 
 // Flags: --allow-natives-syntax
 
-function foo() {
-  new Array().pop();
-};
-%PrepareFunctionForOptimization(foo);
+function foo() { new Array().pop(); }
+
 assertEquals(undefined, foo());
 assertEquals(undefined, foo());
 %OptimizeFunctionOnNextCall(foo);

@@ -21,8 +21,7 @@
 
 #include <algorithm>
 
-#include "async_wrap-inl.h"
-#include "debug_utils-inl.h"
+#include "debug_utils.h"
 #include "env-inl.h"
 #include "node_errors.h"
 #include "node_internals.h"
@@ -31,21 +30,14 @@
 
 namespace node {
 
-using v8::Context;
-using v8::FunctionCallbackInfo;
-using v8::FunctionTemplate;
-using v8::Isolate;
-using v8::Local;
-using v8::Object;
-using v8::Value;
-
 Watchdog::Watchdog(v8::Isolate* isolate, uint64_t ms, bool* timed_out)
     : isolate_(isolate), timed_out_(timed_out) {
 
   int rc;
   rc = uv_loop_init(&loop_);
   if (rc != 0) {
-    OnFatalError("node::Watchdog::Watchdog()", "Failed to initialize uv loop.");
+    FatalError("node::Watchdog::Watchdog()",
+               "Failed to initialize uv loop.");
   }
 
   rc = uv_async_init(&loop_, &async_, [](uv_async_t* signal) {
@@ -102,7 +94,6 @@ void Watchdog::Timer(uv_timer_t* timer) {
 SigintWatchdog::SigintWatchdog(
   v8::Isolate* isolate, bool* received_signal)
     : isolate_(isolate), received_signal_(received_signal) {
-  Mutex::ScopedLock lock(SigintWatchdogHelper::GetInstanceActionMutex());
   // Register this watchdog with the global SIGINT/Ctrl+C listener.
   SigintWatchdogHelper::GetInstance()->Register(this);
   // Start the helper thread, if that has not already happened.
@@ -111,120 +102,14 @@ SigintWatchdog::SigintWatchdog(
 
 
 SigintWatchdog::~SigintWatchdog() {
-  Mutex::ScopedLock lock(SigintWatchdogHelper::GetInstanceActionMutex());
   SigintWatchdogHelper::GetInstance()->Unregister(this);
   SigintWatchdogHelper::GetInstance()->Stop();
 }
 
-SignalPropagation SigintWatchdog::HandleSigint() {
+
+void SigintWatchdog::HandleSigint() {
   *received_signal_ = true;
   isolate_->TerminateExecution();
-  return SignalPropagation::kStopPropagation;
-}
-
-void TraceSigintWatchdog::Init(Environment* env, Local<Object> target) {
-  Isolate* isolate = env->isolate();
-  Local<FunctionTemplate> constructor = NewFunctionTemplate(isolate, New);
-  constructor->InstanceTemplate()->SetInternalFieldCount(
-      TraceSigintWatchdog::kInternalFieldCount);
-  constructor->Inherit(HandleWrap::GetConstructorTemplate(env));
-
-  SetProtoMethod(isolate, constructor, "start", Start);
-  SetProtoMethod(isolate, constructor, "stop", Stop);
-
-  SetConstructorFunction(
-      env->context(), target, "TraceSigintWatchdog", constructor);
-}
-
-void TraceSigintWatchdog::New(const FunctionCallbackInfo<Value>& args) {
-  // This constructor should not be exposed to public javascript.
-  // Therefore we assert that we are not trying to call this as a
-  // normal function.
-  CHECK(args.IsConstructCall());
-  Environment* env = Environment::GetCurrent(args);
-  new TraceSigintWatchdog(env, args.This());
-}
-
-void TraceSigintWatchdog::Start(const FunctionCallbackInfo<Value>& args) {
-  TraceSigintWatchdog* watchdog;
-  ASSIGN_OR_RETURN_UNWRAP(&watchdog, args.Holder());
-  Mutex::ScopedLock lock(SigintWatchdogHelper::GetInstanceActionMutex());
-  // Register this watchdog with the global SIGINT/Ctrl+C listener.
-  SigintWatchdogHelper::GetInstance()->Register(watchdog);
-  // Start the helper thread, if that has not already happened.
-  int r = SigintWatchdogHelper::GetInstance()->Start();
-  CHECK_EQ(r, 0);
-}
-
-void TraceSigintWatchdog::Stop(const FunctionCallbackInfo<Value>& args) {
-  TraceSigintWatchdog* watchdog;
-  ASSIGN_OR_RETURN_UNWRAP(&watchdog, args.Holder());
-  Mutex::ScopedLock lock(SigintWatchdogHelper::GetInstanceActionMutex());
-  SigintWatchdogHelper::GetInstance()->Unregister(watchdog);
-  SigintWatchdogHelper::GetInstance()->Stop();
-}
-
-TraceSigintWatchdog::TraceSigintWatchdog(Environment* env, Local<Object> object)
-    : HandleWrap(env,
-                 object,
-                 reinterpret_cast<uv_handle_t*>(&handle_),
-                 AsyncWrap::PROVIDER_SIGINTWATCHDOG) {
-  int r = uv_async_init(env->event_loop(), &handle_, [](uv_async_t* handle) {
-    TraceSigintWatchdog* watchdog =
-        ContainerOf(&TraceSigintWatchdog::handle_, handle);
-    watchdog->signal_flag_ = SignalFlags::FromIdle;
-    watchdog->HandleInterrupt();
-  });
-  CHECK_EQ(r, 0);
-  uv_unref(reinterpret_cast<uv_handle_t*>(&handle_));
-}
-
-SignalPropagation TraceSigintWatchdog::HandleSigint() {
-  /**
-   * In case of uv loop polling, i.e. no JS currently running, activate the
-   * loop to run a piece of JS code to trigger interruption.
-   */
-  CHECK_EQ(uv_async_send(&handle_), 0);
-  env()->isolate()->RequestInterrupt(
-      [](v8::Isolate* isolate, void* data) {
-        TraceSigintWatchdog* self = static_cast<TraceSigintWatchdog*>(data);
-        if (self->signal_flag_ == SignalFlags::None) {
-          self->signal_flag_ = SignalFlags::FromInterrupt;
-        }
-        self->HandleInterrupt();
-      },
-      this);
-  return SignalPropagation::kContinuePropagation;
-}
-
-void TraceSigintWatchdog::HandleInterrupt() {
-  // Do not nest interrupts.
-  if (interrupting) {
-    return;
-  }
-  interrupting = true;
-  if (signal_flag_ == SignalFlags::None) {
-    return;
-  }
-  Environment* env_ = env();
-  // FIXME: Before
-  // https://github.com/nodejs/node/pull/29207#issuecomment-527667993 get
-  // fixed, additional JavaScript code evaluation shall be prevented from
-  // running during interruption.
-  FPrintF(stderr,
-      "KEYBOARD_INTERRUPT: Script execution was interrupted by `SIGINT`\n");
-  if (signal_flag_ == SignalFlags::FromInterrupt) {
-    PrintStackTrace(env_->isolate(),
-                    v8::StackTrace::CurrentStackTrace(
-                        env_->isolate(), 10, v8::StackTrace::kDetailed));
-  }
-  signal_flag_ = SignalFlags::None;
-  interrupting = false;
-
-  Mutex::ScopedLock lock(SigintWatchdogHelper::GetInstanceActionMutex());
-  SigintWatchdogHelper::GetInstance()->Unregister(this);
-  SigintWatchdogHelper::GetInstance()->Stop();
-  raise(SIGINT);
 }
 
 #ifdef __POSIX__
@@ -240,9 +125,8 @@ void* SigintWatchdogHelper::RunSigintWatchdog(void* arg) {
   return nullptr;
 }
 
-void SigintWatchdogHelper::HandleSignal(int signum,
-                                        siginfo_t* info,
-                                        void* ucontext) {
+
+void SigintWatchdogHelper::HandleSignal(int signum) {
   uv_sem_post(&instance.sem_);
 }
 
@@ -278,13 +162,8 @@ bool SigintWatchdogHelper::InformWatchdogsAboutSignal() {
     instance.has_pending_signal_ = true;
   }
 
-  for (auto it = instance.watchdogs_.rbegin(); it != instance.watchdogs_.rend();
-       it++) {
-    SignalPropagation wp = (*it)->HandleSigint();
-    if (wp == SignalPropagation::kStopPropagation) {
-      break;
-    }
-  }
+  for (auto it : instance.watchdogs_)
+    it->HandleSigint();
 
   return is_stopping;
 }
@@ -380,13 +259,15 @@ bool SigintWatchdogHelper::HasPendingSignal() {
   return has_pending_signal_;
 }
 
-void SigintWatchdogHelper::Register(SigintWatchdogBase* wd) {
+
+void SigintWatchdogHelper::Register(SigintWatchdog* wd) {
   Mutex::ScopedLock lock(list_mutex_);
 
   watchdogs_.push_back(wd);
 }
 
-void SigintWatchdogHelper::Unregister(SigintWatchdogBase* wd) {
+
+void SigintWatchdogHelper::Unregister(SigintWatchdog* wd) {
   Mutex::ScopedLock lock(list_mutex_);
 
   auto it = std::find(watchdogs_.begin(), watchdogs_.end(), wd);
@@ -420,18 +301,5 @@ SigintWatchdogHelper::~SigintWatchdogHelper() {
 }
 
 SigintWatchdogHelper SigintWatchdogHelper::instance;
-Mutex SigintWatchdogHelper::instance_action_mutex_;
-
-namespace watchdog {
-static void Initialize(Local<Object> target,
-                       Local<Value> unused,
-                       Local<Context> context,
-                       void* priv) {
-  Environment* env = Environment::GetCurrent(context);
-  TraceSigintWatchdog::Init(env, target);
-}
-}  // namespace watchdog
 
 }  // namespace node
-
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(watchdog, node::watchdog::Initialize)

@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --allow-natives-syntax --ignore-unhandled-promises
+// Flags: --allow-natives-syntax
 
-d8.file.execute('test/mjsunit/test-async.js');
+load('test/mjsunit/test-async.js');
 
 assertThrows(() => Promise.prototype.finally.call(5), TypeError);
 

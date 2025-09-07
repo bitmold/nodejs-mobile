@@ -5,9 +5,8 @@
 #ifndef V8_OBJECTS_JS_PROXY_INL_H_
 #define V8_OBJECTS_JS_PROXY_INL_H_
 
-#include "src/objects/instance-type-inl.h"
-#include "src/objects/js-objects-inl.h"
 #include "src/objects/js-proxy.h"
+
 #include "src/objects/objects-inl.h"  // Needed for write barriers
 
 // Has to be the last include (doesn't have include guards):
@@ -16,9 +15,12 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/js-proxy-tq-inl.inc"
+OBJECT_CONSTRUCTORS_IMPL(JSProxy, JSReceiver)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(JSProxy)
+CAST_ACCESSOR(JSProxy)
+
+ACCESSORS(JSProxy, target, Object, kTargetOffset)
+ACCESSORS(JSProxy, handler, Object, kHandlerOffset)
 
 bool JSProxy::IsRevoked() const { return !handler().IsJSReceiver(); }
 

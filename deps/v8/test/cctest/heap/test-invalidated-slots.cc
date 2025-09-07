@@ -4,12 +4,12 @@
 
 #include <stdlib.h>
 
+#include "src/init/v8.h"
+
 #include "src/heap/heap-inl.h"
 #include "src/heap/heap.h"
 #include "src/heap/invalidated-slots-inl.h"
 #include "src/heap/invalidated-slots.h"
-#include "src/heap/memory-chunk.h"
-#include "src/init/v8.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/heap/heap-tester.h"
 #include "test/cctest/heap/heap-utils.h"
@@ -24,11 +24,12 @@ Page* HeapTester::AllocateByteArraysOnPage(
   const int kLength = 256 - ByteArray::kHeaderSize;
   const int kSize = ByteArray::SizeFor(kLength);
   CHECK_EQ(kSize, 256);
+  Isolate* isolate = heap->isolate();
   PagedSpace* old_space = heap->old_space();
   Page* page;
   // Fill a page with byte arrays.
   {
-    AlwaysAllocateScopeForTesting always_allocate(heap);
+    AlwaysAllocateScope always_allocate(isolate);
     heap::SimulateFullSpace(old_space);
     ByteArray byte_array;
     CHECK(AllocateByteArrayForTest(heap, kLength, AllocationType::kOld)
@@ -43,17 +44,16 @@ Page* HeapTester::AllocateByteArraysOnPage(
       CHECK_EQ(page, Page::FromHeapObject(byte_array));
     }
   }
-  CHECK_NULL(page->invalidated_slots<OLD_TO_OLD>());
+  CHECK_NULL(page->invalidated_slots());
   return page;
 }
 
 HEAP_TEST(InvalidatedSlotsNoInvalidatedRanges) {
-  FLAG_stress_concurrent_allocation = false;  // For AllocateByteArraysOnPage.
   CcTest::InitializeVM();
   Heap* heap = CcTest::heap();
   std::vector<ByteArray> byte_arrays;
   Page* page = AllocateByteArraysOnPage(heap, &byte_arrays);
-  InvalidatedSlotsFilter filter = InvalidatedSlotsFilter::OldToOld(page);
+  InvalidatedSlotsFilter filter(page);
   for (ByteArray byte_array : byte_arrays) {
     Address start = byte_array.address() + ByteArray::kHeaderSize;
     Address end = byte_array.address() + byte_array.Size();
@@ -64,16 +64,16 @@ HEAP_TEST(InvalidatedSlotsNoInvalidatedRanges) {
 }
 
 HEAP_TEST(InvalidatedSlotsSomeInvalidatedRanges) {
-  FLAG_stress_concurrent_allocation = false;  // For AllocateByteArraysOnPage.
   CcTest::InitializeVM();
   Heap* heap = CcTest::heap();
   std::vector<ByteArray> byte_arrays;
   Page* page = AllocateByteArraysOnPage(heap, &byte_arrays);
   // Register every second byte arrays as invalidated.
   for (size_t i = 0; i < byte_arrays.size(); i += 2) {
-    page->RegisterObjectWithInvalidatedSlots<OLD_TO_OLD>(byte_arrays[i]);
+    page->RegisterObjectWithInvalidatedSlots(byte_arrays[i],
+                                             byte_arrays[i].Size());
   }
-  InvalidatedSlotsFilter filter = InvalidatedSlotsFilter::OldToOld(page);
+  InvalidatedSlotsFilter filter(page);
   for (size_t i = 0; i < byte_arrays.size(); i++) {
     ByteArray byte_array = byte_arrays[i];
     Address start = byte_array.address() + ByteArray::kHeaderSize;
@@ -89,16 +89,16 @@ HEAP_TEST(InvalidatedSlotsSomeInvalidatedRanges) {
 }
 
 HEAP_TEST(InvalidatedSlotsAllInvalidatedRanges) {
-  FLAG_stress_concurrent_allocation = false;  // For AllocateByteArraysOnPage.
   CcTest::InitializeVM();
   Heap* heap = CcTest::heap();
   std::vector<ByteArray> byte_arrays;
   Page* page = AllocateByteArraysOnPage(heap, &byte_arrays);
   // Register the all byte arrays as invalidated.
   for (size_t i = 0; i < byte_arrays.size(); i++) {
-    page->RegisterObjectWithInvalidatedSlots<OLD_TO_OLD>(byte_arrays[i]);
+    page->RegisterObjectWithInvalidatedSlots(byte_arrays[i],
+                                             byte_arrays[i].Size());
   }
-  InvalidatedSlotsFilter filter = InvalidatedSlotsFilter::OldToOld(page);
+  InvalidatedSlotsFilter filter(page);
   for (size_t i = 0; i < byte_arrays.size(); i++) {
     ByteArray byte_array = byte_arrays[i];
     Address start = byte_array.address() + ByteArray::kHeaderSize;
@@ -117,11 +117,12 @@ HEAP_TEST(InvalidatedSlotsAfterTrimming) {
   Page* page = AllocateByteArraysOnPage(heap, &byte_arrays);
   // Register the all byte arrays as invalidated.
   for (size_t i = 0; i < byte_arrays.size(); i++) {
-    page->RegisterObjectWithInvalidatedSlots<OLD_TO_OLD>(byte_arrays[i]);
+    page->RegisterObjectWithInvalidatedSlots(byte_arrays[i],
+                                             byte_arrays[i].Size());
   }
   // Trim byte arrays and check that the slots outside the byte arrays are
   // considered invalid if the old space page was swept.
-  InvalidatedSlotsFilter filter = InvalidatedSlotsFilter::OldToOld(page);
+  InvalidatedSlotsFilter filter(page);
   for (size_t i = 0; i < byte_arrays.size(); i++) {
     ByteArray byte_array = byte_arrays[i];
     Address start = byte_array.address() + ByteArray::kHeaderSize;
@@ -144,10 +145,11 @@ HEAP_TEST(InvalidatedSlotsEvacuationCandidate) {
   // This should be no-op because the page is marked as evacuation
   // candidate.
   for (size_t i = 0; i < byte_arrays.size(); i++) {
-    page->RegisterObjectWithInvalidatedSlots<OLD_TO_OLD>(byte_arrays[i]);
+    page->RegisterObjectWithInvalidatedSlots(byte_arrays[i],
+                                             byte_arrays[i].Size());
   }
   // All slots must still be valid.
-  InvalidatedSlotsFilter filter = InvalidatedSlotsFilter::OldToOld(page);
+  InvalidatedSlotsFilter filter(page);
   for (size_t i = 0; i < byte_arrays.size(); i++) {
     ByteArray byte_array = byte_arrays[i];
     Address start = byte_array.address() + ByteArray::kHeaderSize;
@@ -159,7 +161,6 @@ HEAP_TEST(InvalidatedSlotsEvacuationCandidate) {
 }
 
 HEAP_TEST(InvalidatedSlotsResetObjectRegression) {
-  FLAG_stress_concurrent_allocation = false;  // For AllocateByteArraysOnPage.
   CcTest::InitializeVM();
   Heap* heap = CcTest::heap();
   std::vector<ByteArray> byte_arrays;
@@ -168,10 +169,11 @@ HEAP_TEST(InvalidatedSlotsResetObjectRegression) {
   heap->RightTrimFixedArray(byte_arrays[0], byte_arrays[0].length() - 8);
   // Register the all byte arrays as invalidated.
   for (size_t i = 0; i < byte_arrays.size(); i++) {
-    page->RegisterObjectWithInvalidatedSlots<OLD_TO_OLD>(byte_arrays[i]);
+    page->RegisterObjectWithInvalidatedSlots(byte_arrays[i],
+                                             byte_arrays[i].Size());
   }
   // All slots must still be invalid.
-  InvalidatedSlotsFilter filter = InvalidatedSlotsFilter::OldToOld(page);
+  InvalidatedSlotsFilter filter(page);
   for (size_t i = 0; i < byte_arrays.size(); i++) {
     ByteArray byte_array = byte_arrays[i];
     Address start = byte_array.address() + ByteArray::kHeaderSize;
@@ -184,7 +186,7 @@ HEAP_TEST(InvalidatedSlotsResetObjectRegression) {
 
 Handle<FixedArray> AllocateArrayOnFreshPage(Isolate* isolate,
                                             PagedSpace* old_space, int length) {
-  AlwaysAllocateScopeForTesting always_allocate(isolate->heap());
+  AlwaysAllocateScope always_allocate(isolate);
   heap::SimulateFullSpace(old_space);
   return isolate->factory()->NewFixedArray(length, AllocationType::kOld);
 }
@@ -199,7 +201,6 @@ Handle<FixedArray> AllocateArrayOnEvacuationCandidate(Isolate* isolate,
 }
 
 HEAP_TEST(InvalidatedSlotsRightTrimFixedArray) {
-  if (!FLAG_incremental_marking) return;
   FLAG_manual_evacuation_candidates_selection = true;
   FLAG_parallel_compaction = false;
   ManualGCScope manual_gc_scope;
@@ -219,7 +220,7 @@ HEAP_TEST(InvalidatedSlotsRightTrimFixedArray) {
     trimmed->set(i, *evacuated);
   }
   {
-    HandleScope new_scope(isolate);
+    HandleScope scope(isolate);
     Handle<HeapObject> dead = factory->NewFixedArray(1);
     for (int i = 1; i < trimmed->length(); i++) {
       trimmed->set(i, *dead);
@@ -231,7 +232,6 @@ HEAP_TEST(InvalidatedSlotsRightTrimFixedArray) {
 }
 
 HEAP_TEST(InvalidatedSlotsRightTrimLargeFixedArray) {
-  if (!FLAG_incremental_marking) return;
   FLAG_manual_evacuation_candidates_selection = true;
   FLAG_parallel_compaction = false;
   ManualGCScope manual_gc_scope;
@@ -247,7 +247,7 @@ HEAP_TEST(InvalidatedSlotsRightTrimLargeFixedArray) {
       AllocateArrayOnEvacuationCandidate(isolate, old_space, 1);
   Handle<FixedArray> trimmed;
   {
-    AlwaysAllocateScopeForTesting always_allocate(heap);
+    AlwaysAllocateScope always_allocate(isolate);
     trimmed = factory->NewFixedArray(
         kMaxRegularHeapObjectSize / kTaggedSize + 100, AllocationType::kOld);
     DCHECK(MemoryChunk::FromHeapObject(*trimmed)->InLargeObjectSpace());
@@ -257,7 +257,7 @@ HEAP_TEST(InvalidatedSlotsRightTrimLargeFixedArray) {
     trimmed->set(i, *evacuated);
   }
   {
-    HandleScope new_scope(isolate);
+    HandleScope scope(isolate);
     Handle<HeapObject> dead = factory->NewFixedArray(1);
     for (int i = 1; i < trimmed->length(); i++) {
       trimmed->set(i, *dead);
@@ -269,7 +269,6 @@ HEAP_TEST(InvalidatedSlotsRightTrimLargeFixedArray) {
 }
 
 HEAP_TEST(InvalidatedSlotsLeftTrimFixedArray) {
-  if (!FLAG_incremental_marking) return;
   FLAG_manual_evacuation_candidates_selection = true;
   FLAG_parallel_compaction = false;
   ManualGCScope manual_gc_scope;
@@ -289,7 +288,7 @@ HEAP_TEST(InvalidatedSlotsLeftTrimFixedArray) {
     trimmed->set(i, *evacuated);
   }
   {
-    HandleScope new_scope(isolate);
+    HandleScope scope(isolate);
     Handle<HeapObject> dead = factory->NewFixedArray(1);
     for (int i = 1; i < trimmed->length(); i++) {
       trimmed->set(i, *dead);
@@ -301,7 +300,6 @@ HEAP_TEST(InvalidatedSlotsLeftTrimFixedArray) {
 }
 
 HEAP_TEST(InvalidatedSlotsFastToSlow) {
-  if (!FLAG_incremental_marking) return;
   FLAG_manual_evacuation_candidates_selection = true;
   FLAG_parallel_compaction = false;
   ManualGCScope manual_gc_scope;
@@ -326,8 +324,8 @@ HEAP_TEST(InvalidatedSlotsFastToSlow) {
   AllocateArrayOnFreshPage(isolate, old_space, 1);
   Handle<JSObject> obj;
   {
-    AlwaysAllocateScopeForTesting always_allocate(heap);
-    Handle<JSFunction> function = factory->NewFunctionForTesting(name);
+    AlwaysAllocateScope always_allocate(isolate);
+    Handle<JSFunction> function = factory->NewFunctionForTest(name);
     function->shared().set_expected_nof_properties(3);
     obj = factory->NewJSObject(function, AllocationType::kOld);
   }
@@ -339,7 +337,7 @@ HEAP_TEST(InvalidatedSlotsFastToSlow) {
   Object::SetProperty(isolate, obj, prop_name3, evacuated).Check();
 
   {
-    HandleScope new_scope(isolate);
+    HandleScope scope(isolate);
     Handle<HeapObject> dead = factory->NewFixedArray(1);
     Object::SetProperty(isolate, obj, prop_name1, dead).Check();
     Object::SetProperty(isolate, obj, prop_name2, dead).Check();
@@ -347,76 +345,10 @@ HEAP_TEST(InvalidatedSlotsFastToSlow) {
     Handle<Map> map(obj->map(), isolate);
     Handle<Map> normalized_map =
         Map::Normalize(isolate, map, CLEAR_INOBJECT_PROPERTIES, "testing");
-    JSObject::MigrateToMap(isolate, obj, normalized_map);
+    JSObject::MigrateToMap(obj, normalized_map);
   }
   CcTest::CollectGarbage(i::NEW_SPACE);
   CcTest::CollectGarbage(i::OLD_SPACE);
-}
-
-HEAP_TEST(InvalidatedSlotsCleanupFull) {
-  ManualGCScope manual_gc_scope;
-  CcTest::InitializeVM();
-  Heap* heap = CcTest::heap();
-  std::vector<ByteArray> byte_arrays;
-  Page* page = AllocateByteArraysOnPage(heap, &byte_arrays);
-  // Register all byte arrays as invalidated.
-  for (size_t i = 0; i < byte_arrays.size(); i++) {
-    page->RegisterObjectWithInvalidatedSlots<OLD_TO_NEW>(byte_arrays[i]);
-  }
-
-  // Mark full page as free
-  InvalidatedSlotsCleanup cleanup = InvalidatedSlotsCleanup::OldToNew(page);
-  cleanup.Free(page->area_start(), page->area_end());
-
-  // After cleanup there should be no invalidated objects on page left
-  CHECK(page->invalidated_slots<OLD_TO_NEW>()->empty());
-}
-
-HEAP_TEST(InvalidatedSlotsCleanupEachObject) {
-  ManualGCScope manual_gc_scope;
-  CcTest::InitializeVM();
-  Heap* heap = CcTest::heap();
-  std::vector<ByteArray> byte_arrays;
-  Page* page = AllocateByteArraysOnPage(heap, &byte_arrays);
-  // Register all byte arrays as invalidated.
-  for (size_t i = 0; i < byte_arrays.size(); i++) {
-    page->RegisterObjectWithInvalidatedSlots<OLD_TO_NEW>(byte_arrays[i]);
-  }
-
-  // Mark each object as free on page
-  InvalidatedSlotsCleanup cleanup = InvalidatedSlotsCleanup::OldToNew(page);
-
-  for (size_t i = 0; i < byte_arrays.size(); i++) {
-    Address free_start = byte_arrays[i].address();
-    Address free_end = free_start + byte_arrays[i].Size();
-    cleanup.Free(free_start, free_end);
-  }
-
-  // After cleanup there should be no invalidated objects on page left
-  CHECK(page->invalidated_slots<OLD_TO_NEW>()->empty());
-}
-
-HEAP_TEST(InvalidatedSlotsCleanupRightTrim) {
-  ManualGCScope manual_gc_scope;
-  CcTest::InitializeVM();
-  Heap* heap = CcTest::heap();
-  std::vector<ByteArray> byte_arrays;
-  Page* page = AllocateByteArraysOnPage(heap, &byte_arrays);
-
-  CHECK_GT(byte_arrays.size(), 1);
-  ByteArray& invalidated = byte_arrays[1];
-
-  heap->RightTrimFixedArray(invalidated, invalidated.length() - 8);
-  page->RegisterObjectWithInvalidatedSlots<OLD_TO_NEW>(invalidated);
-
-  // Free memory at end of invalidated object
-  InvalidatedSlotsCleanup cleanup = InvalidatedSlotsCleanup::OldToNew(page);
-  Address free_start = invalidated.address() + invalidated.Size();
-  cleanup.Free(free_start, page->area_end());
-
-  // After cleanup the invalidated object should be smaller
-  InvalidatedSlots* invalidated_slots = page->invalidated_slots<OLD_TO_NEW>();
-  CHECK_EQ(invalidated_slots->size(), 1);
 }
 
 }  // namespace heap

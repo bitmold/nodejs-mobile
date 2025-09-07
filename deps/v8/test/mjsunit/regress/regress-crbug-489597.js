@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 try {
-  d8.file.execute("test/mjsunit/regress/regress-crbug-489597.js-script");
+  load("test/mjsunit/regress/regress-crbug-489597.js-script");
 } catch (e) {
 }
 

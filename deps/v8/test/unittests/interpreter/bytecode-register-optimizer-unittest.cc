@@ -28,9 +28,9 @@ class BytecodeRegisterOptimizerTest
 
   void Initialize(int number_of_parameters, int number_of_locals) {
     register_allocator_ = new BytecodeRegisterAllocator(number_of_locals);
-    register_optimizer_ = zone()->New<BytecodeRegisterOptimizer>(
-        zone(), register_allocator_, number_of_locals, number_of_parameters,
-        this);
+    register_optimizer_ = new (zone())
+        BytecodeRegisterOptimizer(zone(), register_allocator_, number_of_locals,
+                                  number_of_parameters, this);
   }
 
   void EmitLdar(Register input) override {
@@ -81,8 +81,7 @@ TEST_F(BytecodeRegisterOptimizerTest, TemporaryMaterializedForJump) {
   Register temp = NewTemporary();
   optimizer()->DoStar(temp);
   CHECK_EQ(write_count(), 0u);
-  optimizer()
-      ->PrepareForBytecode<Bytecode::kJump, ImplicitRegisterUse::kNone>();
+  optimizer()->PrepareForBytecode<Bytecode::kJump, AccumulatorUse::kNone>();
   CHECK_EQ(write_count(), 1u);
   CHECK_EQ(output()->at(0).bytecode, Bytecode::kStar);
   CHECK_EQ(output()->at(0).output.index(), temp.index());
@@ -92,32 +91,26 @@ TEST_F(BytecodeRegisterOptimizerTest, TemporaryMaterializedForJump) {
 
 TEST_F(BytecodeRegisterOptimizerTest, TemporaryNotEmitted) {
   Initialize(3, 1);
-  Register parameter = Register::FromParameterIndex(1);
+  Register parameter = Register::FromParameterIndex(1, 3);
   optimizer()->DoLdar(parameter);
   CHECK_EQ(write_count(), 0u);
   Register temp = NewTemporary();
   optimizer()->DoStar(temp);
   ReleaseTemporaries(temp);
   CHECK_EQ(write_count(), 0u);
-  optimizer()
-      ->PrepareForBytecode<Bytecode::kReturn,
-                           ImplicitRegisterUse::kReadAccumulator>();
+  optimizer()->PrepareForBytecode<Bytecode::kReturn, AccumulatorUse::kRead>();
   CHECK_EQ(output()->at(0).bytecode, Bytecode::kLdar);
   CHECK_EQ(output()->at(0).input.index(), parameter.index());
 }
 
 TEST_F(BytecodeRegisterOptimizerTest, ReleasedRegisterUsed) {
   Initialize(3, 1);
-  optimizer()
-      ->PrepareForBytecode<Bytecode::kLdaSmi,
-                           ImplicitRegisterUse::kWriteAccumulator>();
+  optimizer()->PrepareForBytecode<Bytecode::kLdaSmi, AccumulatorUse::kWrite>();
   Register temp0 = NewTemporary();
   Register temp1 = NewTemporary();
   optimizer()->DoStar(temp1);
   CHECK_EQ(write_count(), 0u);
-  optimizer()
-      ->PrepareForBytecode<Bytecode::kLdaSmi,
-                           ImplicitRegisterUse::kWriteAccumulator>();
+  optimizer()->PrepareForBytecode<Bytecode::kLdaSmi, AccumulatorUse::kWrite>();
   CHECK_EQ(write_count(), 1u);
   CHECK_EQ(output()->at(0).bytecode, Bytecode::kStar);
   CHECK_EQ(output()->at(0).output.index(), temp1.index());
@@ -127,9 +120,7 @@ TEST_F(BytecodeRegisterOptimizerTest, ReleasedRegisterUsed) {
   CHECK_EQ(write_count(), 1u);
   optimizer()->DoLdar(temp0);
   CHECK_EQ(write_count(), 1u);
-  optimizer()
-      ->PrepareForBytecode<Bytecode::kReturn,
-                           ImplicitRegisterUse::kReadAccumulator>();
+  optimizer()->PrepareForBytecode<Bytecode::kReturn, AccumulatorUse::kRead>();
   CHECK_EQ(write_count(), 2u);
   CHECK_EQ(output()->at(1).bytecode, Bytecode::kLdar);
   CHECK_EQ(output()->at(1).input.index(), temp1.index());
@@ -137,9 +128,7 @@ TEST_F(BytecodeRegisterOptimizerTest, ReleasedRegisterUsed) {
 
 TEST_F(BytecodeRegisterOptimizerTest, ReleasedRegisterNotFlushed) {
   Initialize(3, 1);
-  optimizer()
-      ->PrepareForBytecode<Bytecode::kLdaSmi,
-                           ImplicitRegisterUse::kWriteAccumulator>();
+  optimizer()->PrepareForBytecode<Bytecode::kLdaSmi, AccumulatorUse::kWrite>();
   Register temp0 = NewTemporary();
   Register temp1 = NewTemporary();
   optimizer()->DoStar(temp0);
@@ -155,7 +144,7 @@ TEST_F(BytecodeRegisterOptimizerTest, ReleasedRegisterNotFlushed) {
 
 TEST_F(BytecodeRegisterOptimizerTest, StoresToLocalsImmediate) {
   Initialize(3, 1);
-  Register parameter = Register::FromParameterIndex(1);
+  Register parameter = Register::FromParameterIndex(1, 3);
   optimizer()->DoLdar(parameter);
   CHECK_EQ(write_count(), 0u);
   Register local = Register(0);
@@ -165,9 +154,7 @@ TEST_F(BytecodeRegisterOptimizerTest, StoresToLocalsImmediate) {
   CHECK_EQ(output()->at(0).input.index(), parameter.index());
   CHECK_EQ(output()->at(0).output.index(), local.index());
 
-  optimizer()
-      ->PrepareForBytecode<Bytecode::kReturn,
-                           ImplicitRegisterUse::kReadAccumulator>();
+  optimizer()->PrepareForBytecode<Bytecode::kReturn, AccumulatorUse::kRead>();
   CHECK_EQ(write_count(), 2u);
   CHECK_EQ(output()->at(1).bytecode, Bytecode::kLdar);
   CHECK_EQ(output()->at(1).input.index(), local.index());
@@ -175,7 +162,7 @@ TEST_F(BytecodeRegisterOptimizerTest, StoresToLocalsImmediate) {
 
 TEST_F(BytecodeRegisterOptimizerTest, SingleTemporaryNotMaterializedForInput) {
   Initialize(3, 1);
-  Register parameter = Register::FromParameterIndex(1);
+  Register parameter = Register::FromParameterIndex(1, 3);
   Register temp0 = NewTemporary();
   Register temp1 = NewTemporary();
   optimizer()->DoMov(parameter, temp0);
@@ -193,19 +180,16 @@ TEST_F(BytecodeRegisterOptimizerTest, SingleTemporaryNotMaterializedForInput) {
 
 TEST_F(BytecodeRegisterOptimizerTest, RangeOfTemporariesMaterializedForInput) {
   Initialize(3, 1);
-  Register parameter = Register::FromParameterIndex(1);
+  Register parameter = Register::FromParameterIndex(1, 3);
   Register temp0 = NewTemporary();
   Register temp1 = NewTemporary();
-  optimizer()
-      ->PrepareForBytecode<Bytecode::kLdaSmi,
-                           ImplicitRegisterUse::kWriteAccumulator>();
+  optimizer()->PrepareForBytecode<Bytecode::kLdaSmi, AccumulatorUse::kWrite>();
   optimizer()->DoStar(temp0);
   optimizer()->DoMov(parameter, temp1);
   CHECK_EQ(write_count(), 0u);
 
   optimizer()
-      ->PrepareForBytecode<Bytecode::kCallJSRuntime,
-                           ImplicitRegisterUse::kWriteAccumulator>();
+      ->PrepareForBytecode<Bytecode::kCallJSRuntime, AccumulatorUse::kWrite>();
   RegisterList reg_list = optimizer()->GetInputRegisterList(
       BytecodeUtils::NewRegisterList(temp0.index(), 2));
   CHECK_EQ(temp0.index(), reg_list.first_register().index());

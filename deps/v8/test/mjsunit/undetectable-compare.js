@@ -99,7 +99,6 @@ assertFalse(undetectable === %GetUndetectable());
 function test2(a, b) {
   return a == b;
 }
-%PrepareFunctionForOptimization(test2);
 test2(0, 1);
 test2(undetectable, {});
 %OptimizeFunctionOnNextCall(test2);

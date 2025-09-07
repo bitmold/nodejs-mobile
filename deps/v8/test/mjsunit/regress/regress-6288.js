@@ -5,9 +5,9 @@
 // Environment Variables: LC_ALL=pt-BR.UTF8
 
 // The data files packaged with d8 currently have Brazillian Portuguese
-// DateTimeFormat and Collation
+// DateTimeFormat but not Collation
 
 if (this.Intl) {
-  assertEquals('pt-BR', Intl.Collator().resolvedOptions().locale);
+  assertEquals('pt', Intl.Collator().resolvedOptions().locale);
   assertEquals('pt-BR', Intl.DateTimeFormat().resolvedOptions().locale);
 }

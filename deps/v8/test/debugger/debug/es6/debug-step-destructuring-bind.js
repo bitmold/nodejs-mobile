@@ -14,9 +14,9 @@ function listener(event, exec_state, event_data, data) {
     print(source, break_count);
     assertTrue(source.indexOf(`B${break_count++}`) > 0);
     if (source.indexOf("assertEquals") > 0) {
-      exec_state.prepareStep(Debug.StepAction.StepOver);
+      exec_state.prepareStep(Debug.StepAction.StepNext);
     } else {
-      exec_state.prepareStep(Debug.StepAction.StepInto);
+      exec_state.prepareStep(Debug.StepAction.StepIn);
     }
   } catch (e) {
     exception = e;

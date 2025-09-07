@@ -33,22 +33,14 @@ API
 
 .. c:function:: int uv_prepare_init(uv_loop_t* loop, uv_prepare_t* prepare)
 
-    Initialize the handle. This function always succeeds.
-
-    :returns: 0
+    Initialize the handle.
 
 .. c:function:: int uv_prepare_start(uv_prepare_t* prepare, uv_prepare_cb cb)
 
-    Start the handle with the given callback. This function always succeeds,
-    except when `cb` is `NULL`.
-
-    :returns: 0 on success, or `UV_EINVAL` when `cb == NULL`.
+    Start the handle with the given callback.
 
 .. c:function:: int uv_prepare_stop(uv_prepare_t* prepare)
 
     Stop the handle, the callback will no longer be called.
-    This function always succeeds.
-
-    :returns: 0
 
 .. seealso:: The :c:type:`uv_handle_t` API functions also apply.

@@ -10,8 +10,7 @@
   }
   function foo() {
     arr.reduce(inlined);
-  };
-  %PrepareFunctionForOptimization(foo);
+  }
   foo();
   %OptimizeFunctionOnNextCall(foo);
   foo();

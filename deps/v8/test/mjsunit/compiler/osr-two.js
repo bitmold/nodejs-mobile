@@ -17,7 +17,6 @@ function f(x) {
       }
     }
     outer--;
-    %PrepareFunctionForOptimization(f);
   }
   return sum;
 }

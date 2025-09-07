@@ -7,8 +7,6 @@
 
 // Clients of this interface shouldn't depend on lots of asmjs internals.
 // Do not include anything from src/asmjs here!
-#include <memory>
-
 #include "src/common/globals.h"
 
 namespace v8 {
@@ -25,7 +23,7 @@ class UnoptimizedCompilationJob;
 // Interface to compile and instantiate for asm.js modules.
 class AsmJs {
  public:
-  static std::unique_ptr<UnoptimizedCompilationJob> NewCompilationJob(
+  static UnoptimizedCompilationJob* NewCompilationJob(
       ParseInfo* parse_info, FunctionLiteral* literal,
       AccountingAllocator* allocator);
   static MaybeHandle<Object> InstantiateAsmWasm(Isolate* isolate,

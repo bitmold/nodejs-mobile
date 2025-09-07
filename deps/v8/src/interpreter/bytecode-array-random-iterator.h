@@ -5,9 +5,7 @@
 #ifndef V8_INTERPRETER_BYTECODE_ARRAY_RANDOM_ITERATOR_H_
 #define V8_INTERPRETER_BYTECODE_ARRAY_RANDOM_ITERATOR_H_
 
-#include <memory>
-
-#include "src/interpreter/bytecode-array-iterator.h"
+#include "src/interpreter/bytecode-array-accessor.h"
 #include "src/zone/zone-containers.h"
 #include "src/zone/zone.h"
 
@@ -16,13 +14,10 @@ namespace internal {
 namespace interpreter {
 
 class V8_EXPORT_PRIVATE BytecodeArrayRandomIterator final
-    : public BytecodeArrayIterator {
+    : public BytecodeArrayAccessor {
  public:
-  BytecodeArrayRandomIterator(Handle<BytecodeArray> bytecode_array, Zone* zone);
-
-  BytecodeArrayRandomIterator(const BytecodeArrayRandomIterator&) = delete;
-  BytecodeArrayRandomIterator& operator=(const BytecodeArrayRandomIterator&) =
-      delete;
+  explicit BytecodeArrayRandomIterator(Handle<BytecodeArray> bytecode_array,
+                                       Zone* zone);
 
   BytecodeArrayRandomIterator& operator++() {
     ++current_index_;
@@ -49,7 +44,7 @@ class V8_EXPORT_PRIVATE BytecodeArrayRandomIterator final
 
   int current_index() const { return current_index_; }
 
-  int size() const { return static_cast<int>(offsets_.size()); }
+  size_t size() const { return offsets_.size(); }
 
   void GoToIndex(int index) {
     current_index_ = index;
@@ -60,7 +55,8 @@ class V8_EXPORT_PRIVATE BytecodeArrayRandomIterator final
     UpdateOffsetFromIndex();
   }
   void GoToEnd() {
-    current_index_ = size() - 1;
+    DCHECK_LT(offsets_.size() - 1, static_cast<size_t>(INT_MAX));
+    current_index_ = static_cast<int>(offsets_.size() - 1);
     UpdateOffsetFromIndex();
   }
 
@@ -70,8 +66,9 @@ class V8_EXPORT_PRIVATE BytecodeArrayRandomIterator final
   ZoneVector<int> offsets_;
   int current_index_;
 
-  void Initialize();
   void UpdateOffsetFromIndex();
+
+  DISALLOW_COPY_AND_ASSIGN(BytecodeArrayRandomIterator);
 };
 
 }  // namespace interpreter

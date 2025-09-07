@@ -4,4 +4,4 @@
 
 // Flags: --wasm-test-streaming --expose-wasm --allow-natives-syntax
 
-d8.file.execute("test/mjsunit/wasm/async-compile.js");
+load("test/mjsunit/wasm/async-compile.js");

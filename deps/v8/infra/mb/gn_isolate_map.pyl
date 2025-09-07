@@ -31,10 +31,6 @@
     "label": "//test:v8_d8_default",
     "type": "script",
   },
-  "generate-bytecode-expectations": {
-    "label": "//test/cctest:generate-bytecode-expectations",
-    "type": "script",
-  },
   "mjsunit": {
     "label": "//test/mjsunit:v8_mjsunit",
     "type": "script",
@@ -60,7 +56,7 @@
     "type": "script",
   },
   "run-gcmole": {
-    "label": "//tools/gcmole:v8_gcmole_files",
+    "label": "//tools/gcmole:v8_run_gcmole",
     "type": "script",
   },
   "run-num-fuzzer": {
@@ -73,10 +69,6 @@
   },
   "unittests": {
     "label": "//test/unittests:unittests",
-    "type": "script",
-  },
-  "fuchsia-unittests": {
-    "label": "//test/unittests:v8_unittests_fuchsia",
     "type": "script",
   },
   "webkit": {

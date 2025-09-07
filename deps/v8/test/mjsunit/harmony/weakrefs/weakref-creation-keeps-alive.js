@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --expose-gc --noincremental-marking
+// Flags: --harmony-weak-refs --expose-gc --noincremental-marking --allow-natives-syntax
 
 let wr;
 (function() {
@@ -19,8 +19,9 @@ gc();
   assertNotEquals(undefined, wr.deref());
 })();
 
-// Next task.
-setTimeout(() => {
-  gc();
-  assertEquals(undefined, wr.deref());
-}, 0);
+%PerformMicrotaskCheckpoint();
+// Next turn.
+
+gc();
+
+assertEquals(undefined, wr.deref());

@@ -7,12 +7,13 @@
 
 #include <ctype.h>
 
+#include "src/common/globals.h"
+
 #include "src/base/bits.h"
 #include "src/codegen/arm64/assembler-arm64-inl.h"
 #include "src/codegen/arm64/assembler-arm64.h"
+#include "src/codegen/arm64/instrument-arm64.h"
 #include "src/codegen/macro-assembler.h"
-#include "src/common/globals.h"
-#include "src/execution/isolate-data.h"
 
 namespace v8 {
 namespace internal {
@@ -92,15 +93,6 @@ void TurboAssembler::Ccmp(const Register& rn, const Operand& operand,
   }
 }
 
-void TurboAssembler::CcmpTagged(const Register& rn, const Operand& operand,
-                                StatusFlags nzcv, Condition cond) {
-  if (COMPRESS_POINTERS_BOOL) {
-    Ccmp(rn.W(), operand.ToW(), nzcv, cond);
-  } else {
-    Ccmp(rn, operand, nzcv, cond);
-  }
-}
-
 void MacroAssembler::Ccmn(const Register& rn, const Operand& operand,
                           StatusFlags nzcv, Condition cond) {
   DCHECK(allow_macro_instructions());
@@ -163,14 +155,6 @@ void TurboAssembler::Cmn(const Register& rn, const Operand& operand) {
 void TurboAssembler::Cmp(const Register& rn, const Operand& operand) {
   DCHECK(allow_macro_instructions());
   Subs(AppropriateZeroRegFor(rn), rn, operand);
-}
-
-void TurboAssembler::CmpTagged(const Register& rn, const Operand& operand) {
-  if (COMPRESS_POINTERS_BOOL) {
-    Cmp(rn.W(), operand.ToW());
-  } else {
-    Cmp(rn, operand);
-  }
 }
 
 void TurboAssembler::Neg(const Register& rd, const Operand& operand) {
@@ -309,63 +293,9 @@ void MacroAssembler::Bfxil(const Register& rd, const Register& rn, unsigned lsb,
   bfxil(rd, rn, lsb, width);
 }
 
-void TurboAssembler::Bind(Label* label, BranchTargetIdentifier id) {
+void TurboAssembler::Bind(Label* label) {
   DCHECK(allow_macro_instructions());
-  if (id == BranchTargetIdentifier::kNone) {
-    bind(label);
-  } else {
-    // Emit this inside an InstructionAccurateScope to ensure there are no extra
-    // instructions between the bind and the target identifier instruction.
-    InstructionAccurateScope scope(this, 1);
-    bind(label);
-    if (id == BranchTargetIdentifier::kPacibsp) {
-      pacibsp();
-    } else {
-      bti(id);
-    }
-  }
-}
-
-void TurboAssembler::CodeEntry() { CallTarget(); }
-
-void TurboAssembler::ExceptionHandler() { JumpTarget(); }
-
-void TurboAssembler::BindExceptionHandler(Label* label) {
-  BindJumpTarget(label);
-}
-
-void TurboAssembler::JumpTarget() {
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  bti(BranchTargetIdentifier::kBtiJump);
-#endif
-}
-
-void TurboAssembler::BindJumpTarget(Label* label) {
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  Bind(label, BranchTargetIdentifier::kBtiJump);
-#else
-  Bind(label);
-#endif
-}
-
-void TurboAssembler::CallTarget() {
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  bti(BranchTargetIdentifier::kBtiCall);
-#endif
-}
-
-void TurboAssembler::JumpOrCallTarget() {
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  bti(BranchTargetIdentifier::kBtiJumpCall);
-#endif
-}
-
-void TurboAssembler::BindJumpOrCallTarget(Label* label) {
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  Bind(label, BranchTargetIdentifier::kBtiJumpCall);
-#else
-  Bind(label);
-#endif
+  bind(label);
 }
 
 void TurboAssembler::Bl(Label* label) {
@@ -443,7 +373,7 @@ void TurboAssembler::CmovX(const Register& rd, const Register& rn,
   DCHECK(!rd.IsSP());
   DCHECK(rd.Is64Bits() && rn.Is64Bits());
   DCHECK((cond != al) && (cond != nv));
-  if (rd != rn) {
+  if (!rd.is(rn)) {
     csel(rd, rn, rd, cond);
   }
 }
@@ -548,7 +478,7 @@ void TurboAssembler::Fcmp(const VRegister& fn, double value) {
   }
 }
 
-void TurboAssembler::Fcsel(const VRegister& fd, const VRegister& fn,
+void MacroAssembler::Fcsel(const VRegister& fd, const VRegister& fn,
                            const VRegister& fm, Condition cond) {
   DCHECK(allow_macro_instructions());
   DCHECK((cond != al) && (cond != nv));
@@ -649,7 +579,7 @@ void TurboAssembler::Fmov(VRegister fd, VRegister fn) {
   // registers. fmov(s0, s0) is not a no-op because it clears the top word of
   // d0. Technically, fmov(d0, d0) is not a no-op either because it clears the
   // top of q0, but VRegister does not currently support Q registers.
-  if (fd != fn || !fd.Is64Bits()) {
+  if (!fd.Is(fn) || !fd.Is64Bits()) {
     fmov(fd, fn);
   }
 }
@@ -705,7 +635,7 @@ void TurboAssembler::Fmov(VRegister vd, float imm) {
       } else {
         UseScratchRegisterScope temps(this);
         Register tmp = temps.AcquireW();
-        Mov(tmp, bits);
+        Mov(tmp, bit_cast<uint32_t>(imm));
         Fmov(vd, tmp);
       }
     } else {
@@ -824,7 +754,7 @@ void TurboAssembler::Mrs(const Register& rt, SystemRegister sysreg) {
   mrs(rt, sysreg);
 }
 
-void TurboAssembler::Msr(SystemRegister sysreg, const Register& rt) {
+void MacroAssembler::Msr(SystemRegister sysreg, const Register& rt) {
   DCHECK(allow_macro_instructions());
   msr(sysreg, rt);
 }
@@ -1036,18 +966,15 @@ void TurboAssembler::Uxtw(const Register& rd, const Register& rn) {
 void TurboAssembler::InitializeRootRegister() {
   ExternalReference isolate_root = ExternalReference::isolate_root(isolate());
   Mov(kRootRegister, Operand(isolate_root));
-#ifdef V8_COMPRESS_POINTERS_IN_SHARED_CAGE
-  LoadRootRelative(kPtrComprCageBaseRegister, IsolateData::cage_base_offset());
-#endif
 }
 
-void TurboAssembler::SmiTag(Register dst, Register src) {
+void MacroAssembler::SmiTag(Register dst, Register src) {
   DCHECK(dst.Is64Bits() && src.Is64Bits());
   DCHECK(SmiValuesAre32Bits() || SmiValuesAre31Bits());
   Lsl(dst, src, kSmiShift);
 }
 
-void TurboAssembler::SmiTag(Register smi) { SmiTag(smi, smi); }
+void MacroAssembler::SmiTag(Register smi) { SmiTag(smi, smi); }
 
 void TurboAssembler::SmiUntag(Register dst, Register src) {
   DCHECK(dst.Is64Bits() && src.Is64Bits());
@@ -1055,12 +982,7 @@ void TurboAssembler::SmiUntag(Register dst, Register src) {
     AssertSmi(src);
   }
   DCHECK(SmiValuesAre32Bits() || SmiValuesAre31Bits());
-  if (COMPRESS_POINTERS_BOOL) {
-    Asr(dst.W(), src.W(), kSmiShift);
-    Sxtw(dst, dst);
-  } else {
-    Asr(dst, src, kSmiShift);
-  }
+  Asr(dst, src, kSmiShift);
 }
 
 void TurboAssembler::SmiUntag(Register dst, const MemOperand& src) {
@@ -1080,29 +1002,16 @@ void TurboAssembler::SmiUntag(Register dst, const MemOperand& src) {
     }
   } else {
     DCHECK(SmiValuesAre31Bits());
-    if (COMPRESS_POINTERS_BOOL) {
-      Ldr(dst.W(), src);
-    } else {
-      Ldr(dst, src);
-    }
+#ifdef V8_COMPRESS_POINTERS
+    Ldrsw(dst, src);
+#else
+    Ldr(dst, src);
+#endif
     SmiUntag(dst);
   }
 }
 
 void TurboAssembler::SmiUntag(Register smi) { SmiUntag(smi, smi); }
-
-void TurboAssembler::SmiToInt32(Register smi) {
-  DCHECK(smi.Is64Bits());
-  if (FLAG_enable_slow_asserts) {
-    AssertSmi(smi);
-  }
-  DCHECK(SmiValuesAre32Bits() || SmiValuesAre31Bits());
-  if (COMPRESS_POINTERS_BOOL) {
-    Asr(smi.W(), smi.W(), kSmiShift);
-  } else {
-    Lsr(smi, smi, kSmiShift);
-  }
-}
 
 void TurboAssembler::JumpIfSmi(Register value, Label* smi_label,
                                Label* not_smi_label) {
@@ -1120,11 +1029,13 @@ void TurboAssembler::JumpIfSmi(Register value, Label* smi_label,
 }
 
 void TurboAssembler::JumpIfEqual(Register x, int32_t y, Label* dest) {
-  CompareAndBranch(x, y, eq, dest);
+  Cmp(x, y);
+  B(eq, dest);
 }
 
 void TurboAssembler::JumpIfLessThan(Register x, int32_t y, Label* dest) {
-  CompareAndBranch(x, y, lt, dest);
+  Cmp(x, y);
+  B(lt, dest);
 }
 
 void MacroAssembler::JumpIfNotSmi(Register value, Label* not_smi_label) {
@@ -1133,112 +1044,21 @@ void MacroAssembler::JumpIfNotSmi(Register value, Label* not_smi_label) {
 
 void TurboAssembler::jmp(Label* L) { B(L); }
 
-template <TurboAssembler::StoreLRMode lr_mode>
-void TurboAssembler::Push(const CPURegister& src0, const CPURegister& src1,
-                          const CPURegister& src2, const CPURegister& src3) {
-  DCHECK(AreSameSizeAndType(src0, src1, src2, src3));
-  DCHECK_IMPLIES((lr_mode == kSignLR), ((src0 == lr) || (src1 == lr) ||
-                                        (src2 == lr) || (src3 == lr)));
-  DCHECK_IMPLIES((lr_mode == kDontStoreLR), ((src0 != lr) && (src1 != lr) &&
-                                             (src2 != lr) && (src3 != lr)));
-
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  if (lr_mode == kSignLR) {
-    Pacibsp();
-  }
-#endif
-
-  int count = 1 + src1.is_valid() + src2.is_valid() + src3.is_valid();
-  int size = src0.SizeInBytes();
-  DCHECK_EQ(0, (size * count) % 16);
-
-  PushHelper(count, size, src0, src1, src2, src3);
+void TurboAssembler::Push(Handle<HeapObject> handle) {
+  UseScratchRegisterScope temps(this);
+  Register tmp = temps.AcquireX();
+  Mov(tmp, Operand(handle));
+  // This is only used in test-heap.cc, for generating code that is not
+  // executed. Push a padding slot together with the handle here, to
+  // satisfy the alignment requirement.
+  Push(padreg, tmp);
 }
 
-template <TurboAssembler::StoreLRMode lr_mode>
-void TurboAssembler::Push(const Register& src0, const VRegister& src1) {
-  DCHECK_IMPLIES((lr_mode == kSignLR), ((src0 == lr) || (src1 == lr)));
-  DCHECK_IMPLIES((lr_mode == kDontStoreLR), ((src0 != lr) && (src1 != lr)));
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  if (lr_mode == kSignLR) {
-    Pacibsp();
-  }
-#endif
-
-  int size = src0.SizeInBytes() + src1.SizeInBytes();
-  DCHECK_EQ(0, size % 16);
-
-  // Reserve room for src0 and push src1.
-  str(src1, MemOperand(sp, -size, PreIndex));
-  // Fill the gap with src0.
-  str(src0, MemOperand(sp, src1.SizeInBytes()));
-}
-
-template <TurboAssembler::LoadLRMode lr_mode>
-void TurboAssembler::Pop(const CPURegister& dst0, const CPURegister& dst1,
-                         const CPURegister& dst2, const CPURegister& dst3) {
-  // It is not valid to pop into the same register more than once in one
-  // instruction, not even into the zero register.
-  DCHECK(!AreAliased(dst0, dst1, dst2, dst3));
-  DCHECK(AreSameSizeAndType(dst0, dst1, dst2, dst3));
-  DCHECK(dst0.is_valid());
-
-  int count = 1 + dst1.is_valid() + dst2.is_valid() + dst3.is_valid();
-  int size = dst0.SizeInBytes();
-  DCHECK_EQ(0, (size * count) % 16);
-
-  PopHelper(count, size, dst0, dst1, dst2, dst3);
-
-  DCHECK_IMPLIES((lr_mode == kAuthLR), ((dst0 == lr) || (dst1 == lr) ||
-                                        (dst2 == lr) || (dst3 == lr)));
-  DCHECK_IMPLIES((lr_mode == kDontLoadLR), ((dst0 != lr) && (dst1 != lr)) &&
-                                               (dst2 != lr) && (dst3 != lr));
-
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  if (lr_mode == kAuthLR) {
-    Autibsp();
-  }
-#endif
-}
-
-template <TurboAssembler::StoreLRMode lr_mode>
-void TurboAssembler::Poke(const CPURegister& src, const Operand& offset) {
-  DCHECK_IMPLIES((lr_mode == kSignLR), (src == lr));
-  DCHECK_IMPLIES((lr_mode == kDontStoreLR), (src != lr));
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  if (lr_mode == kSignLR) {
-    Pacibsp();
-  }
-#endif
-
-  if (offset.IsImmediate()) {
-    DCHECK_GE(offset.ImmediateValue(), 0);
-  } else if (FLAG_debug_code) {
-    Cmp(xzr, offset);
-    Check(le, AbortReason::kStackAccessBelowStackPointer);
-  }
-
-  Str(src, MemOperand(sp, offset));
-}
-
-template <TurboAssembler::LoadLRMode lr_mode>
-void TurboAssembler::Peek(const CPURegister& dst, const Operand& offset) {
-  if (offset.IsImmediate()) {
-    DCHECK_GE(offset.ImmediateValue(), 0);
-  } else if (FLAG_debug_code) {
-    Cmp(xzr, offset);
-    Check(le, AbortReason::kStackAccessBelowStackPointer);
-  }
-
-  Ldr(dst, MemOperand(sp, offset));
-
-  DCHECK_IMPLIES((lr_mode == kAuthLR), (dst == lr));
-  DCHECK_IMPLIES((lr_mode == kDontLoadLR), (dst != lr));
-#ifdef V8_ENABLE_CONTROL_FLOW_INTEGRITY
-  if (lr_mode == kAuthLR) {
-    Autibsp();
-  }
-#endif
+void TurboAssembler::Push(Smi smi) {
+  UseScratchRegisterScope temps(this);
+  Register tmp = temps.AcquireX();
+  Mov(tmp, Operand(smi));
+  Push(tmp);
 }
 
 void TurboAssembler::Claim(int64_t count, uint64_t unit_size) {
@@ -1249,7 +1069,7 @@ void TurboAssembler::Claim(int64_t count, uint64_t unit_size) {
     return;
   }
   DCHECK_EQ(size % 16, 0);
-#if V8_TARGET_OS_WIN
+#if V8_OS_WIN
   while (size > kStackPageSize) {
     Sub(sp, sp, kStackPageSize);
     Str(xzr, MemOperand(sp));
@@ -1263,7 +1083,7 @@ void TurboAssembler::Claim(const Register& count, uint64_t unit_size) {
   if (unit_size == 0) return;
   DCHECK(base::bits::IsPowerOfTwo(unit_size));
 
-  const int shift = base::bits::CountTrailingZeros(unit_size);
+  const int shift = CountTrailingZeros(unit_size, kXRegSizeInBits);
   const Operand size(count, LSL, shift);
 
   if (size.IsZero()) {
@@ -1271,7 +1091,7 @@ void TurboAssembler::Claim(const Register& count, uint64_t unit_size) {
   }
   AssertPositiveOrZero(count);
 
-#if V8_TARGET_OS_WIN
+#if V8_OS_WIN
   // "Functions that allocate 4k or more worth of stack must ensure that each
   // page prior to the final page is touched in order." Source:
   // https://docs.microsoft.com/en-us/cpp/build/arm64-windows-abi-conventions?view=vs-2019#stack
@@ -1316,7 +1136,7 @@ void TurboAssembler::Drop(const Register& count, uint64_t unit_size) {
   if (unit_size == 0) return;
   DCHECK(base::bits::IsPowerOfTwo(unit_size));
 
-  const int shift = base::bits::CountTrailingZeros(unit_size);
+  const int shift = CountTrailingZeros(unit_size, kXRegSizeInBits);
   const Operand size(count, LSL, shift);
 
   if (size.IsZero()) {
@@ -1355,7 +1175,7 @@ void TurboAssembler::DropSlots(int64_t count) {
 
 void TurboAssembler::PushArgument(const Register& arg) { Push(padreg, arg); }
 
-void TurboAssembler::CompareAndBranch(const Register& lhs, const Operand& rhs,
+void MacroAssembler::CompareAndBranch(const Register& lhs, const Operand& rhs,
                                       Condition cond, Label* label) {
   if (rhs.IsImmediate() && (rhs.ImmediateValue() == 0) &&
       ((cond == eq) || (cond == ne))) {
@@ -1367,16 +1187,6 @@ void TurboAssembler::CompareAndBranch(const Register& lhs, const Operand& rhs,
   } else {
     Cmp(lhs, rhs);
     B(cond, label);
-  }
-}
-
-void TurboAssembler::CompareTaggedAndBranch(const Register& lhs,
-                                            const Operand& rhs, Condition cond,
-                                            Label* label) {
-  if (COMPRESS_POINTERS_BOOL) {
-    CompareAndBranch(lhs.W(), rhs.ToW(), cond, label);
-  } else {
-    CompareAndBranch(lhs, rhs, cond, label);
   }
 }
 
@@ -1404,6 +1214,33 @@ void TurboAssembler::TestAndBranchIfAllClear(const Register& reg,
     Tst(reg, bit_pattern);
     B(eq, label);
   }
+}
+
+void MacroAssembler::InlineData(uint64_t data) {
+  DCHECK(is_uint16(data));
+  InstructionAccurateScope scope(this, 1);
+  movz(xzr, data);
+}
+
+void MacroAssembler::EnableInstrumentation() {
+  InstructionAccurateScope scope(this, 1);
+  movn(xzr, InstrumentStateEnable);
+}
+
+void MacroAssembler::DisableInstrumentation() {
+  InstructionAccurateScope scope(this, 1);
+  movn(xzr, InstrumentStateDisable);
+}
+
+void MacroAssembler::AnnotateInstrumentation(const char* marker_name) {
+  DCHECK_EQ(strlen(marker_name), 2);
+
+  // We allow only printable characters in the marker names. Unprintable
+  // characters are reserved for controlling features of the instrumentation.
+  DCHECK(isprint(marker_name[0]) && isprint(marker_name[1]));
+
+  InstructionAccurateScope scope(this, 1);
+  movn(xzr, (marker_name[1] << 8) | marker_name[0]);
 }
 
 }  // namespace internal

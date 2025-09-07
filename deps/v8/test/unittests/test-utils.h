@@ -5,14 +5,9 @@
 #ifndef V8_UNITTESTS_TEST_UTILS_H_
 #define V8_UNITTESTS_TEST_UTILS_H_
 
-#include <memory>
 #include <vector>
 
-#include "include/libplatform/libplatform.h"
-#include "include/v8-array-buffer.h"
-#include "include/v8-context.h"
-#include "include/v8-local-handle.h"
-#include "include/v8-primitive.h"
+#include "include/v8.h"
 #include "src/api/api-inl.h"
 #include "src/base/macros.h"
 #include "src/base/utils/random-number-generator.h"
@@ -27,169 +22,225 @@ namespace v8 {
 
 class ArrayBufferAllocator;
 
-template <typename TMixin>
-class WithDefaultPlatformMixin : public TMixin {
- public:
-  WithDefaultPlatformMixin() {
-    platform_ = v8::platform::NewDefaultPlatform(
-        0, v8::platform::IdleTaskSupport::kEnabled);
-    CHECK_NOT_NULL(platform_.get());
-    v8::V8::InitializePlatform(platform_.get());
-#ifdef V8_SANDBOX
-    CHECK(v8::V8::InitializeSandbox());
-#endif  // V8_SANDBOX
-    v8::V8::Initialize();
-  }
-
-  ~WithDefaultPlatformMixin() {
-    CHECK_NOT_NULL(platform_.get());
-    v8::V8::Dispose();
-    v8::V8::DisposePlatform();
-  }
-
-  v8::Platform* platform() const { return platform_.get(); }
-
- private:
-  std::unique_ptr<v8::Platform> platform_;
-};
-
 using CounterMap = std::map<std::string, int>;
-
-enum CountersMode { kNoCounters, kEnableCounters };
 
 // RAII-like Isolate instance wrapper.
 class IsolateWrapper final {
  public:
-  explicit IsolateWrapper(CountersMode counters_mode);
+  // When enforce_pointer_compression is true the Isolate is created with
+  // enabled pointer compression. When it's false then the Isolate is created
+  // with the default pointer compression state for current build.
+  explicit IsolateWrapper(CounterLookupCallback counter_lookup_callback,
+                          bool enforce_pointer_compression = false);
   ~IsolateWrapper();
-  IsolateWrapper(const IsolateWrapper&) = delete;
-  IsolateWrapper& operator=(const IsolateWrapper&) = delete;
 
   v8::Isolate* isolate() const { return isolate_; }
 
  private:
-  std::unique_ptr<v8::ArrayBuffer::Allocator> array_buffer_allocator_;
-  std::unique_ptr<CounterMap> counter_map_;
+  v8::ArrayBuffer::Allocator* array_buffer_allocator_;
   v8::Isolate* isolate_;
+
+  DISALLOW_COPY_AND_ASSIGN(IsolateWrapper);
+};
+
+class SharedIsolateHolder final {
+ public:
+  static v8::Isolate* isolate() { return isolate_wrapper_->isolate(); }
+
+  static void CreateIsolate() {
+    CHECK_NULL(isolate_wrapper_);
+    isolate_wrapper_ =
+        new IsolateWrapper([](const char* name) -> int* { return nullptr; });
+  }
+
+  static void DeleteIsolate() {
+    CHECK_NOT_NULL(isolate_wrapper_);
+    delete isolate_wrapper_;
+    isolate_wrapper_ = nullptr;
+  }
+
+ private:
+  static v8::IsolateWrapper* isolate_wrapper_;
+
+  DISALLOW_IMPLICIT_CONSTRUCTORS(SharedIsolateHolder);
+};
+
+class SharedIsolateAndCountersHolder final {
+ public:
+  static v8::Isolate* isolate() { return isolate_wrapper_->isolate(); }
+
+  static void CreateIsolate() {
+    CHECK_NULL(counter_map_);
+    CHECK_NULL(isolate_wrapper_);
+    counter_map_ = new CounterMap();
+    isolate_wrapper_ = new IsolateWrapper(LookupCounter);
+  }
+
+  static void DeleteIsolate() {
+    CHECK_NOT_NULL(counter_map_);
+    CHECK_NOT_NULL(isolate_wrapper_);
+    delete isolate_wrapper_;
+    isolate_wrapper_ = nullptr;
+    delete counter_map_;
+    counter_map_ = nullptr;
+  }
+
+ private:
+  static int* LookupCounter(const char* name);
+  static CounterMap* counter_map_;
+  static v8::IsolateWrapper* isolate_wrapper_;
+
+  DISALLOW_IMPLICIT_CONSTRUCTORS(SharedIsolateAndCountersHolder);
 };
 
 //
 // A set of mixins from which the test fixtures will be constructed.
 //
-template <typename TMixin, CountersMode kCountersMode = kNoCounters>
-class WithIsolateMixin : public TMixin {
+template <typename TMixin>
+class WithPrivateIsolateMixin : public TMixin {
  public:
-  WithIsolateMixin() : isolate_wrapper_(kCountersMode) {}
+  explicit WithPrivateIsolateMixin(bool enforce_pointer_compression = false)
+      : isolate_wrapper_([](const char* name) -> int* { return nullptr; },
+                         enforce_pointer_compression) {}
 
   v8::Isolate* v8_isolate() const { return isolate_wrapper_.isolate(); }
 
+  static void SetUpTestCase() { TMixin::SetUpTestCase(); }
+  static void TearDownTestCase() { TMixin::TearDownTestCase(); }
+
  private:
   v8::IsolateWrapper isolate_wrapper_;
+
+  DISALLOW_COPY_AND_ASSIGN(WithPrivateIsolateMixin);
+};
+
+template <typename TMixin, typename TSharedIsolateHolder = SharedIsolateHolder>
+class WithSharedIsolateMixin : public TMixin {
+ public:
+  WithSharedIsolateMixin() = default;
+
+  v8::Isolate* v8_isolate() const { return TSharedIsolateHolder::isolate(); }
+
+  static void SetUpTestCase() {
+    TMixin::SetUpTestCase();
+    TSharedIsolateHolder::CreateIsolate();
+  }
+
+  static void TearDownTestCase() {
+    TSharedIsolateHolder::DeleteIsolate();
+    TMixin::TearDownTestCase();
+  }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(WithSharedIsolateMixin);
+};
+
+template <typename TMixin>
+class WithPointerCompressionIsolateMixin
+    : public WithPrivateIsolateMixin<TMixin> {
+ public:
+  WithPointerCompressionIsolateMixin()
+      : WithPrivateIsolateMixin<TMixin>(true) {}
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(WithPointerCompressionIsolateMixin);
 };
 
 template <typename TMixin>
 class WithIsolateScopeMixin : public TMixin {
  public:
   WithIsolateScopeMixin()
-      : isolate_scope_(this->v8_isolate()), handle_scope_(this->v8_isolate()) {}
-  WithIsolateScopeMixin(const WithIsolateScopeMixin&) = delete;
-  WithIsolateScopeMixin& operator=(const WithIsolateScopeMixin&) = delete;
+      : isolate_scope_(v8_isolate()), handle_scope_(v8_isolate()) {}
 
-  v8::Isolate* isolate() const { return this->v8_isolate(); }
+  v8::Isolate* isolate() const { return v8_isolate(); }
+  v8::Isolate* v8_isolate() const { return TMixin::v8_isolate(); }
 
   v8::internal::Isolate* i_isolate() const {
-    return reinterpret_cast<v8::internal::Isolate*>(this->v8_isolate());
+    return reinterpret_cast<v8::internal::Isolate*>(v8_isolate());
   }
 
-  Local<Value> RunJS(const char* source) {
-    return RunJS(
-        v8::String::NewFromUtf8(this->v8_isolate(), source).ToLocalChecked());
-  }
-
-  Local<Value> RunJS(v8::String::ExternalOneByteStringResource* source) {
-    return RunJS(v8::String::NewExternalOneByte(this->v8_isolate(), source)
-                     .ToLocalChecked());
-  }
-
-  void CollectGarbage(i::AllocationSpace space) {
-    i_isolate()->heap()->CollectGarbage(space,
-                                        i::GarbageCollectionReason::kTesting);
-  }
-
-  void CollectAllGarbage() {
-    i_isolate()->heap()->CollectAllGarbage(
-        i::Heap::kNoGCFlags, i::GarbageCollectionReason::kTesting);
-  }
-
-  void CollectAllAvailableGarbage() {
-    i_isolate()->heap()->CollectAllAvailableGarbage(
-        i::GarbageCollectionReason::kTesting);
-  }
-
-  void PreciseCollectAllGarbage() {
-    i_isolate()->heap()->PreciseCollectAllGarbage(
-        i::Heap::kNoGCFlags, i::GarbageCollectionReason::kTesting);
-  }
-
-  v8::Local<v8::String> NewString(const char* string) {
-    return v8::String::NewFromUtf8(this->v8_isolate(), string).ToLocalChecked();
-  }
+  static void SetUpTestCase() { TMixin::SetUpTestCase(); }
+  static void TearDownTestCase() { TMixin::TearDownTestCase(); }
 
  private:
-  Local<Value> RunJS(Local<String> source) {
-    auto context = this->v8_isolate()->GetCurrentContext();
-    Local<Script> script =
-        v8::Script::Compile(context, source).ToLocalChecked();
-    return script->Run(context).ToLocalChecked();
-  }
-
   v8::Isolate::Scope isolate_scope_;
   v8::HandleScope handle_scope_;
+
+  DISALLOW_COPY_AND_ASSIGN(WithIsolateScopeMixin);
 };
 
 template <typename TMixin>
 class WithContextMixin : public TMixin {
  public:
   WithContextMixin()
-      : context_(Context::New(this->v8_isolate())), context_scope_(context_) {}
-  WithContextMixin(const WithContextMixin&) = delete;
-  WithContextMixin& operator=(const WithContextMixin&) = delete;
+      : context_(Context::New(v8_isolate())), context_scope_(context_) {}
+
+  v8::Isolate* v8_isolate() const { return TMixin::v8_isolate(); }
 
   const Local<Context>& context() const { return v8_context(); }
   const Local<Context>& v8_context() const { return context_; }
 
+  Local<Value> RunJS(const char* source) {
+    return RunJS(v8::String::NewFromUtf8(v8_isolate(), source,
+                                         v8::NewStringType::kNormal)
+                     .ToLocalChecked());
+  }
+
+  Local<Value> RunJS(v8::String::ExternalOneByteStringResource* source) {
+    return RunJS(
+        v8::String::NewExternalOneByte(v8_isolate(), source).ToLocalChecked());
+  }
+
+  v8::Local<v8::String> NewString(const char* string) {
+    return v8::String::NewFromUtf8(v8_isolate(), string,
+                                   v8::NewStringType::kNormal)
+        .ToLocalChecked();
+  }
+
   void SetGlobalProperty(const char* name, v8::Local<v8::Value> value) {
     CHECK(v8_context()
               ->Global()
-              ->Set(v8_context(), TMixin::NewString(name), value)
+              ->Set(v8_context(), NewString(name), value)
               .FromJust());
   }
 
+  static void SetUpTestCase() { TMixin::SetUpTestCase(); }
+  static void TearDownTestCase() { TMixin::TearDownTestCase(); }
+
  private:
+  Local<Value> RunJS(Local<String> source) {
+    auto context = v8_isolate()->GetCurrentContext();
+    Local<Script> script =
+        v8::Script::Compile(context, source).ToLocalChecked();
+    return script->Run(context).ToLocalChecked();
+  }
+
   v8::Local<v8::Context> context_;
   v8::Context::Scope context_scope_;
-};
 
-using TestWithPlatform =       //
-    WithDefaultPlatformMixin<  //
-        ::testing::Test>;
+  DISALLOW_COPY_AND_ASSIGN(WithContextMixin);
+};
 
 // Use v8::internal::TestWithIsolate if you are testing internals,
 // aka. directly work with Handles.
-using TestWithIsolate =                //
-    WithIsolateScopeMixin<             //
-        WithIsolateMixin<              //
-            WithDefaultPlatformMixin<  //
-                ::testing::Test>>>;
+using TestWithIsolate =          //
+    WithIsolateScopeMixin<       //
+        WithSharedIsolateMixin<  //
+            ::testing::Test>>;
 
 // Use v8::internal::TestWithNativeContext if you are testing internals,
 // aka. directly work with Handles.
-using TestWithContext =                    //
-    WithContextMixin<                      //
-        WithIsolateScopeMixin<             //
-            WithIsolateMixin<              //
-                WithDefaultPlatformMixin<  //
-                    ::testing::Test>>>>;
+using TestWithContext =              //
+    WithContextMixin<                //
+        WithIsolateScopeMixin<       //
+            WithSharedIsolateMixin<  //
+                ::testing::Test>>>;
+
+using TestWithIsolateAndPointerCompression =     //
+    WithContextMixin<                            //
+        WithIsolateScopeMixin<                   //
+            WithPointerCompressionIsolateMixin<  //
+                ::testing::Test>>>;
 
 namespace internal {
 
@@ -200,8 +251,6 @@ template <typename TMixin>
 class WithInternalIsolateMixin : public TMixin {
  public:
   WithInternalIsolateMixin() = default;
-  WithInternalIsolateMixin(const WithInternalIsolateMixin&) = delete;
-  WithInternalIsolateMixin& operator=(const WithInternalIsolateMixin&) = delete;
 
   Factory* factory() const { return isolate()->factory(); }
   Isolate* isolate() const { return TMixin::i_isolate(); }
@@ -232,78 +281,80 @@ class WithInternalIsolateMixin : public TMixin {
   base::RandomNumberGenerator* random_number_generator() const {
     return isolate()->random_number_generator();
   }
+
+  static void SetUpTestCase() { TMixin::SetUpTestCase(); }
+  static void TearDownTestCase() { TMixin::TearDownTestCase(); }
+
+ private:
+  DISALLOW_COPY_AND_ASSIGN(WithInternalIsolateMixin);
 };
 
 template <typename TMixin>
 class WithZoneMixin : public TMixin {
  public:
-  explicit WithZoneMixin(bool support_zone_compression = false)
-      : zone_(&allocator_, ZONE_NAME, support_zone_compression) {}
-  WithZoneMixin(const WithZoneMixin&) = delete;
-  WithZoneMixin& operator=(const WithZoneMixin&) = delete;
+  WithZoneMixin() : zone_(&allocator_, ZONE_NAME) {}
 
   Zone* zone() { return &zone_; }
+
+  static void SetUpTestCase() { TMixin::SetUpTestCase(); }
+  static void TearDownTestCase() { TMixin::TearDownTestCase(); }
 
  private:
   v8::internal::AccountingAllocator allocator_;
   Zone zone_;
+
+  DISALLOW_COPY_AND_ASSIGN(WithZoneMixin);
 };
 
-using TestWithIsolate =                    //
-    WithInternalIsolateMixin<              //
-        WithIsolateScopeMixin<             //
-            WithIsolateMixin<              //
-                WithDefaultPlatformMixin<  //
+using TestWithIsolate =              //
+    WithInternalIsolateMixin<        //
+        WithIsolateScopeMixin<       //
+            WithSharedIsolateMixin<  //
+                ::testing::Test>>>;
+
+using TestWithZone = WithZoneMixin<::testing::Test>;
+
+using TestWithIsolateAndZone =       //
+    WithInternalIsolateMixin<        //
+        WithIsolateScopeMixin<       //
+            WithSharedIsolateMixin<  //
+                WithZoneMixin<       //
                     ::testing::Test>>>>;
 
-using TestWithZone = WithZoneMixin<WithDefaultPlatformMixin<  //
-    ::testing::Test>>;
+using TestWithNativeContext =            //
+    WithInternalIsolateMixin<            //
+        WithContextMixin<                //
+            WithIsolateScopeMixin<       //
+                WithSharedIsolateMixin<  //
+                    ::testing::Test>>>>;
 
-using TestWithIsolateAndZone =                 //
-    WithZoneMixin<                             //
-        WithInternalIsolateMixin<              //
-            WithIsolateScopeMixin<             //
-                WithIsolateMixin<              //
-                    WithDefaultPlatformMixin<  //
+using TestWithNativeContextAndCounters =  //
+    WithInternalIsolateMixin<             //
+        WithContextMixin<                 //
+            WithIsolateScopeMixin<        //
+                WithSharedIsolateMixin<   //
+                    ::testing::Test,      //
+                    SharedIsolateAndCountersHolder>>>>;
+
+using TestWithNativeContextAndZone =         //
+    WithZoneMixin<                           //
+        WithInternalIsolateMixin<            //
+            WithContextMixin<                //
+                WithIsolateScopeMixin<       //
+                    WithSharedIsolateMixin<  //
                         ::testing::Test>>>>>;
 
-using TestWithNativeContext =                  //
-    WithInternalIsolateMixin<                  //
-        WithContextMixin<                      //
-            WithIsolateScopeMixin<             //
-                WithIsolateMixin<              //
-                    WithDefaultPlatformMixin<  //
-                        ::testing::Test>>>>>;
-
-using TestWithNativeContextAndCounters =       //
-    WithInternalIsolateMixin<                  //
-        WithContextMixin<                      //
-            WithIsolateScopeMixin<             //
-                WithIsolateMixin<              //
-                    WithDefaultPlatformMixin<  //
-                        ::testing::Test>,
-                    kEnableCounters>>>>;
-
-using TestWithNativeContextAndZone =               //
-    WithZoneMixin<                                 //
-        WithInternalIsolateMixin<                  //
-            WithContextMixin<                      //
-                WithIsolateScopeMixin<             //
-                    WithIsolateMixin<              //
-                        WithDefaultPlatformMixin<  //
-                            ::testing::Test>>>>>>;
-
-class V8_NODISCARD SaveFlags {
+class SaveFlags {
  public:
   SaveFlags();
   ~SaveFlags();
-  SaveFlags(const SaveFlags&) = delete;
-  SaveFlags& operator=(const SaveFlags&) = delete;
 
  private:
 #define FLAG_MODE_APPLY(ftype, ctype, nam, def, cmt) ctype SAVED_##nam;
-#include "src/flags/flag-definitions.h"
+#include "src/flags/flag-definitions.h"  // NOLINT
 #undef FLAG_MODE_APPLY
+
+  DISALLOW_COPY_AND_ASSIGN(SaveFlags);
 };
 
 // For GTest.
@@ -313,16 +364,6 @@ inline void PrintTo(Object o, ::std::ostream* os) {
 inline void PrintTo(Smi o, ::std::ostream* os) {
   *os << reinterpret_cast<void*>(o.ptr());
 }
-
-// ManualGCScope allows for disabling GC heuristics. This is useful for tests
-// that want to check specific corner cases around GC.
-//
-// The scope will finalize any ongoing GC on the provided Isolate.
-class V8_NODISCARD ManualGCScope final : private SaveFlags {
- public:
-  explicit ManualGCScope(i::Isolate* isolate);
-  ~ManualGCScope() = default;
-};
 
 }  // namespace internal
 }  // namespace v8

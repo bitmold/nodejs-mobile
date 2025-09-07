@@ -27,10 +27,8 @@
 
 // Flags: --allow-natives-syntax
 
-function add(x, y) {
-  return x + y;
-};
-%PrepareFunctionForOptimization(add);
+function add(x, y) { return x + y; }
+
 print(add({ a: 1 }, "a"));
 print(add({ b: 1 }, "b"));
 print(add({ c: 1 }, "c"));

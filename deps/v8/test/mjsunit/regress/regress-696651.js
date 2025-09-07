@@ -4,12 +4,8 @@
 
 // Flags: --allow-natives-syntax
 
-function get_a() {
-  return 'aaaaaaaaaaaaaa';
-}
-function get_b() {
-  return 'bbbbbbbbbbbbbb';
-}
+function get_a() { return "aaaaaaaaaaaaaa"; }
+function get_b() { return "bbbbbbbbbbbbbb"; }
 
 function get_string() {
   return get_a() + get_b();
@@ -17,8 +13,8 @@ function get_string() {
 
 function prefix(s) {
   return s + get_string();
-};
-%PrepareFunctionForOptimization(prefix);
+}
+
 prefix("");
 prefix("");
 %OptimizeFunctionOnNextCall(prefix);

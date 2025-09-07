@@ -266,7 +266,6 @@ function osr_inner(t, limit) {
       }
       r += x;
     }
-    %PrepareFunctionForOptimization(osr_inner);
   }
   return r;
 }

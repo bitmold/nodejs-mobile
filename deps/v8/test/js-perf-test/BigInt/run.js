@@ -4,14 +4,14 @@
 
 "use strict";
 
-d8.file.execute('../base.js');
-d8.file.execute(arguments[0] + '.js');
+load('../base.js');
+load('to-boolean.js');
+
 
 var success = true;
 
-
 function PrintResult(name, result) {
-  print(`BigInt-${name}(Score): ${result}`);
+  print(name + '-BigInt(Score): ' + result);
 }
 
 

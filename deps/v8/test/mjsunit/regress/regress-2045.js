@@ -38,11 +38,9 @@ function bar() {
 
 function baz() {
   return bar(1, 2);
-};
-%PrepareFunctionForOptimization(baz);
-G = {
-  x: 0
-};
+}
+
+G = {x: 0};
 baz();
 baz();
 %OptimizeFunctionOnNextCall(baz);

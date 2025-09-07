@@ -12,7 +12,6 @@ function f() {
   g(r);
 }
 
-%PrepareFunctionForOptimization(f);
 f(); f(); %OptimizeFunctionOnNextCall(f);  // Warm-up.
 
 var re;

@@ -44,7 +44,6 @@
     return arguments.length;
   };
 
-  %PrepareFunctionForOptimization(object.a);
   assertSame(0, object.a());
   assertSame(0, object.a());
   %OptimizeFunctionOnNextCall(object.a);
@@ -72,7 +71,6 @@
     return arguments.length;
   };
 
-  %PrepareFunctionForOptimization(object.a);
   assertSame(8, object.a());
   assertSame(8, object.a());
   %OptimizeFunctionOnNextCall(object.a);

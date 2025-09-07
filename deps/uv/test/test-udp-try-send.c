@@ -63,12 +63,12 @@ static void sv_recv_cb(uv_udp_t* handle,
   ASSERT(nread > 0);
 
   if (nread == 0) {
-    ASSERT_NULL(addr);
+    ASSERT(addr == NULL);
     return;
   }
 
   ASSERT(nread == 4);
-  ASSERT_NOT_NULL(addr);
+  ASSERT(addr != NULL);
 
   ASSERT(memcmp("EXIT", rcvbuf->base, nread) == 0);
   uv_close((uv_handle_t*) handle, close_cb);

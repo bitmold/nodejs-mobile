@@ -12,7 +12,6 @@ function foo(a, c){
     }
   }
 };
-%PrepareFunctionForOptimization(foo);
 
 c = {
   "one" : { x : 1},

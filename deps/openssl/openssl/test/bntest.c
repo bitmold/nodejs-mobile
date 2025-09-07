@@ -1,7 +1,7 @@
 /*
- * Copyright 1995-2022 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 1995-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
  * in the file LICENSE in the source distribution or at
  * https://www.openssl.org/source/license.html
@@ -20,9 +20,14 @@
 #include "internal/numbers.h"
 #include "testutil.h"
 
+#ifdef OPENSSL_SYS_WINDOWS
+# define strcasecmp _stricmp
+#endif
+
 /*
- * Things in boring, not in openssl.
+ * Things in boring, not in openssl.  TODO we should add them.
  */
+#define HAVE_BN_PADDED 0
 #define HAVE_BN_SQRT 0
 
 typedef struct filetest_st {
@@ -57,7 +62,7 @@ static const char *findattr(STANZA *s, const char *key)
     PAIR *pp = s->pairs;
 
     for ( ; --i >= 0; pp++)
-        if (OPENSSL_strcasecmp(pp->key, key) == 0)
+        if (strcasecmp(pp->key, key) == 0)
             return pp->value;
     return NULL;
 }
@@ -300,75 +305,6 @@ static int test_div_recip(void)
     return st;
 }
 
-static struct {
-    int n, divisor, result, remainder;
-} signed_mod_tests[] = {
-    {  10,   3,   3,   1 },
-    { -10,   3,  -3,  -1 },
-    {  10,  -3,  -3,   1 },
-    { -10,  -3,   3,  -1 },
-};
-
-static BIGNUM *set_signed_bn(int value)
-{
-    BIGNUM *bn = BN_new();
-
-    if (bn == NULL)
-        return NULL;
-    if (!BN_set_word(bn, value < 0 ? -value : value)) {
-        BN_free(bn);
-        return NULL;
-    }
-    BN_set_negative(bn, value < 0);
-    return bn;
-}
-
-static int test_signed_mod_replace_ab(int n)
-{
-    BIGNUM *a = NULL, *b = NULL, *c = NULL, *d = NULL;
-    int st = 0;
-
-    if (!TEST_ptr(a = set_signed_bn(signed_mod_tests[n].n))
-            || !TEST_ptr(b = set_signed_bn(signed_mod_tests[n].divisor))
-            || !TEST_ptr(c = set_signed_bn(signed_mod_tests[n].result))
-            || !TEST_ptr(d = set_signed_bn(signed_mod_tests[n].remainder)))
-        goto err;
-
-    if (TEST_true(BN_div(a, b, a, b, ctx))
-            && TEST_BN_eq(a, c)
-            && TEST_BN_eq(b, d))
-        st = 1;
- err:
-    BN_free(a);
-    BN_free(b);
-    BN_free(c);
-    BN_free(d);
-    return st;
-}
-
-static int test_signed_mod_replace_ba(int n)
-{
-    BIGNUM *a = NULL, *b = NULL, *c = NULL, *d = NULL;
-    int st = 0;
-
-    if (!TEST_ptr(a = set_signed_bn(signed_mod_tests[n].n))
-            || !TEST_ptr(b = set_signed_bn(signed_mod_tests[n].divisor))
-            || !TEST_ptr(c = set_signed_bn(signed_mod_tests[n].result))
-            || !TEST_ptr(d = set_signed_bn(signed_mod_tests[n].remainder)))
-        goto err;
-
-    if (TEST_true(BN_div(b, a, a, b, ctx))
-            && TEST_BN_eq(b, c)
-            && TEST_BN_eq(a, d))
-        st = 1;
- err:
-    BN_free(a);
-    BN_free(b);
-    BN_free(c);
-    BN_free(d);
-    return st;
-}
-
 static int test_mod(void)
 {
     BIGNUM *a = NULL, *b = NULL, *c = NULL, *d = NULL, *e = NULL;
@@ -390,10 +326,8 @@ static int test_mod(void)
         BN_set_negative(b, rand_neg());
         if (!(TEST_true(BN_mod(c, a, b, ctx))
                 && TEST_true(BN_div(d, e, a, b, ctx))
-                && TEST_BN_eq(e, c)
-                && TEST_true(BN_mul(c, d, b, ctx))
-                && TEST_true(BN_add(d, c, e))
-                && TEST_BN_eq(d, a)))
+                && TEST_true(BN_sub(e, e, c))
+                && TEST_BN_eq_zero(e)))
             goto err;
     }
     st = 1;
@@ -623,51 +557,6 @@ static int test_modexp_mont5(void)
     if (!TEST_BN_eq(c, d))
         goto err;
 
-    /*
-     * Regression test for overflow bug in bn_sqr_comba4/8 for
-     * mips-linux-gnu and mipsel-linux-gnu 32bit targets.
-     */
-    {
-        static const char *ehex[] = {
-            "95564994a96c45954227b845a1e99cb939d5a1da99ee91acc962396ae999a9ee",
-            "38603790448f2f7694c242a875f0cad0aae658eba085f312d2febbbd128dd2b5",
-            "8f7d1149f03724215d704344d0d62c587ae3c5939cba4b9b5f3dc5e8e911ef9a",
-            "5ce1a5a749a4989d0d8368f6e1f8cdf3a362a6c97fb02047ff152b480a4ad985",
-            "2d45efdf0770542992afca6a0590d52930434bba96017afbc9f99e112950a8b1",
-            "a359473ec376f329bdae6a19f503be6d4be7393c4e43468831234e27e3838680",
-            "b949390d2e416a3f9759e5349ab4c253f6f29f819a6fe4cbfd27ada34903300e",
-            "da021f62839f5878a36f1bc3085375b00fd5fa3e68d316c0fdace87a97558465",
-            NULL};
-        static const char *phex[] = {
-            "f95dc0f980fbd22e90caa5a387cc4a369f3f830d50dd321c40db8c09a7e1a241",
-            "a536e096622d3280c0c1ba849c1f4a79bf490f60006d081e8cf69960189f0d31",
-            "2cd9e17073a3fba7881b21474a13b334116cb2f5dbf3189a6de3515d0840f053",
-            "c776d3982d391b6d04d642dda5cc6d1640174c09875addb70595658f89efb439",
-            "dc6fbd55f903aadd307982d3f659207f265e1ec6271b274521b7a5e28e8fd7a5",
-            "5df089292820477802a43cf5b6b94e999e8c9944ddebb0d0e95a60f88cb7e813",
-            "ba110d20e1024774107dd02949031864923b3cb8c3f7250d6d1287b0a40db6a4",
-            "7bd5a469518eb65aa207ddc47d8c6e5fc8e0c105be8fc1d4b57b2e27540471d5",
-            NULL};
-        static const char *mhex[] = {
-            "fef15d5ce4625f1bccfbba49fc8439c72bf8202af039a2259678941b60bb4a8f",
-            "2987e965d58fd8cf86a856674d519763d0e1211cc9f8596971050d56d9b35db3",
-            "785866cfbca17cfdbed6060be3629d894f924a89fdc1efc624f80d41a22f1900",
-            "9503fcc3824ef62ccb9208430c26f2d8ceb2c63488ec4c07437aa4c96c43dd8b",
-            "9289ed00a712ff66ee195dc71f5e4ead02172b63c543d69baf495f5fd63ba7bc",
-            "c633bd309c016e37736da92129d0b053d4ab28d21ad7d8b6fab2a8bbdc8ee647",
-            "d2fbcf2cf426cf892e6f5639e0252993965dfb73ccd277407014ea784aaa280c",
-            "b7b03972bc8b0baa72360bdb44b82415b86b2f260f877791cd33ba8f2d65229b",
-            NULL};
-
-        if (!TEST_true(parse_bigBN(&e, ehex))
-                || !TEST_true(parse_bigBN(&p, phex))
-                || !TEST_true(parse_bigBN(&m, mhex))
-                || !TEST_true(BN_mod_exp_mont_consttime(d, e, p, m, ctx, NULL))
-                || !TEST_true(BN_mod_exp_simple(a, e, p, m, ctx))
-                || !TEST_BN_eq(a, d))
-            goto err;
-    }
-
     /* Zero input */
     if (!TEST_true(BN_bntest_rand(p, 1024, 0, 0)))
         goto err;
@@ -889,14 +778,6 @@ static int test_gf2m_modinv(void)
             || !TEST_ptr(b[1] = BN_new())
             || !TEST_ptr(c = BN_new())
             || !TEST_ptr(d = BN_new()))
-        goto err;
-
-    /* Test that a non-sensical, too small value causes a failure */
-    if (!TEST_true(BN_one(b[0])))
-        goto err;
-    if (!TEST_true(BN_bntest_rand(a, 512, 0, 0)))
-        goto err;
-    if (!TEST_false(BN_GF2m_mod_inv(c, a, b[0], ctx)))
         goto err;
 
     if (!(TEST_true(BN_GF2m_arr2poly(p0, b[0]))
@@ -1216,7 +1097,7 @@ static int file_sum(STANZA *s)
     /*
      * Test that the functions work when |r| and |a| point to the same BIGNUM,
      * or when |r| and |b| point to the same BIGNUM.
-     * There is no test for all of |r|, |a|, and |b| pointint to the same BIGNUM.
+     * TODO: Test where all of |r|, |a|, and |b| point to the same BIGNUM.
      */
     if (!TEST_true(BN_copy(ret, a))
             || !TEST_true(BN_add(ret, ret, b))
@@ -1243,6 +1124,7 @@ static int file_sum(STANZA *s)
      * documented as having. Note that these functions are frequently used
      * when the prerequisites don't hold. In those cases, they are supposed
      * to work as if the prerequisite hold, but we don't test that yet.
+     * TODO: test that.
      */
     if (!BN_is_negative(a) && !BN_is_negative(b) && BN_cmp(a, b) >= 0) {
         if (!TEST_true(BN_uadd(ret, a, b))
@@ -1255,8 +1137,7 @@ static int file_sum(STANZA *s)
         /*
          * Test that the functions work when |r| and |a| point to the same
          * BIGNUM, or when |r| and |b| point to the same BIGNUM.
-         * There is no test for all of |r|, |a|, and |b| pointint to the same
-         * BIGNUM.
+         * TODO: Test where all of |r|, |a|, and |b| point to the same BIGNUM.
          */
         if (!TEST_true(BN_copy(ret, a))
                 || !TEST_true(BN_uadd(ret, ret, b))
@@ -1733,17 +1614,8 @@ static int file_modsqrt(STANZA *s)
             || !TEST_ptr(ret2 = BN_new()))
         goto err;
 
-    if (BN_is_negative(mod_sqrt)) {
-        /* A negative testcase */
-        if (!TEST_ptr_null(BN_mod_sqrt(ret, a, p, ctx)))
-            goto err;
-
-        st = 1;
-        goto err;
-    }
-
     /* There are two possible answers. */
-    if (!TEST_ptr(BN_mod_sqrt(ret, a, p, ctx))
+    if (!TEST_true(BN_mod_sqrt(ret, a, p, ctx))
             || !TEST_true(BN_sub(ret2, p, ret)))
         goto err;
 
@@ -1762,78 +1634,54 @@ static int file_modsqrt(STANZA *s)
     return st;
 }
 
-static int file_gcd(STANZA *s)
-{
-    BIGNUM *a = NULL, *b = NULL, *gcd = NULL, *ret = NULL;
-    int st = 0;
-
-    if (!TEST_ptr(a = getBN(s, "A"))
-            || !TEST_ptr(b = getBN(s, "B"))
-            || !TEST_ptr(gcd = getBN(s, "GCD"))
-            || !TEST_ptr(ret = BN_new()))
-        goto err;
-
-    if (!TEST_true(BN_gcd(ret, a, b, ctx))
-            || !equalBN("gcd(A,B)", gcd, ret))
-        goto err;
-
-    st = 1;
- err:
-    BN_free(a);
-    BN_free(b);
-    BN_free(gcd);
-    BN_free(ret);
-    return st;
-}
-
 static int test_bn2padded(void)
 {
+#if HAVE_BN_PADDED
     uint8_t zeros[256], out[256], reference[128];
-    size_t bytes;
-    BIGNUM *n;
+    BIGNUM *n = BN_new();
     int st = 0;
 
     /* Test edge case at 0. */
-    if (!TEST_ptr((n = BN_new())))
+    if (n == NULL)
         goto err;
-    if (!TEST_int_eq(BN_bn2binpad(n, NULL, 0), 0))
+    if (!TEST_true(BN_bn2bin_padded(NULL, 0, n)))
         goto err;
     memset(out, -1, sizeof(out));
-    if (!TEST_int_eq(BN_bn2binpad(n, out, sizeof(out)), sizeof(out)))
+    if (!TEST_true(BN_bn2bin_padded(out, sizeof(out)), n))
         goto err;
     memset(zeros, 0, sizeof(zeros));
     if (!TEST_mem_eq(zeros, sizeof(zeros), out, sizeof(out)))
         goto err;
 
     /* Test a random numbers at various byte lengths. */
-    for (bytes = 128 - 7; bytes <= 128; bytes++) {
+    for (size_t bytes = 128 - 7; bytes <= 128; bytes++) {
 # define TOP_BIT_ON 0
 # define BOTTOM_BIT_NOTOUCH 0
         if (!TEST_true(BN_rand(n, bytes * 8, TOP_BIT_ON, BOTTOM_BIT_NOTOUCH)))
             goto err;
-        if (!TEST_int_eq(BN_num_bytes(n), bytes)
-                || !TEST_int_eq(BN_bn2bin(n, reference), bytes))
+        if (!TEST_int_eq(BN_num_bytes(n),A) bytes
+                || TEST_int_eq(BN_bn2bin(n, reference), bytes))
             goto err;
         /* Empty buffer should fail. */
-        if (!TEST_int_eq(BN_bn2binpad(n, NULL, 0), -1))
+        if (!TEST_int_eq(BN_bn2bin_padded(NULL, 0, n)), 0)
             goto err;
         /* One byte short should fail. */
-        if (!TEST_int_eq(BN_bn2binpad(n, out, bytes - 1), -1))
+        if (BN_bn2bin_padded(out, bytes - 1, n))
             goto err;
         /* Exactly right size should encode. */
-        if (!TEST_int_eq(BN_bn2binpad(n, out, bytes), bytes)
-                || !TEST_mem_eq(out, bytes, reference, bytes))
+        if (!TEST_true(BN_bn2bin_padded(out, bytes, n))
+                || TEST_mem_eq(out, bytes, reference, bytes))
             goto err;
         /* Pad up one byte extra. */
-        if (!TEST_int_eq(BN_bn2binpad(n, out, bytes + 1), bytes + 1)
+        if (!TEST_true(BN_bn2bin_padded(out, bytes + 1, n))
                 || !TEST_mem_eq(out + 1, bytes, reference, bytes)
                 || !TEST_mem_eq(out, 1, zeros, 1))
             goto err;
         /* Pad up to 256. */
-        if (!TEST_int_eq(BN_bn2binpad(n, out, sizeof(out)), sizeof(out))
+        if (!TEST_true(BN_bn2bin_padded(out, sizeof(out)), n)
                 || !TEST_mem_eq(out + sizeof(out) - bytes, bytes,
                                 reference, bytes)
-                || !TEST_mem_eq(out, sizeof(out) - bytes,
+                || !TEST_mem_eq(out, sizseof(out) - bytes,
                                 zeros, sizeof(out) - bytes))
             goto err;
     }
@@ -1842,6 +1690,9 @@ static int test_bn2padded(void)
  err:
     BN_free(n);
     return st;
+#else
+    return ctx != NULL;
+#endif
 }
 
 static int test_dec2bn(void)
@@ -2103,86 +1954,6 @@ static int test_rand(void)
     return st;
 }
 
-/*
- * Run some statistical tests to provide a degree confidence that the
- * BN_rand_range() function works as expected.  The test cases and
- * critical values are generated by the bn_rand_range script.
- *
- * Each individual test is a Chi^2 goodness of fit for a specified number
- * of samples and range.  The samples are assumed to be independent and
- * that they are from a discrete uniform distribution.
- *
- * Some of these individual tests are expected to fail, the success/failure
- * of each is an independent Bernoulli trial.  The number of such successes
- * will form a binomial distribution.  The count of the successes is compared
- * against a precomputed critical value to determine the overall outcome.
- */
-struct rand_range_case {
-    unsigned int range;
-    unsigned int iterations;
-    double critical;
-};
-
-#include "bn_rand_range.h"
-
-static int test_rand_range_single(size_t n)
-{
-    const unsigned int range = rand_range_cases[n].range;
-    const unsigned int iterations = rand_range_cases[n].iterations;
-    const double critical = rand_range_cases[n].critical;
-    const double expected = iterations / (double)range;
-    double sum = 0;
-    BIGNUM *rng = NULL, *val = NULL;
-    size_t *counts;
-    unsigned int i, v;
-    int res = 0;
-
-    if (!TEST_ptr(counts = OPENSSL_zalloc(sizeof(*counts) * range))
-        || !TEST_ptr(rng = BN_new())
-        || !TEST_ptr(val = BN_new())
-        || !TEST_true(BN_set_word(rng, range)))
-        goto err;
-    for (i = 0; i < iterations; i++) {
-        if (!TEST_true(BN_rand_range(val, rng))
-            || !TEST_uint_lt(v = (unsigned int)BN_get_word(val), range))
-            goto err;
-        counts[v]++;
-    }
-
-    for (i = 0; i < range; i++) {
-        const double delta = counts[i] - expected;
-        sum += delta * delta;
-    }
-    sum /= expected;
-
-    if (sum > critical) {
-        TEST_info("Chi^2 test negative %.4f > %4.f", sum, critical);
-        TEST_note("test case %zu  range %u  iterations %u", n + 1, range,
-                  iterations);
-        goto err;
-    }
-
-    res = 1;
-err:
-    BN_free(rng);
-    BN_free(val);
-    OPENSSL_free(counts);
-    return res;
-}
-
-static int test_rand_range(void)
-{
-    int n_success = 0;
-    size_t i;
-
-    for (i = 0; i < OSSL_NELEM(rand_range_cases); i++)
-        n_success += test_rand_range_single(i);
-    if (TEST_int_ge(n_success, binomial_critical))
-        return 1;
-    TEST_note("This test is expected to fail by chance 0.01%% of the time.");
-    return 0;
-}
-
 static int test_negzero(void)
 {
     BIGNUM *a = NULL, *b = NULL, *c = NULL, *d = NULL;
@@ -2398,49 +2169,17 @@ static int test_expmodone(void)
     return ret;
 }
 
-static int test_smallprime(int kBits)
+static int test_smallprime(void)
 {
+    static const int kBits = 10;
     BIGNUM *r;
     int st = 0;
 
-    if (!TEST_ptr(r = BN_new()))
+    if (!TEST_ptr(r = BN_new())
+            || !TEST_true(BN_generate_prime_ex(r, (int)kBits, 0,
+                                               NULL, NULL, NULL))
+            || !TEST_int_eq(BN_num_bits(r), kBits))
         goto err;
-
-    if (kBits <= 1) {
-        if (!TEST_false(BN_generate_prime_ex(r, kBits, 0,
-                                             NULL, NULL, NULL)))
-            goto err;
-    } else {
-        if (!TEST_true(BN_generate_prime_ex(r, kBits, 0,
-                                            NULL, NULL, NULL))
-                || !TEST_int_eq(BN_num_bits(r), kBits))
-            goto err;
-    }
-
-    st = 1;
- err:
-    BN_free(r);
-    return st;
-}
-
-static int test_smallsafeprime(int kBits)
-{
-    BIGNUM *r;
-    int st = 0;
-
-    if (!TEST_ptr(r = BN_new()))
-        goto err;
-
-    if (kBits <= 5 && kBits != 3) {
-        if (!TEST_false(BN_generate_prime_ex(r, kBits, 1,
-                                             NULL, NULL, NULL)))
-            goto err;
-    } else {
-        if (!TEST_true(BN_generate_prime_ex(r, kBits, 1,
-                                            NULL, NULL, NULL))
-                || !TEST_int_eq(BN_num_bits(r), kBits))
-            goto err;
-    }
 
     st = 1;
  err:
@@ -2461,7 +2200,7 @@ static int test_is_prime(int i)
 
     for (trial = 0; trial <= 1; ++trial) {
         if (!TEST_true(BN_set_word(r, primes[i]))
-                || !TEST_int_eq(BN_check_prime(r, ctx, NULL),
+                || !TEST_int_eq(BN_is_prime_fasttest_ex(r, 1, ctx, trial, NULL),
                                 1))
             goto err;
     }
@@ -2485,7 +2224,7 @@ static int test_not_prime(int i)
 
     for (trial = 0; trial <= 1; ++trial) {
         if (!TEST_true(BN_set_word(r, not_primes[i]))
-                || !TEST_false(BN_check_prime(r, ctx, NULL)))
+                || !TEST_false(BN_is_prime_fasttest_ex(r, 1, ctx, trial, NULL)))
             goto err;
     }
 
@@ -2581,462 +2320,6 @@ static int test_ctx_consttime_flag(void)
     return st;
 }
 
-static int test_gcd_prime(void)
-{
-    BIGNUM *a = NULL, *b = NULL, *gcd = NULL;
-    int i, st = 0;
-
-    if (!TEST_ptr(a = BN_new())
-            || !TEST_ptr(b = BN_new())
-            || !TEST_ptr(gcd = BN_new()))
-        goto err;
-
-    if (!TEST_true(BN_generate_prime_ex(a, 1024, 0, NULL, NULL, NULL)))
-            goto err;
-    for (i = 0; i < NUM0; i++) {
-        if (!TEST_true(BN_generate_prime_ex(b, 1024, 0,
-                                            NULL, NULL, NULL))
-                || !TEST_true(BN_gcd(gcd, a, b, ctx))
-                || !TEST_true(BN_is_one(gcd)))
-            goto err;
-    }
-
-    st = 1;
- err:
-    BN_free(a);
-    BN_free(b);
-    BN_free(gcd);
-    return st;
-}
-
-typedef struct mod_exp_test_st
-{
-  const char *base;
-  const char *exp;
-  const char *mod;
-  const char *res;
-} MOD_EXP_TEST;
-
-static const MOD_EXP_TEST ModExpTests[] = {
-   /* original test vectors for rsaz_512_sqr bug, by OSS-Fuzz */
-   {
-       "1166180238001879113042182292626169621106255558914000595999312084"
-       "4627946820899490684928760491249738643524880720584249698100907201"
-       "002086675047927600340800371",
-       "8000000000000000000000000000000000000000000000000000000000000000"
-       "0000000000000000000000000000000000000000000000000000000000000000"
-       "00000000",
-       "1340780792684523720980737645613191762604395855615117867483316354"
-       "3294276330515137663421134775482798690129946803802212663956180562"
-       "088664022929883876655300863",
-       "8243904058268085430037326628480645845409758077568738532059032482"
-       "8294114415890603594730158120426756266457928475330450251339773498"
-       "26758407619521544102068438"
-   },
-   {
-       "4974270041410803822078866696159586946995877618987010219312844726"
-       "0284386121835740784990869050050504348861513337232530490826340663"
-       "197278031692737429054",
-       "4974270041410803822078866696159586946995877428188754995041148539"
-       "1663243362592271353668158565195557417149981094324650322556843202"
-       "946445882670777892608",
-       "1340780716511420227215592830971452482815377482627251725537099028"
-       "4429769497230131760206012644403029349547320953206103351725462999"
-       "947509743623340557059752191",
-       "5296244594780707015616522701706118082963369547253192207884519362"
-       "1767869984947542695665420219028522815539559194793619684334900442"
-       "49304558011362360473525933"
-   },
-   /* test vectors for rsaz_512_srq bug, with rcx/rbx=1 */
-   {   /* between first and second iteration */
-       "5148719036160389201525610950887605325980251964889646556085286545"
-       "3931548809178823413169359635978762036512397113080988070677858033"
-       "36463909753993540214027190",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between second and third iteration */
-       "8908340854353752577419678771330460827942371434853054158622636544"
-       "8151360109722890949471912566649465436296659601091730745087014189"
-       "2672764191218875181826063",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between third and fourth iteration */
-       "3427446396505596330634350984901719674479522569002785244080234738"
-       "4288743635435746136297299366444548736533053717416735379073185344"
-       "26985272974404612945608761",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between fourth and fifth iteration */
-       "3472743044917564564078857826111874560045331237315597383869652985"
-       "6919870028890895988478351133601517365908445058405433832718206902"
-       "4088133164805266956353542",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between fifth and sixth iteration */
-       "3608632990153469264412378349742339216742409743898601587274768025"
-       "0110772032985643555192767717344946174122842255204082586753499651"
-       "14483434992887431333675068",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between sixth and seventh iteration */
-       "8455374370234070242910508226941981520235709767260723212165264877"
-       "8689064388017521524568434328264431772644802567028663962962025746"
-       "9283458217850119569539086",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between seventh and eighth iteration */
-       "5155371529688532178421209781159131443543419764974688878527112131"
-       "7446518205609427412336183157918981038066636807317733319323257603"
-       "04416292040754017461076359",
-       "1005585594745694782468051874865438459560952436544429503329267108"
-       "2791323022555160232601405723625177570767523893639864538140315412"
-       "108959927459825236754563832",
-       "1005585594745694782468051874865438459560952436544429503329267108"
-       "2791323022555160232601405723625177570767523893639864538140315412"
-       "108959927459825236754563833",
-       "1"
-   },
-   /* test vectors for rsaz_512_srq bug, with rcx/rbx=2 */
-   {   /* between first and second iteration */
-       "3155666506033786929967309937640790361084670559125912405342594979"
-       "4345142818528956285490897841406338022378565972533508820577760065"
-       "58494345853302083699912572",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between second and third iteration */
-       "3789819583801342198190405714582958759005991915505282362397087750"
-       "4213544724644823098843135685133927198668818185338794377239590049"
-       "41019388529192775771488319",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between third and forth iteration */
-       "4695752552040706867080542538786056470322165281761525158189220280"
-       "4025547447667484759200742764246905647644662050122968912279199065"
-       "48065034299166336940507214",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between forth and fifth iteration */
-       "2159140240970485794188159431017382878636879856244045329971239574"
-       "8919691133560661162828034323196457386059819832804593989740268964"
-       "74502911811812651475927076",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between fifth and sixth iteration */
-       "5239312332984325668414624633307915097111691815000872662334695514"
-       "5436533521392362443557163429336808208137221322444780490437871903"
-       "99972784701334569424519255",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between sixth and seventh iteration */
-       "1977953647322612860406858017869125467496941904523063466791308891"
-       "1172796739058531929470539758361774569875505293428856181093904091"
-       "33788264851714311303725089",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042158",
-       "6703903964971298549787012499102923063739682910296196688861780721"
-       "8608820150367734884009371490834517138450159290932430254268769414"
-       "05973284973216824503042159",
-       "1"
-   },
-   {   /* between seventh and eighth iteration */
-       "6456987954117763835533395796948878140715006860263624787492985786"
-       "8514630216966738305923915688821526449499763719943997120302368211"
-       "04813318117996225041943964",
-       "1340780792994259709957402499820584612747936582059239337772356144"
-       "3721764030073546976801874298166903427690031858186486050853753882"
-       "811946551499689575296532556",
-       "1340780792994259709957402499820584612747936582059239337772356144"
-       "3721764030073546976801874298166903427690031858186486050853753882"
-       "811946551499689575296532557",
-       "1"
-   }
-};
-
-static int test_mod_exp(int i)
-{
-    const MOD_EXP_TEST *test = &ModExpTests[i];
-    int res = 0;
-    BIGNUM* result = NULL;
-    BIGNUM *base = NULL, *exponent = NULL, *modulo = NULL;
-    char *s = NULL;
-
-    if (!TEST_ptr(result = BN_new())
-            || !TEST_true(BN_dec2bn(&base, test->base))
-            || !TEST_true(BN_dec2bn(&exponent, test->exp))
-            || !TEST_true(BN_dec2bn(&modulo, test->mod)))
-        goto err;
-
-    if (!TEST_int_eq(BN_mod_exp(result, base, exponent, modulo, ctx), 1))
-        goto err;
-
-    if (!TEST_ptr(s = BN_bn2dec(result)))
-        goto err;
-
-    if (!TEST_mem_eq(s, strlen(s), test->res, strlen(test->res)))
-        goto err;
-
-    res = 1;
-
- err:
-    OPENSSL_free(s);
-    BN_free(result);
-    BN_free(base);
-    BN_free(exponent);
-    BN_free(modulo);
-    return res;
-}
-
-static int test_mod_exp_consttime(int i)
-{
-    const MOD_EXP_TEST *test = &ModExpTests[i];
-    int res = 0;
-    BIGNUM* result = NULL;
-    BIGNUM *base = NULL, *exponent = NULL, *modulo = NULL;
-    char *s = NULL;
-
-    if (!TEST_ptr(result = BN_new())
-            || !TEST_true(BN_dec2bn(&base, test->base))
-            || !TEST_true(BN_dec2bn(&exponent, test->exp))
-            || !TEST_true(BN_dec2bn(&modulo, test->mod)))
-        goto err;
-
-    BN_set_flags(base, BN_FLG_CONSTTIME);
-    BN_set_flags(exponent, BN_FLG_CONSTTIME);
-    BN_set_flags(modulo, BN_FLG_CONSTTIME);
-
-    if (!TEST_int_eq(BN_mod_exp(result, base, exponent, modulo, ctx), 1))
-        goto err;
-
-    if (!TEST_ptr(s = BN_bn2dec(result)))
-        goto err;
-
-    if (!TEST_mem_eq(s, strlen(s), test->res, strlen(test->res)))
-        goto err;
-
-    res = 1;
-
- err:
-    OPENSSL_free(s);
-    BN_free(result);
-    BN_free(base);
-    BN_free(exponent);
-    BN_free(modulo);
-    return res;
-}
-
-/*
- * Regression test to ensure BN_mod_exp2_mont fails safely if argument m is
- * zero.
- */
-static int test_mod_exp2_mont(void)
-{
-    int res = 0;
-    BIGNUM *exp_result = NULL;
-    BIGNUM *exp_a1 = NULL, *exp_p1 = NULL, *exp_a2 = NULL, *exp_p2 = NULL,
-           *exp_m = NULL;
-
-    if (!TEST_ptr(exp_result = BN_new())
-            || !TEST_ptr(exp_a1 = BN_new())
-            || !TEST_ptr(exp_p1 = BN_new())
-            || !TEST_ptr(exp_a2 = BN_new())
-            || !TEST_ptr(exp_p2 = BN_new())
-            || !TEST_ptr(exp_m = BN_new()))
-        goto err;
-
-    if (!TEST_true(BN_one(exp_a1))
-            || !TEST_true(BN_one(exp_p1))
-            || !TEST_true(BN_one(exp_a2))
-            || !TEST_true(BN_one(exp_p2)))
-        goto err;
-
-    BN_zero(exp_m);
-
-    /* input of 0 is even, so must fail */
-    if (!TEST_int_eq(BN_mod_exp2_mont(exp_result, exp_a1, exp_p1, exp_a2,
-                exp_p2, exp_m, ctx, NULL), 0))
-        goto err;
-
-    res = 1;
-
-err:
-    BN_free(exp_result);
-    BN_free(exp_a1);
-    BN_free(exp_p1);
-    BN_free(exp_a2);
-    BN_free(exp_p2);
-    BN_free(exp_m);
-    return res;
-}
-
-static int test_mod_inverse(void)
-{
-    int res = 0;
-    char *str = NULL;
-    BIGNUM *a = NULL;
-    BIGNUM *b = NULL;
-    BIGNUM *r = NULL;
-
-    if (!TEST_true(BN_dec2bn(&a, "5193817943")))
-        goto err;
-    if (!TEST_true(BN_dec2bn(&b, "3259122431")))
-        goto err;
-    if (!TEST_ptr(r = BN_new()))
-        goto err;
-    if (!TEST_ptr_eq(BN_mod_inverse(r, a, b, ctx), r))
-        goto err;
-    if (!TEST_ptr_ne(str = BN_bn2dec(r), NULL))
-        goto err;
-    if (!TEST_int_eq(strcmp(str, "2609653924"), 0))
-        goto err;
-
-    /* Note that this aliases the result with the modulus. */
-    if (!TEST_ptr_null(BN_mod_inverse(b, a, b, ctx)))
-        goto err;
-
-    res = 1;
-
-err:
-    BN_free(a);
-    BN_free(b);
-    BN_free(r);
-    OPENSSL_free(str);
-    return res;
-}
-
-static int test_mod_exp_alias(int idx)
-{
-    int res = 0;
-    char *str = NULL;
-    BIGNUM *a = NULL;
-    BIGNUM *b = NULL;
-    BIGNUM *c = NULL;
-    BIGNUM *r = NULL;
-
-    if (!TEST_true(BN_dec2bn(&a, "15")))
-        goto err;
-    if (!TEST_true(BN_dec2bn(&b, "10")))
-        goto err;
-    if (!TEST_true(BN_dec2bn(&c, "39")))
-        goto err;
-    if (!TEST_ptr(r = BN_new()))
-        goto err;
-
-    if (!TEST_int_eq((idx == 0 ? BN_mod_exp_simple
-                               : BN_mod_exp_recp)(r, a, b, c, ctx), 1))
-        goto err;
-    if (!TEST_ptr_ne(str = BN_bn2dec(r), NULL))
-        goto err;
-    if (!TEST_str_eq(str, "36"))
-        goto err;
-
-    OPENSSL_free(str);
-    str = NULL;
-
-    BN_copy(r, b);
-
-    /* Aliasing with exponent must work. */
-    if (!TEST_int_eq((idx == 0 ? BN_mod_exp_simple
-                               : BN_mod_exp_recp)(r, a, r, c, ctx), 1))
-        goto err;
-    if (!TEST_ptr_ne(str = BN_bn2dec(r), NULL))
-        goto err;
-    if (!TEST_str_eq(str, "36"))
-        goto err;
-
-    OPENSSL_free(str);
-    str = NULL;
-
-    /* Aliasing with modulus should return failure for the simple call. */
-    if (idx == 0) {
-        if (!TEST_int_eq(BN_mod_exp_simple(c, a, b, c, ctx), 0))
-            goto err;
-    } else {
-        if (!TEST_int_eq(BN_mod_exp_recp(c, a, b, c, ctx), 1))
-            goto err;
-        if (!TEST_ptr_ne(str = BN_bn2dec(c), NULL))
-            goto err;
-        if (!TEST_str_eq(str, "36"))
-            goto err;
-    }
-
-    res = 1;
-
-err:
-    BN_free(a);
-    BN_free(b);
-    BN_free(c);
-    BN_free(r);
-    OPENSSL_free(str);
-    return res;
-}
-
 static int file_test_run(STANZA *s)
 {
     static const FILETEST filetests[] = {
@@ -3051,7 +2334,6 @@ static int file_test_run(STANZA *s)
         {"ModExp", file_modexp},
         {"Exp", file_exp},
         {"ModSqrt", file_modsqrt},
-        {"GCD", file_gcd},
     };
     int numtests = OSSL_NELEM(filetests);
     const FILETEST *tp = filetests;
@@ -3099,43 +2381,10 @@ static int run_file_tests(int i)
     return c == 0;
 }
 
-typedef enum OPTION_choice {
-    OPT_ERR = -1,
-    OPT_EOF = 0,
-    OPT_STOCHASTIC_TESTS,
-    OPT_TEST_ENUM
-} OPTION_CHOICE;
-
-const OPTIONS *test_get_options(void)
-{
-    static const OPTIONS test_options[] = {
-        OPT_TEST_OPTIONS_WITH_EXTRA_USAGE("[file...]\n"),
-        { "stochastic", OPT_STOCHASTIC_TESTS, '-', "Run stochastic tests" },
-        { OPT_HELP_STR, 1, '-',
-          "file\tFile to run tests on. Normal tests are not run\n" },
-        { NULL }
-    };
-    return test_options;
-}
 
 int setup_tests(void)
 {
-    OPTION_CHOICE o;
-    int n, stochastic = 0;
-
-    while ((o = opt_next()) != OPT_EOF) {
-        switch (o) {
-        case OPT_STOCHASTIC_TESTS:
-            stochastic = 1;
-            break;
-        case OPT_TEST_CASES:
-           break;
-        default:
-        case OPT_ERR:
-            return 0;
-        }
-    }
-    n  = test_get_argument_count();
+    int n = test_get_argument_count();
 
     if (!TEST_ptr(ctx = BN_CTX_new()))
         return 0;
@@ -3143,11 +2392,7 @@ int setup_tests(void)
     if (n == 0) {
         ADD_TEST(test_sub);
         ADD_TEST(test_div_recip);
-        ADD_ALL_TESTS(test_signed_mod_replace_ab, OSSL_NELEM(signed_mod_tests));
-        ADD_ALL_TESTS(test_signed_mod_replace_ba, OSSL_NELEM(signed_mod_tests));
         ADD_TEST(test_mod);
-        ADD_TEST(test_mod_inverse);
-        ADD_ALL_TESTS(test_mod_exp_alias, 2);
         ADD_TEST(test_modexp_mont5);
         ADD_TEST(test_kronecker);
         ADD_TEST(test_rand);
@@ -3160,8 +2405,7 @@ int setup_tests(void)
         ADD_TEST(test_badmod);
         ADD_TEST(test_expmodzero);
         ADD_TEST(test_expmodone);
-        ADD_ALL_TESTS(test_smallprime, 16);
-        ADD_ALL_TESTS(test_smallsafeprime, 16);
+        ADD_TEST(test_smallprime);
         ADD_TEST(test_swap);
         ADD_TEST(test_ctx_consttime_flag);
 #ifndef OPENSSL_NO_EC2M
@@ -3177,12 +2421,6 @@ int setup_tests(void)
 #endif
         ADD_ALL_TESTS(test_is_prime, (int)OSSL_NELEM(primes));
         ADD_ALL_TESTS(test_not_prime, (int)OSSL_NELEM(not_primes));
-        ADD_TEST(test_gcd_prime);
-        ADD_ALL_TESTS(test_mod_exp, (int)OSSL_NELEM(ModExpTests));
-        ADD_ALL_TESTS(test_mod_exp_consttime, (int)OSSL_NELEM(ModExpTests));
-        ADD_TEST(test_mod_exp2_mont);
-        if (stochastic)
-            ADD_TEST(test_rand_range);
     } else {
         ADD_ALL_TESTS(run_file_tests, n);
     }

@@ -28,15 +28,15 @@ class ControlEquivalenceTest : public GraphTest {
   }
 
  protected:
-  void ComputeEquivalence(Node* end_node) {
-    graph()->SetEnd(graph()->NewNode(common()->End(1), end_node));
+  void ComputeEquivalence(Node* node) {
+    graph()->SetEnd(graph()->NewNode(common()->End(1), node));
     if (FLAG_trace_turbo) {
       SourcePositionTable table(graph());
       NodeOriginTable table2(graph());
       StdoutStream{} << AsJSON(*graph(), &table, &table2);
     }
     ControlEquivalence equivalence(zone(), graph());
-    equivalence.Run(end_node);
+    equivalence.Run(node);
     classes_.resize(graph()->NodeCount());
     for (Node* node : all_nodes_) {
       classes_[node->id()] = equivalence.ClassOf(node);

@@ -5,15 +5,13 @@
 // Flags: --mark-shared-functions-for-tier-up  --allow-natives-syntax --expose-gc
 
 function foo() {
-  function bar() {};
-  %PrepareFunctionForOptimization(bar);
+  function bar() {
+  }
   return bar;
 }
 
 // Mark bar's shared function info for tier-up
 // (but don't optimize).
-;
-%PrepareFunctionForOptimization(foo);
 var bar = foo();
 %OptimizeFunctionOnNextCall(bar);
 

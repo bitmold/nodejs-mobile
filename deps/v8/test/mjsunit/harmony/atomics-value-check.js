@@ -8,12 +8,11 @@
 var sab = new SharedArrayBuffer(4);
 var sta = new Int8Array(sab);
 sta[0] = 5;
-function workerCode() {
-  onmessage = function(msg) {
-    postMessage(0);
-  };
-}
-var worker = new Worker(workerCode, {type: 'function'});
+var workerScript =
+      `onmessage=function(msg) {
+         postMessage(0);
+       };`;
+var worker = new Worker(workerScript, {type: 'string'});
 
 var value_obj = {
   valueOf: function() {worker.postMessage({sab:sab}, [sta.buffer]);

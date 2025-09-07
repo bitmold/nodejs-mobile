@@ -6,49 +6,45 @@
 #define V8_COMMON_PTR_COMPR_INL_H_
 
 #include "include/v8-internal.h"
+#include "src/common/ptr-compr.h"
 #include "src/execution/isolate.h"
-#include "src/execution/local-isolate-inl.h"
 
 namespace v8 {
 namespace internal {
 
-#ifdef V8_COMPRESS_POINTERS
-
-PtrComprCageBase::PtrComprCageBase(const Isolate* isolate)
-    : address_(isolate->cage_base()) {}
-PtrComprCageBase::PtrComprCageBase(const LocalIsolate* isolate)
-    : address_(isolate->cage_base()) {}
-
-Address PtrComprCageBase::address() const {
-  Address ret = address_;
-  ret = reinterpret_cast<Address>(V8_ASSUME_ALIGNED(
-      reinterpret_cast<void*>(ret), kPtrComprCageBaseAlignment));
-  return ret;
-}
-
+#if V8_TARGET_ARCH_64_BIT
 // Compresses full-pointer representation of a tagged value to on-heap
 // representation.
 V8_INLINE Tagged_t CompressTagged(Address tagged) {
   return static_cast<Tagged_t>(static_cast<uint32_t>(tagged));
 }
 
-V8_INLINE constexpr Address GetPtrComprCageBaseAddress(Address on_heap_addr) {
-  return RoundDown<kPtrComprCageBaseAlignment>(on_heap_addr);
+// Calculates isolate root value from any on-heap address.
+template <typename TOnHeapAddress>
+V8_INLINE Address GetIsolateRoot(TOnHeapAddress on_heap_addr);
+
+template <>
+V8_INLINE Address GetIsolateRoot<Address>(Address on_heap_addr) {
+  return RoundDown<kPtrComprIsolateRootAlignment>(on_heap_addr +
+                                                  kPtrComprIsolateRootBias);
 }
 
-V8_INLINE Address GetPtrComprCageBaseAddress(PtrComprCageBase cage_base) {
-  return cage_base.address();
+template <>
+V8_INLINE Address GetIsolateRoot<Isolate*>(Isolate* isolate) {
+  return isolate->isolate_root();
 }
 
-V8_INLINE constexpr PtrComprCageBase GetPtrComprCageBaseFromOnHeapAddress(
-    Address address) {
-  return PtrComprCageBase(GetPtrComprCageBaseAddress(address));
+template <>
+V8_INLINE Address GetIsolateRoot<const Isolate*>(const Isolate* isolate) {
+  return isolate->isolate_root();
 }
 
 // Decompresses smi value.
 V8_INLINE Address DecompressTaggedSigned(Tagged_t raw_value) {
-  // For runtime code the upper 32-bits of the Smi value do not matter.
-  return static_cast<Address>(raw_value);
+  // Current compression scheme requires |raw_value| to be sign-extended
+  // from int32_t to intptr_t.
+  intptr_t value = static_cast<intptr_t>(static_cast<int32_t>(raw_value));
+  return static_cast<Address>(value);
 }
 
 // Decompresses weak or strong heap object pointer or forwarding pointer,
@@ -56,25 +52,45 @@ V8_INLINE Address DecompressTaggedSigned(Tagged_t raw_value) {
 template <typename TOnHeapAddress>
 V8_INLINE Address DecompressTaggedPointer(TOnHeapAddress on_heap_addr,
                                           Tagged_t raw_value) {
-  return GetPtrComprCageBaseAddress(on_heap_addr) +
-         static_cast<Address>(raw_value);
+  // Current compression scheme requires |raw_value| to be sign-extended
+  // from int32_t to intptr_t.
+  intptr_t value = static_cast<intptr_t>(static_cast<int32_t>(raw_value));
+  Address root = GetIsolateRoot(on_heap_addr);
+  return root + static_cast<Address>(value);
 }
 
 // Decompresses any tagged value, preserving both weak- and smi- tags.
 template <typename TOnHeapAddress>
 V8_INLINE Address DecompressTaggedAny(TOnHeapAddress on_heap_addr,
                                       Tagged_t raw_value) {
-  return DecompressTaggedPointer(on_heap_addr, raw_value);
+  // Current compression scheme requires |raw_value| to be sign-extended
+  // from int32_t to intptr_t.
+  intptr_t value = static_cast<intptr_t>(static_cast<int32_t>(raw_value));
+  if (kUseBranchlessPtrDecompression) {
+    // |root_mask| is 0 if the |value| was a smi or -1 otherwise.
+    Address root_mask = static_cast<Address>(-(value & kSmiTagMask));
+    Address root_or_zero = root_mask & GetIsolateRoot(on_heap_addr);
+    return root_or_zero + static_cast<Address>(value);
+  } else {
+    return HAS_SMI_TAG(value)
+               ? static_cast<Address>(value)
+               : (GetIsolateRoot(on_heap_addr) + static_cast<Address>(value));
+  }
 }
+
+#ifdef V8_COMPRESS_POINTERS
+
+STATIC_ASSERT(kPtrComprHeapReservationSize ==
+              Internals::kPtrComprHeapReservationSize);
+STATIC_ASSERT(kPtrComprIsolateRootBias == Internals::kPtrComprIsolateRootBias);
+STATIC_ASSERT(kPtrComprIsolateRootAlignment ==
+              Internals::kPtrComprIsolateRootAlignment);
+
+#endif  // V8_COMPRESS_POINTERS
 
 #else
 
 V8_INLINE Tagged_t CompressTagged(Address tagged) { UNREACHABLE(); }
-
-V8_INLINE constexpr PtrComprCageBase GetPtrComprCageBaseFromOnHeapAddress(
-    Address address) {
-  return PtrComprCageBase();
-}
 
 V8_INLINE Address DecompressTaggedSigned(Tagged_t raw_value) { UNREACHABLE(); }
 
@@ -90,16 +106,7 @@ V8_INLINE Address DecompressTaggedAny(TOnHeapAddress on_heap_addr,
   UNREACHABLE();
 }
 
-V8_INLINE Address GetPtrComprCageBaseAddress(Address on_heap_addr) {
-  UNREACHABLE();
-}
-
-#endif  // V8_COMPRESS_POINTERS
-
-V8_INLINE PtrComprCageBase GetPtrComprCageBase(HeapObject object) {
-  return GetPtrComprCageBaseFromOnHeapAddress(object.ptr());
-}
-
+#endif  // V8_TARGET_ARCH_64_BIT
 }  // namespace internal
 }  // namespace v8
 

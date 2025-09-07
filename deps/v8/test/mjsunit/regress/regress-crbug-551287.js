@@ -4,18 +4,14 @@
 
 // Flags: --allow-natives-syntax
 
-function f() {
-  do {
-  } while (true);
-}
+function f() { do { } while (true); }
 
 function boom(x) {
-  switch (x) {
+  switch(x) {
     case 1:
-    case f():
-      return;
+    case f(): return;
   }
-};
-%PrepareFunctionForOptimization(boom);
-%OptimizeFunctionOnNextCall(boom);
+}
+
+%OptimizeFunctionOnNextCall(boom)
 boom(1);

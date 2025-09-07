@@ -42,7 +42,6 @@ function Y(x) {
 }
 
 var y = Y(X());
-%PrepareFunctionForOptimization(y);
 
 for (var i = 0; i < 5; i++) {
   assertTrue(y("foo"));

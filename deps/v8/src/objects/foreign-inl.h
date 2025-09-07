@@ -5,11 +5,10 @@
 #ifndef V8_OBJECTS_FOREIGN_INL_H_
 #define V8_OBJECTS_FOREIGN_INL_H_
 
-#include "src/common/globals.h"
-#include "src/heap/heap-write-barrier-inl.h"
 #include "src/objects/foreign.h"
+
+#include "src/heap/heap-write-barrier-inl.h"
 #include "src/objects/objects-inl.h"
-#include "src/sandbox/external-pointer-inl.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -17,30 +16,22 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/foreign-tq-inl.inc"
+OBJECT_CONSTRUCTORS_IMPL(Foreign, HeapObject)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(Foreign)
+CAST_ACCESSOR(Foreign)
 
 // static
 bool Foreign::IsNormalized(Object value) {
-  if (value == Smi::zero()) return true;
+  if (value == Smi::kZero) return true;
   return Foreign::cast(value).foreign_address() != kNullAddress;
 }
 
-DEF_GETTER(Foreign, foreign_address, Address) {
-  Isolate* isolate = GetIsolateForSandbox(*this);
-  return ReadExternalPointerField(kForeignAddressOffset, isolate,
-                                  kForeignForeignAddressTag);
+Address Foreign::foreign_address() {
+  return ReadField<Address>(kForeignAddressOffset);
 }
 
-void Foreign::AllocateExternalPointerEntries(Isolate* isolate) {
-  InitExternalPointerField(kForeignAddressOffset, isolate,
-                           kForeignForeignAddressTag);
-}
-
-void Foreign::set_foreign_address(Isolate* isolate, Address value) {
-  WriteExternalPointerField(kForeignAddressOffset, isolate, value,
-                            kForeignForeignAddressTag);
+void Foreign::set_foreign_address(Address value) {
+  WriteField<Address>(kForeignAddressOffset, value);
 }
 
 }  // namespace internal

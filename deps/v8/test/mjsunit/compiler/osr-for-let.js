@@ -7,11 +7,8 @@
 "use strict";
 
 function test(expected, func) {
-  %PrepareFunctionForOptimization(func);
   assertEquals(expected, func());
-  %PrepareFunctionForOptimization(func);
   assertEquals(expected, func());
-  %PrepareFunctionForOptimization(func);
   assertEquals(expected, func());
 }
 
@@ -34,24 +31,24 @@ test(4005, bar);
 function baz() {
   let sum = 0;
   for (let i = 0; i < 2; i++) {
-    %PrepareFunctionForOptimization(baz);
     sum = 2;
     %OptimizeOsr();
   }
   return sum;
 }
+%PrepareFunctionForOptimization(baz);
 
 test(2, baz);
 
 function qux() {
   var result = 0;
   for (let i = 0; i < 2; i++) {
-    %PrepareFunctionForOptimization(qux);
     result = i;
     %OptimizeOsr();
   }
   return result;
 }
+%PrepareFunctionForOptimization(qux);
 
 test(1, qux);
 
@@ -59,7 +56,6 @@ function nux() {
   var result = 0;
   for (let i = 0; i < 2; i++) {
     {
-      %PrepareFunctionForOptimization(nux);
       let sum = i;
       %OptimizeOsr();
       result = sum;
@@ -67,6 +63,7 @@ function nux() {
   }
   return result;
 }
+%PrepareFunctionForOptimization(nux);
 
 test(1, nux);
 

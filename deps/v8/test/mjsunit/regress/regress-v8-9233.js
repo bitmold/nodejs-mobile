@@ -10,10 +10,8 @@ o1.y = 999;
 // o2 will share map with o1 in its initial state
 var o2 = { x: 1 };
 
-function f() {
-  return o2.x;
-};
-%PrepareFunctionForOptimization(f);
+function f() { return o2.x; }
+
 assertEquals(1, f());
 assertEquals(1, f());
 %OptimizeFunctionOnNextCall(f);

@@ -8,7 +8,7 @@
 #include "src/codegen/x64/assembler-x64.h"
 
 #include "src/base/cpu.h"
-#include "src/base/memory.h"
+#include "src/common/v8memory.h"
 #include "src/debug/debug.h"
 #include "src/objects/objects-inl.h"
 
@@ -16,6 +16,8 @@ namespace v8 {
 namespace internal {
 
 bool CpuFeatures::SupportsOptimizer() { return true; }
+
+bool CpuFeatures::SupportsWasmSimd128() { return IsSupported(SSE4_1); }
 
 // -----------------------------------------------------------------------------
 // Implementation of Assembler
@@ -35,24 +37,21 @@ void Assembler::emitw(uint16_t x) {
   pc_ += sizeof(uint16_t);
 }
 
-// TODO(ishell): Rename accordingly once RUNTIME_ENTRY is renamed.
 void Assembler::emit_runtime_entry(Address entry, RelocInfo::Mode rmode) {
   DCHECK(RelocInfo::IsRuntimeEntry(rmode));
-  DCHECK_NE(options().code_range_base, 0);
   RecordRelocInfo(rmode);
-  uint32_t offset = static_cast<uint32_t>(entry - options().code_range_base);
-  emitl(offset);
+  emitl(static_cast<uint32_t>(entry - options().code_range_start));
 }
 
 void Assembler::emit(Immediate x) {
-  if (!RelocInfo::IsNoInfo(x.rmode_)) {
+  if (!RelocInfo::IsNone(x.rmode_)) {
     RecordRelocInfo(x.rmode_);
   }
   emitl(x.value_);
 }
 
 void Assembler::emit(Immediate64 x) {
-  if (!RelocInfo::IsNoInfo(x.rmode_)) {
+  if (!RelocInfo::IsNone(x.rmode_)) {
     RecordRelocInfo(x.rmode_);
   }
   emitq(static_cast<uint64_t>(x.value_));
@@ -143,22 +142,6 @@ void Assembler::emit_optional_rex_32(Operand op) {
   if (op.data().rex != 0) emit(0x40 | op.data().rex);
 }
 
-void Assembler::emit_optional_rex_8(Register reg) {
-  if (!reg.is_byte_register()) {
-    // Register is not one of al, bl, cl, dl.  Its encoding needs REX.
-    emit_rex_32(reg);
-  }
-}
-
-void Assembler::emit_optional_rex_8(Register reg, Operand op) {
-  if (!reg.is_byte_register()) {
-    // Register is not one of al, bl, cl, dl.  Its encoding needs REX.
-    emit_rex_32(reg, op);
-  } else {
-    emit_optional_rex_32(reg, op);
-  }
-}
-
 // byte 1 of 3-byte VEX
 void Assembler::emit_vex3_byte1(XMMRegister reg, XMMRegister rm,
                                 LeadingOpcode m) {
@@ -235,16 +218,10 @@ Address Assembler::target_address_at(Address pc, Address constant_pool) {
 void Assembler::set_target_address_at(Address pc, Address constant_pool,
                                       Address target,
                                       ICacheFlushMode icache_flush_mode) {
-  WriteUnalignedValue(pc, relative_target_offset(target, pc));
+  WriteUnalignedValue(pc, static_cast<int32_t>(target - pc - 4));
   if (icache_flush_mode != SKIP_ICACHE_FLUSH) {
     FlushInstructionCache(pc, sizeof(int32_t));
   }
-}
-
-int32_t Assembler::relative_target_offset(Address target, Address pc) {
-  Address offset = target - pc - 4;
-  DCHECK(is_int32(offset));
-  return static_cast<int32_t>(offset);
 }
 
 void Assembler::deserialization_set_target_internal_reference_at(
@@ -264,16 +241,16 @@ int Assembler::deserialization_special_target_size(
   return kSpecialTargetSize;
 }
 
-Handle<CodeT> Assembler::code_target_object_handle_at(Address pc) {
+Handle<Code> Assembler::code_target_object_handle_at(Address pc) {
   return GetCodeTarget(ReadUnalignedValue<int32_t>(pc));
 }
 
 Handle<HeapObject> Assembler::compressed_embedded_object_handle_at(Address pc) {
-  return GetEmbeddedObject(ReadUnalignedValue<uint32_t>(pc));
+  return GetCompressedEmbeddedObject(ReadUnalignedValue<int32_t>(pc));
 }
 
 Address Assembler::runtime_entry_at(Address pc) {
-  return ReadUnalignedValue<int32_t>(pc) + options().code_range_base;
+  return ReadUnalignedValue<int32_t>(pc) + options().code_range_start;
 }
 
 // -----------------------------------------------------------------------------
@@ -314,19 +291,25 @@ int RelocInfo::target_address_size() {
   }
 }
 
-HeapObject RelocInfo::target_object(PtrComprCageBase cage_base) {
+HeapObject RelocInfo::target_object() {
+  DCHECK(IsCodeTarget(rmode_) || IsEmbeddedObjectMode(rmode_));
+  if (IsCompressedEmbeddedObject(rmode_)) {
+    CHECK(!host_.is_null());
+    Object o = static_cast<Object>(DecompressTaggedPointer(
+        host_.ptr(), ReadUnalignedValue<Tagged_t>(pc_)));
+    return HeapObject::cast(o);
+  }
+  return HeapObject::cast(Object(ReadUnalignedValue<Address>(pc_)));
+}
+
+HeapObject RelocInfo::target_object_no_host(Isolate* isolate) {
   DCHECK(IsCodeTarget(rmode_) || IsEmbeddedObjectMode(rmode_));
   if (IsCompressedEmbeddedObject(rmode_)) {
     Tagged_t compressed = ReadUnalignedValue<Tagged_t>(pc_);
     DCHECK(!HAS_SMI_TAG(compressed));
-    Object obj(DecompressTaggedPointer(cage_base, compressed));
-    // Embedding of compressed Code objects must not happen when external code
-    // space is enabled, because CodeDataContainers must be used instead.
-    DCHECK_IMPLIES(V8_EXTERNAL_CODE_SPACE_BOOL,
-                   !IsCodeSpaceObject(HeapObject::cast(obj)));
+    Object obj(DecompressTaggedPointer(isolate, compressed));
     return HeapObject::cast(obj);
   }
-  DCHECK(IsFullEmbeddedObject(rmode_) || IsDataEmbeddedObject(rmode_));
   return HeapObject::cast(Object(ReadUnalignedValue<Address>(pc_)));
 }
 
@@ -338,7 +321,6 @@ Handle<HeapObject> RelocInfo::target_object_handle(Assembler* origin) {
     if (IsCompressedEmbeddedObject(rmode_)) {
       return origin->compressed_embedded_object_handle_at(pc_);
     }
-    DCHECK(IsFullEmbeddedObject(rmode_) || IsDataEmbeddedObject(rmode_));
     return Handle<HeapObject>::cast(ReadUnalignedValue<Handle<Object>>(pc_));
   }
 }
@@ -376,14 +358,12 @@ void RelocInfo::set_target_object(Heap* heap, HeapObject target,
     Tagged_t tagged = CompressTagged(target.ptr());
     WriteUnalignedValue(pc_, tagged);
   } else {
-    DCHECK(IsFullEmbeddedObject(rmode_) || IsDataEmbeddedObject(rmode_));
     WriteUnalignedValue(pc_, target.ptr());
   }
   if (icache_flush_mode != SKIP_ICACHE_FLUSH) {
     FlushInstructionCache(pc_, sizeof(Address));
   }
-  if (write_barrier_mode == UPDATE_WRITE_BARRIER && !host().is_null() &&
-      !FLAG_disable_write_barriers) {
+  if (write_barrier_mode == UPDATE_WRITE_BARRIER && !host().is_null()) {
     WriteBarrierForCode(host(), this, target);
   }
 }

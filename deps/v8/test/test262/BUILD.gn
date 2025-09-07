@@ -13,11 +13,10 @@ group("v8_test262") {
   data = [
     "data/",
     "detachArrayBuffer.js",
-    "../../third_party/test262-harness/",
+    "harness/",
     "harness-adapt.js",
     "harness-adapt-donotevaluate.js",
     "harness-agent.js",
-    "harness-ishtmldda.js",
     "test262.status",
     "testcfg.py",
     "local-tests/",

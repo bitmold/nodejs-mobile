@@ -11,7 +11,6 @@ function f1() {
   assertEquals([undefined, 42], x);
 }
 
-%PrepareFunctionForOptimization(f1);
 f1();
 f1();
 %OptimizeFunctionOnNextCall(f1);
@@ -27,7 +26,6 @@ function f2() {
   assertEquals([0, 1, 2, 3, 4], x);
 }
 
-%PrepareFunctionForOptimization(f2);
 f2();
 f2();
 %OptimizeFunctionOnNextCall(f2);
@@ -43,7 +41,6 @@ function f3() {
   assertEquals([0, 1.1, {}], x);
 }
 
-%PrepareFunctionForOptimization(f3);
 f3();
 f3();
 %OptimizeFunctionOnNextCall(f3);
@@ -55,7 +52,6 @@ function f4(x) {
   x[x.length] = x.length;
 }
 
-%PrepareFunctionForOptimization(f4);
 let x1 = [];
 f4(x1);
 assertEquals([0], x1);
@@ -67,7 +63,6 @@ assertEquals([0, 1, 2], x1);
 f4(x1);
 assertEquals([0, 1, 2, 3], x1);
 
-%PrepareFunctionForOptimization(f4);
 let x2 = {length: 42};
 f4(x2);
 assertEquals(42, x2[42]);

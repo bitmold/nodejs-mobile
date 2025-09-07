@@ -17,5 +17,5 @@ for (let val of values) {
   var proto = Object.getPrototypeOf(val);
 
   var proxy = new Proxy({}, {});
-  Object.setPrototypeOf(proxy, proto);
+  Object.setPrototypeOf(proto, proxy);
 }

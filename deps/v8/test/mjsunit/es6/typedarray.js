@@ -47,8 +47,7 @@ function TestArrayBufferCreation() {
   assertThrows(function() { new ArrayBuffer(-2.567); }, RangeError);
 
   assertThrows(function() {
-    let kArrayBufferByteLengthLimit = %ArrayBufferMaxByteLength() + 1;
-    var ab1 = new ArrayBuffer(kArrayBufferByteLengthLimit);
+    var ab1 = new ArrayBuffer(0xFFFFFFFFFFFF)
   }, RangeError);
 
   var ab = new ArrayBuffer();
@@ -609,10 +608,8 @@ function TestTypedArraySet() {
   assertThrows(function() { a.set.call({}) }, TypeError);
   assertThrows(function() { a.set.call([]) }, TypeError);
 
-  a.set(0);
-  assertArrayPrefix(expected, a);
-  a.set(0, 1);
-  assertArrayPrefix(expected, a);
+  assertThrows(function() { a.set(0); }, TypeError);
+  assertThrows(function() { a.set(0, 1); }, TypeError);
 
   assertEquals(1, a.set.length);
 
@@ -642,7 +639,7 @@ function TestTypedArraySet() {
       return 1;
     }
   };
-  a111.set(evilarr);
+  assertThrows(() => a111.set(evilarr), TypeError);
   assertEquals(true, detached);
 
   // Check if the target is a typed array before converting offset to integer
@@ -976,7 +973,7 @@ assertThrows(function() { DataView(new ArrayBuffer()); }, TypeError);
 
 function TestNonConfigurableProperties(constructor) {
   var arr = new constructor([100])
-  assertTrue(Object.getOwnPropertyDescriptor(arr,"0").configurable)
+  assertFalse(Object.getOwnPropertyDescriptor(arr,"0").configurable)
   assertFalse(delete arr[0])
 }
 
@@ -994,9 +991,8 @@ for(i = 0; i < typedArrayConstructors.length; i++) {
 })();
 
 (function TestBufferLengthTooLong() {
-  const kLength = %TypedArrayMaxLength() + 1;
   try {
-    var buf = new ArrayBuffer(kLength);
+    var buf = new ArrayBuffer(2147483648);
   } catch (e) {
     // The ArrayBuffer allocation fails on 32-bit archs, so no need to try to
     // construct the typed array.

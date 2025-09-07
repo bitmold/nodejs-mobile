@@ -7,8 +7,8 @@
 
 #include "src/objects/heap-number.h"
 
+#include "src/objects/heap-object-inl.h"
 #include "src/objects/objects-inl.h"
-#include "src/objects/primitive-heap-object-inl.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -16,32 +16,34 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/heap-number-tq-inl.inc"
+OBJECT_CONSTRUCTORS_IMPL(HeapNumberBase, HeapObject)
+OBJECT_CONSTRUCTORS_IMPL(HeapNumber, HeapNumberBase)
+OBJECT_CONSTRUCTORS_IMPL(MutableHeapNumber, HeapNumberBase)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(HeapNumber)
+CAST_ACCESSOR(HeapNumber)
+CAST_ACCESSOR(MutableHeapNumber)
 
-uint64_t HeapNumber::value_as_bits(RelaxedLoadTag) const {
-  uint64_t value;
-  base::Relaxed_Memcpy(
-      reinterpret_cast<base::Atomic8*>(&value),
-      reinterpret_cast<base::Atomic8*>(field_address(kValueOffset)),
-      sizeof(uint64_t));
+double HeapNumberBase::value() const { return ReadField<double>(kValueOffset); }
+
+void HeapNumberBase::set_value(double value) {
+  WriteField<double>(kValueOffset, value);
+}
+
+uint64_t HeapNumberBase::value_as_bits() const {
   // Bug(v8:8875): HeapNumber's double may be unaligned.
-  return value;
+  return ReadUnalignedValue<uint64_t>(field_address(kValueOffset));
 }
 
-void HeapNumber::set_value_as_bits(uint64_t bits, RelaxedStoreTag) {
-  base::Relaxed_Memcpy(
-      reinterpret_cast<base::Atomic8*>(field_address(kValueOffset)),
-      reinterpret_cast<base::Atomic8*>(&bits), sizeof(uint64_t));
+void HeapNumberBase::set_value_as_bits(uint64_t bits) {
+  WriteUnalignedValue<uint64_t>(field_address(kValueOffset), bits);
 }
 
-int HeapNumber::get_exponent() {
+int HeapNumberBase::get_exponent() {
   return ((ReadField<int>(kExponentOffset) & kExponentMask) >> kExponentShift) -
          kExponentBias;
 }
 
-int HeapNumber::get_sign() {
+int HeapNumberBase::get_sign() {
   return ReadField<int>(kExponentOffset) & kSignMask;
 }
 

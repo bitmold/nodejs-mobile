@@ -86,7 +86,7 @@ BENCHMARK_IMPL(million_async) {
   timeout = 5000;
 
   container = malloc(sizeof(*container));
-  ASSERT_NOT_NULL(container);
+  ASSERT(container != NULL);
   container->async_events = 0;
   container->handles_seen = 0;
 

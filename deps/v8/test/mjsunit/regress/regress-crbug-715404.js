@@ -4,10 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-function foo() {
-  Array(-1);
-};
-%PrepareFunctionForOptimization(foo);
+function foo() { Array(-1); }
 assertThrows(foo, RangeError);
 assertThrows(foo, RangeError);
 %OptimizeFunctionOnNextCall(foo);

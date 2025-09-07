@@ -29,9 +29,9 @@
 
 function mkbaz(x) {
   function baz() {
-    return function() {
+    return function () {
       return [x];
-    };
+    }
   }
   return baz;
 }
@@ -44,8 +44,6 @@ function foo() {
 }
 
 // Tenure.
-;
-%PrepareFunctionForOptimization(foo);
 gc();
 gc();
 

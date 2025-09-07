@@ -30,27 +30,13 @@ class SourceId {
 };
 
 struct LineAndColumn {
-  static constexpr int kUnknownOffset = -1;
-
-  int offset;
   int line;
   int column;
 
-  static LineAndColumn Invalid() { return {-1, -1, -1}; }
-  static LineAndColumn WithUnknownOffset(int line, int column) {
-    return {kUnknownOffset, line, column};
-  }
+  static LineAndColumn Invalid() { return {-1, -1}; }
 
   bool operator==(const LineAndColumn& other) const {
-    if (offset == kUnknownOffset || other.offset == kUnknownOffset) {
-      return line == other.line && column == other.column;
-    }
-    DCHECK_EQ(offset == other.offset,
-              line == other.line && column == other.column);
-    return offset == other.offset;
-  }
-  bool operator!=(const LineAndColumn& other) const {
-    return !operator==(other);
+    return line == other.line && column == other.column;
   }
 };
 
@@ -80,39 +66,45 @@ struct SourcePosition {
   bool operator==(const SourcePosition& pos) const {
     return source == pos.source && start == pos.start && end == pos.end;
   }
-  bool operator!=(const SourcePosition& pos) const { return !(*this == pos); }
 };
 
 DECLARE_CONTEXTUAL_VARIABLE(CurrentSourceFile, SourceId);
 DECLARE_CONTEXTUAL_VARIABLE(CurrentSourcePosition, SourcePosition);
 
-class V8_EXPORT_PRIVATE SourceFileMap : public ContextualClass<SourceFileMap> {
+class SourceFileMap : public ContextualClass<SourceFileMap> {
  public:
-  explicit SourceFileMap(std::string v8_root) : v8_root_(std::move(v8_root)) {}
-  static const std::string& PathFromV8Root(SourceId file);
-  static std::string PathFromV8RootWithoutExtension(SourceId file);
-  static std::string AbsolutePath(SourceId file);
-  static SourceId AddSource(std::string path);
-  static SourceId GetSourceId(const std::string& path);
-  static std::vector<SourceId> AllSources();
-  static bool FileRelativeToV8RootExists(const std::string& path);
+  SourceFileMap() = default;
+  static const std::string& GetSource(SourceId source) {
+    CHECK(source.IsValid());
+    return Get().sources_[source.id_];
+  }
+
+  static SourceId AddSource(std::string path) {
+    Get().sources_.push_back(std::move(path));
+    return SourceId(static_cast<int>(Get().sources_.size()) - 1);
+  }
+
+  static SourceId GetSourceId(const std::string& path) {
+    for (size_t i = 0; i < Get().sources_.size(); ++i) {
+      if (Get().sources_[i] == path) {
+        return SourceId(static_cast<int>(i));
+      }
+    }
+    return SourceId::Invalid();
+  }
 
  private:
   std::vector<std::string> sources_;
-  std::string v8_root_;
 };
 
 inline std::string PositionAsString(SourcePosition pos) {
-  return SourceFileMap::PathFromV8Root(pos.source) + ":" +
+  return SourceFileMap::GetSource(pos.source) + ":" +
          std::to_string(pos.start.line + 1) + ":" +
          std::to_string(pos.start.column + 1);
 }
 
 inline std::ostream& operator<<(std::ostream& out, SourcePosition pos) {
-  return out << "https://source.chromium.org/chromium/chromium/src/+/main:v8/"
-             << SourceFileMap::PathFromV8Root(pos.source)
-             << "?l=" << (pos.start.line + 1)
-             << "&c=" << (pos.start.column + 1);
+  return out << PositionAsString(pos);
 }
 
 }  // namespace torque

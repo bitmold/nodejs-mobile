@@ -11,9 +11,6 @@
 
 namespace v8 {
 namespace internal {
-
-class TickCounter;
-
 namespace compiler {
 
 // Forward declarations.
@@ -25,10 +22,7 @@ class Node;
 class V8_EXPORT_PRIVATE ControlFlowOptimizer final {
  public:
   ControlFlowOptimizer(Graph* graph, CommonOperatorBuilder* common,
-                       MachineOperatorBuilder* machine,
-                       TickCounter* tick_counter, Zone* zone);
-  ControlFlowOptimizer(const ControlFlowOptimizer&) = delete;
-  ControlFlowOptimizer& operator=(const ControlFlowOptimizer&) = delete;
+                       MachineOperatorBuilder* machine, Zone* zone);
 
   void Optimize();
 
@@ -51,7 +45,8 @@ class V8_EXPORT_PRIVATE ControlFlowOptimizer final {
   ZoneQueue<Node*> queue_;
   NodeMarker<bool> queued_;
   Zone* const zone_;
-  TickCounter* const tick_counter_;
+
+  DISALLOW_COPY_AND_ASSIGN(ControlFlowOptimizer);
 };
 
 }  // namespace compiler

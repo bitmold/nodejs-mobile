@@ -25,7 +25,7 @@
 #if defined(__unix__) || defined(__POSIX__) || \
     defined(__APPLE__) || defined(__sun) || \
     defined(_AIX) || defined(__MVS__) || \
-    defined(__HAIKU__) || defined(__QNX__)
+    defined(__HAIKU__)
 #include <unistd.h> /* unlink, etc. */
 #else
 # include <direct.h>
@@ -125,11 +125,6 @@ TEST_IMPL(fs_copyfile) {
   r = uv_fs_copyfile(NULL, &req, src, src, 0, NULL);
   ASSERT(r == 0);
   uv_fs_req_cleanup(&req);
-  /* Verify that the src file did not get truncated. */
-  r = uv_fs_stat(NULL, &req, src, NULL);
-  ASSERT_EQ(r, 0);
-  ASSERT_EQ(req.statbuf.st_size, 12);
-  uv_fs_req_cleanup(&req);
   unlink(src);
 
   /* Copies file synchronously. Creates new file. */
@@ -193,7 +188,7 @@ TEST_IMPL(fs_copyfile) {
   unlink(dst);
   r = uv_fs_copyfile(NULL, &req, fixture, dst, UV_FS_COPYFILE_FICLONE_FORCE,
                      NULL);
-  ASSERT(r <= 0);
+  ASSERT(r == 0 || r == UV_ENOSYS || r == UV_ENOTSUP);
 
   if (r == 0)
     handle_result(&req);
@@ -204,11 +199,8 @@ TEST_IMPL(fs_copyfile) {
   touch_file(dst, 0);
   chmod(dst, S_IRUSR|S_IRGRP|S_IROTH); /* Sets file mode to 444 (read-only). */
   r = uv_fs_copyfile(NULL, &req, fixture, dst, 0, NULL);
-  /* On IBMi PASE, qsecofr users can overwrite read-only files */
-# ifndef __PASE__
   ASSERT(req.result == UV_EACCES);
   ASSERT(r == UV_EACCES);
-# endif
   uv_fs_req_cleanup(&req);
 #endif
 

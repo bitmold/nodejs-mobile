@@ -18,10 +18,12 @@ V8SchemaAgentImpl::~V8SchemaAgentImpl() = default;
 
 Response V8SchemaAgentImpl::getDomains(
     std::unique_ptr<protocol::Array<protocol::Schema::Domain>>* result) {
-  *result =
-      std::make_unique<std::vector<std::unique_ptr<protocol::Schema::Domain>>>(
-          m_session->supportedDomainsImpl());
-  return Response::Success();
+  std::vector<std::unique_ptr<protocol::Schema::Domain>> domains =
+      m_session->supportedDomainsImpl();
+  *result = protocol::Array<protocol::Schema::Domain>::create();
+  for (size_t i = 0; i < domains.size(); ++i)
+    (*result)->addItem(std::move(domains[i]));
+  return Response::OK();
 }
 
 }  // namespace v8_inspector

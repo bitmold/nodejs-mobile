@@ -18,18 +18,20 @@ namespace compiler {
 RawMachineAssembler::RawMachineAssembler(
     Isolate* isolate, Graph* graph, CallDescriptor* call_descriptor,
     MachineRepresentation word, MachineOperatorBuilder::Flags flags,
-    MachineOperatorBuilder::AlignmentRequirements alignment_requirements)
+    MachineOperatorBuilder::AlignmentRequirements alignment_requirements,
+    PoisoningMitigationLevel poisoning_level)
     : isolate_(isolate),
       graph_(graph),
-      schedule_(zone()->New<Schedule>(zone())),
-      source_positions_(zone()->New<SourcePositionTable>(graph)),
+      schedule_(new (zone()) Schedule(zone())),
+      source_positions_(new (zone()) SourcePositionTable(graph)),
       machine_(zone(), word, flags, alignment_requirements),
       common_(zone()),
       simplified_(zone()),
       call_descriptor_(call_descriptor),
       target_parameter_(nullptr),
       parameters_(parameter_count(), zone()),
-      current_block_(schedule()->start()) {
+      current_block_(schedule()->start()),
+      poisoning_level_(poisoning_level) {
   int param_count = static_cast<int>(parameter_count());
   // Add an extra input for the JSFunction parameter to the start node.
   graph->SetStart(graph->NewNode(common_.Start(param_count + 1)));
@@ -45,22 +47,11 @@ RawMachineAssembler::RawMachineAssembler(
   source_positions_->AddDecorator();
 }
 
-void RawMachineAssembler::SetCurrentExternalSourcePosition(
-    FileAndLine file_and_line) {
-  int file_id =
-      isolate()->LookupOrAddExternallyCompiledFilename(file_and_line.first);
-  SourcePosition p = SourcePosition::External(file_and_line.second, file_id);
-  DCHECK(p.ExternalLine() == file_and_line.second);
+void RawMachineAssembler::SetSourcePosition(const char* file, int line) {
+  int file_id = isolate()->LookupOrAddExternallyCompiledFilename(file);
+  SourcePosition p = SourcePosition::External(line, file_id);
+  DCHECK(p.ExternalLine() == line);
   source_positions()->SetCurrentPosition(p);
-}
-
-FileAndLine RawMachineAssembler::GetCurrentExternalSourcePosition() const {
-  SourcePosition p = source_positions_->GetCurrentPosition();
-  if (!p.IsKnown()) return {nullptr, -1};
-  int file_id = p.ExternalFileId();
-  const char* file_name = isolate()->GetExternallyCompiledFilename(file_id);
-  int line = p.ExternalLine();
-  return {file_name, line};
 }
 
 Node* RawMachineAssembler::NullConstant() {
@@ -86,7 +77,7 @@ Node* RawMachineAssembler::OptimizedAllocate(
       size);
 }
 
-Schedule* RawMachineAssembler::ExportForTest() {
+Schedule* RawMachineAssembler::Export() {
   // Compute the correct codegen order.
   DCHECK(schedule_->rpo_order()->empty());
   if (FLAG_trace_turbo_scheduler) {
@@ -95,7 +86,6 @@ Schedule* RawMachineAssembler::ExportForTest() {
   }
   schedule_->EnsureCFGWellFormedness();
   Scheduler::ComputeSpecialRPO(zone(), schedule_);
-  Scheduler::GenerateDominatorTree(schedule_);
   schedule_->PropagateDeferredMark();
   if (FLAG_trace_turbo_scheduler) {
     PrintF("--- EDGE SPLIT AND PROPAGATED DEFERRED SCHEDULE ------------\n");
@@ -116,7 +106,6 @@ Graph* RawMachineAssembler::ExportForOptimization() {
     StdoutStream{} << *schedule_;
   }
   schedule_->EnsureCFGWellFormedness();
-  OptimizeControlFlow(schedule_, graph(), common());
   Scheduler::ComputeSpecialRPO(zone(), schedule_);
   if (FLAG_trace_turbo_scheduler) {
     PrintF("--- SCHEDULE BEFORE GRAPH CREATION -------------------------\n");
@@ -126,99 +115,6 @@ Graph* RawMachineAssembler::ExportForOptimization() {
   // Invalidate RawMachineAssembler.
   schedule_ = nullptr;
   return graph();
-}
-
-void RawMachineAssembler::OptimizeControlFlow(Schedule* schedule, Graph* graph,
-                                              CommonOperatorBuilder* common) {
-  for (bool changed = true; changed;) {
-    changed = false;
-    for (size_t i = 0; i < schedule->all_blocks()->size(); ++i) {
-      BasicBlock* block = (*schedule->all_blocks())[i];
-      if (block == nullptr) continue;
-
-      // Short-circuit a goto if the succeeding block is not a control-flow
-      // merge. This is not really useful on it's own since graph construction
-      // has the same effect, but combining blocks improves the pattern-match on
-      // their structure below.
-      if (block->control() == BasicBlock::kGoto) {
-        DCHECK_EQ(block->SuccessorCount(), 1);
-        BasicBlock* successor = block->SuccessorAt(0);
-        if (successor->PredecessorCount() == 1) {
-          DCHECK_EQ(successor->PredecessorAt(0), block);
-          for (Node* node : *successor) {
-            schedule->SetBlockForNode(nullptr, node);
-            schedule->AddNode(block, node);
-          }
-          block->set_control(successor->control());
-          Node* control_input = successor->control_input();
-          block->set_control_input(control_input);
-          if (control_input) {
-            schedule->SetBlockForNode(block, control_input);
-          }
-          if (successor->deferred()) block->set_deferred(true);
-          block->ClearSuccessors();
-          schedule->MoveSuccessors(successor, block);
-          schedule->ClearBlockById(successor->id());
-          changed = true;
-          --i;
-          continue;
-        }
-      }
-      // Block-cloning in the simple case where a block consists only of a phi
-      // node and a branch on that phi. This just duplicates the branch block
-      // for each predecessor, replacing the phi node with the corresponding phi
-      // input.
-      if (block->control() == BasicBlock::kBranch && block->NodeCount() == 1) {
-        Node* phi = block->NodeAt(0);
-        if (phi->opcode() != IrOpcode::kPhi) continue;
-        Node* branch = block->control_input();
-        DCHECK_EQ(branch->opcode(), IrOpcode::kBranch);
-        if (NodeProperties::GetValueInput(branch, 0) != phi) continue;
-        if (phi->UseCount() != 1) continue;
-        DCHECK_EQ(phi->op()->ValueInputCount(), block->PredecessorCount());
-
-        // Turn projection blocks into normal blocks.
-        DCHECK_EQ(block->SuccessorCount(), 2);
-        BasicBlock* true_block = block->SuccessorAt(0);
-        BasicBlock* false_block = block->SuccessorAt(1);
-        DCHECK_EQ(true_block->NodeAt(0)->opcode(), IrOpcode::kIfTrue);
-        DCHECK_EQ(false_block->NodeAt(0)->opcode(), IrOpcode::kIfFalse);
-        (*true_block->begin())->Kill();
-        true_block->RemoveNode(true_block->begin());
-        (*false_block->begin())->Kill();
-        false_block->RemoveNode(false_block->begin());
-        true_block->ClearPredecessors();
-        false_block->ClearPredecessors();
-
-        size_t arity = block->PredecessorCount();
-        for (size_t j = 0; j < arity; ++j) {
-          BasicBlock* predecessor = block->PredecessorAt(j);
-          predecessor->ClearSuccessors();
-          if (block->deferred()) predecessor->set_deferred(true);
-          Node* branch_clone = graph->CloneNode(branch);
-          int phi_input = static_cast<int>(j);
-          NodeProperties::ReplaceValueInput(
-              branch_clone, NodeProperties::GetValueInput(phi, phi_input), 0);
-          BasicBlock* new_true_block = schedule->NewBasicBlock();
-          BasicBlock* new_false_block = schedule->NewBasicBlock();
-          new_true_block->AddNode(
-              graph->NewNode(common->IfTrue(), branch_clone));
-          new_false_block->AddNode(
-              graph->NewNode(common->IfFalse(), branch_clone));
-          schedule->AddGoto(new_true_block, true_block);
-          schedule->AddGoto(new_false_block, false_block);
-          DCHECK_EQ(predecessor->control(), BasicBlock::kGoto);
-          predecessor->set_control(BasicBlock::kNone);
-          schedule->AddBranch(predecessor, branch_clone, new_true_block,
-                              new_false_block);
-        }
-        branch->Kill();
-        schedule->ClearBlockById(block->id());
-        changed = true;
-        continue;
-      }
-    }
-  }
 }
 
 void RawMachineAssembler::MakeReschedulable() {
@@ -383,7 +279,6 @@ Node* RawMachineAssembler::CreateNodeFromPredecessors(
     return sidetable[predecessors.front()->id().ToSize()];
   }
   std::vector<Node*> inputs;
-  inputs.reserve(predecessors.size());
   for (BasicBlock* predecessor : predecessors) {
     inputs.push_back(sidetable[predecessor->id().ToSize()]);
   }
@@ -410,7 +305,6 @@ void RawMachineAssembler::MakePhiBinary(Node* phi, int split_point,
     left_input = NodeProperties::GetValueInput(phi, 0);
   } else {
     std::vector<Node*> inputs;
-    inputs.reserve(left_input_count);
     for (int i = 0; i < left_input_count; ++i) {
       inputs.push_back(NodeProperties::GetValueInput(phi, i));
     }
@@ -471,7 +365,7 @@ void RawMachineAssembler::MarkControlDeferred(Node* control_node) {
         return;
       case IrOpcode::kIfTrue: {
         Node* branch = NodeProperties::GetControlInput(control_node);
-        BranchHint hint = BranchHintOf(branch->op());
+        BranchHint hint = BranchOperatorInfoOf(branch->op()).hint;
         if (hint == BranchHint::kTrue) {
           // The other possibility is also deferred, so the responsible branch
           // has to be before.
@@ -484,7 +378,7 @@ void RawMachineAssembler::MarkControlDeferred(Node* control_node) {
       }
       case IrOpcode::kIfFalse: {
         Node* branch = NodeProperties::GetControlInput(control_node);
-        BranchHint hint = BranchHintOf(branch->op());
+        BranchHint hint = BranchOperatorInfoOf(branch->op()).hint;
         if (hint == BranchHint::kFalse) {
           // The other possibility is also deferred, so the responsible branch
           // has to be before.
@@ -515,10 +409,11 @@ void RawMachineAssembler::MarkControlDeferred(Node* control_node) {
     }
   }
 
-  BranchHint hint = BranchHintOf(responsible_branch->op());
-  if (hint == new_branch_hint) return;
-  NodeProperties::ChangeOp(responsible_branch,
-                           common()->Branch(new_branch_hint));
+  BranchOperatorInfo info = BranchOperatorInfoOf(responsible_branch->op());
+  if (info.hint == new_branch_hint) return;
+  NodeProperties::ChangeOp(
+      responsible_branch,
+      common()->Branch(new_branch_hint, info.is_safety_check));
 }
 
 Node* RawMachineAssembler::TargetParameter() {
@@ -542,7 +437,9 @@ void RawMachineAssembler::Goto(RawMachineLabel* label) {
 void RawMachineAssembler::Branch(Node* condition, RawMachineLabel* true_val,
                                  RawMachineLabel* false_val) {
   DCHECK(current_block_ != schedule()->end());
-  Node* branch = MakeNode(common()->Branch(BranchHint::kNone), 1, &condition);
+  Node* branch = MakeNode(
+      common()->Branch(BranchHint::kNone, IsSafetyCheck::kNoSafetyCheck), 1,
+      &condition);
   BasicBlock* true_block = schedule()->NewBasicBlock();
   BasicBlock* false_block = schedule()->NewBasicBlock();
   schedule()->AddBranch(CurrentBlock(), branch, true_block, false_block);
@@ -572,14 +469,14 @@ void RawMachineAssembler::Switch(Node* index, RawMachineLabel* default_label,
   size_t succ_count = case_count + 1;
   Node* switch_node = MakeNode(common()->Switch(succ_count), 1, &index);
   BasicBlock** succ_blocks = zone()->NewArray<BasicBlock*>(succ_count);
-  for (size_t i = 0; i < case_count; ++i) {
-    int32_t case_value = case_values[i];
+  for (size_t index = 0; index < case_count; ++index) {
+    int32_t case_value = case_values[index];
     BasicBlock* case_block = schedule()->NewBasicBlock();
     Node* case_node =
         graph()->NewNode(common()->IfValue(case_value), switch_node);
     schedule()->AddNode(case_block, case_node);
-    schedule()->AddGoto(case_block, Use(case_labels[i]));
-    succ_blocks[i] = case_block;
+    schedule()->AddGoto(case_block, Use(case_labels[index]));
+    succ_blocks[index] = case_block;
   }
   BasicBlock* default_block = schedule()->NewBasicBlock();
   Node* default_node = graph()->NewNode(common()->IfDefault(), switch_node);
@@ -630,21 +527,6 @@ void RawMachineAssembler::Return(int count, Node* vs[]) {
 }
 
 void RawMachineAssembler::PopAndReturn(Node* pop, Node* value) {
-  // PopAndReturn is supposed to be using ONLY in CSA/Torque builtins for
-  // dropping ALL JS arguments that are currently located on the stack.
-  // The check below ensures that there are no directly accessible stack
-  // parameters from current builtin, which implies that the builtin with
-  // JS calling convention (TFJ) was created with kDontAdaptArgumentsSentinel.
-  // This simplifies semantics of this instruction because in case of presence
-  // of directly accessible stack parameters it's impossible to distinguish
-  // the following cases:
-  // 1) stack parameter is included in JS arguments (and therefore it will be
-  //    dropped as a part of 'pop' number of arguments),
-  // 2) stack parameter is NOT included in JS arguments (and therefore it should
-  //    be dropped in ADDITION to the 'pop' number of arguments).
-  // Additionally, in order to simplify assembly code, PopAndReturn is also
-  // not allowed in builtins with stub linkage and parameters on stack.
-  CHECK_EQ(call_descriptor()->ParameterSlotCount(), 0);
   Node* values[] = {pop, value};
   Node* ret = MakeNode(common()->Return(1), 2, values);
   schedule()->AddReturn(CurrentBlock(), ret);
@@ -674,8 +556,8 @@ void RawMachineAssembler::PopAndReturn(Node* pop, Node* v1, Node* v2, Node* v3,
   current_block_ = nullptr;
 }
 
-void RawMachineAssembler::AbortCSADcheck(Node* message) {
-  AddNode(machine()->AbortCSADcheck(), message);
+void RawMachineAssembler::DebugAbort(Node* message) {
+  AddNode(machine()->DebugAbort(), message);
 }
 
 void RawMachineAssembler::DebugBreak() { AddNode(machine()->DebugBreak()); }
@@ -693,8 +575,8 @@ void RawMachineAssembler::Comment(const std::string& msg) {
   AddNode(machine()->Comment(zone_buffer));
 }
 
-void RawMachineAssembler::StaticAssert(Node* value, const char* source) {
-  AddNode(common()->StaticAssert(source), value);
+void RawMachineAssembler::StaticAssert(Node* value) {
+  AddNode(common()->StaticAssert(), value);
 }
 
 Node* RawMachineAssembler::CallN(CallDescriptor* call_descriptor,
@@ -714,43 +596,33 @@ Node* RawMachineAssembler::CallNWithFrameState(CallDescriptor* call_descriptor,
   return AddNode(common()->Call(call_descriptor), input_count, inputs);
 }
 
-void RawMachineAssembler::TailCallN(CallDescriptor* call_descriptor,
-                                    int input_count, Node* const* inputs) {
+Node* RawMachineAssembler::TailCallN(CallDescriptor* call_descriptor,
+                                     int input_count, Node* const* inputs) {
   // +1 is for target.
   DCHECK_EQ(input_count, call_descriptor->ParameterCount() + 1);
   Node* tail_call =
       MakeNode(common()->TailCall(call_descriptor), input_count, inputs);
   schedule()->AddTailCall(CurrentBlock(), tail_call);
   current_block_ = nullptr;
+  return tail_call;
 }
 
 namespace {
 
-enum FunctionDescriptorMode { kHasFunctionDescriptor, kNoFunctionDescriptor };
-
 Node* CallCFunctionImpl(
-    RawMachineAssembler* rasm, Node* function,
-    base::Optional<MachineType> return_type,
+    RawMachineAssembler* rasm, Node* function, MachineType return_type,
     std::initializer_list<RawMachineAssembler::CFunctionArg> args,
-    bool caller_saved_regs, SaveFPRegsMode mode,
-    FunctionDescriptorMode no_function_descriptor) {
+    bool caller_saved_regs, SaveFPRegsMode mode) {
   static constexpr std::size_t kNumCArgs = 10;
 
-  MachineSignature::Builder builder(rasm->zone(), return_type ? 1 : 0,
-                                    args.size());
-  if (return_type) {
-    builder.AddReturn(*return_type);
-  }
+  MachineSignature::Builder builder(rasm->zone(), 1, args.size());
+  builder.AddReturn(return_type);
   for (const auto& arg : args) builder.AddParam(arg.first);
 
-  bool caller_saved_fp_regs =
-      caller_saved_regs && (mode == SaveFPRegsMode::kSave);
-  CallDescriptor::Flags flags = CallDescriptor::kNoFlags;
-  if (caller_saved_regs) flags |= CallDescriptor::kCallerSavedRegisters;
-  if (caller_saved_fp_regs) flags |= CallDescriptor::kCallerSavedFPRegisters;
-  if (no_function_descriptor) flags |= CallDescriptor::kNoFunctionDescriptor;
   auto call_descriptor =
-      Linkage::GetSimplifiedCDescriptor(rasm->zone(), builder.Build(), flags);
+      Linkage::GetSimplifiedCDescriptor(rasm->zone(), builder.Build());
+
+  if (caller_saved_regs) call_descriptor->set_save_fp_mode(mode);
 
   base::SmallVector<Node*, kNumCArgs> nodes(args.size() + 1);
   nodes[0] = function;
@@ -759,31 +631,25 @@ Node* CallCFunctionImpl(
       [](const RawMachineAssembler::CFunctionArg& arg) { return arg.second; });
 
   auto common = rasm->common();
-  return rasm->AddNode(common->Call(call_descriptor),
-                       static_cast<int>(nodes.size()), nodes.begin());
+  return rasm->AddNode(
+      caller_saved_regs ? common->CallWithCallerSavedRegisters(call_descriptor)
+                        : common->Call(call_descriptor),
+      static_cast<int>(nodes.size()), nodes.begin());
 }
 
 }  // namespace
 
 Node* RawMachineAssembler::CallCFunction(
-    Node* function, base::Optional<MachineType> return_type,
-    std::initializer_list<RawMachineAssembler::CFunctionArg> args) {
-  return CallCFunctionImpl(this, function, return_type, args, false,
-                           SaveFPRegsMode::kIgnore, kHasFunctionDescriptor);
-}
-
-Node* RawMachineAssembler::CallCFunctionWithoutFunctionDescriptor(
     Node* function, MachineType return_type,
     std::initializer_list<RawMachineAssembler::CFunctionArg> args) {
   return CallCFunctionImpl(this, function, return_type, args, false,
-                           SaveFPRegsMode::kIgnore, kNoFunctionDescriptor);
+                           kDontSaveFPRegs);
 }
 
 Node* RawMachineAssembler::CallCFunctionWithCallerSavedRegisters(
     Node* function, MachineType return_type, SaveFPRegsMode mode,
     std::initializer_list<RawMachineAssembler::CFunctionArg> args) {
-  return CallCFunctionImpl(this, function, return_type, args, true, mode,
-                           kHasFunctionDescriptor);
+  return CallCFunctionImpl(this, function, return_type, args, true, mode);
 }
 
 BasicBlock* RawMachineAssembler::Use(RawMachineLabel* label) {
@@ -839,7 +705,8 @@ BasicBlock* RawMachineAssembler::CurrentBlock() {
 
 Node* RawMachineAssembler::Phi(MachineRepresentation rep, int input_count,
                                Node* const* inputs) {
-  Node** buffer = zone()->NewArray<Node*>(input_count + 1);
+  Node** buffer = new (zone()->New(sizeof(Node*) * (input_count + 1)))
+      Node*[input_count + 1];
   std::copy(inputs, inputs + input_count, buffer);
   buffer[input_count] = graph()->start();
   return AddNode(common()->Phi(rep, input_count), input_count + 1, buffer);

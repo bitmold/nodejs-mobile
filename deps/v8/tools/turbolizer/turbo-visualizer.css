@@ -5,7 +5,7 @@
   transition-timing-function: ease;
 }
 
-.show-hide-pane {
+.collapse-pane {
   background: #A0A0A0;
   bottom: 0;
   position: absolute;
@@ -155,10 +155,9 @@ html,
 body {
   margin: 0;
   padding: 0;
+  /*height: 99vh;
+    width: 99vw;*/
   overflow: hidden;
-  display: flex;
-  flex-direction: row;
-  width: 100vw;
 }
 
 p {
@@ -319,7 +318,7 @@ ul.noindent {
 }
 
 input:hover,
-.show-hide-pane:hover input {
+.collapse-pane:hover input {
   opacity: 1;
   cursor: pointer;
 }
@@ -335,34 +334,35 @@ input:hover,
 
 
 #left {
+  float: left;
   user-select: none;
 }
 
 #middle {
+  float: left;
   background-color: #F8F8F8;
   user-select: none;
-  flex: 1;
-  z-index: 7;
 }
 
-#middle.display-inline-flex,
-#middle.display-inline-flex #multiview,
-#middle.display-inline-flex #ranges {
-  display: inline-flex;
+#right {
+  float: right;
 }
 
 .viewpane {
   height: 100vh;
   background-color: #FFFFFF;
-  display: flex;
-  flex-direction: column;
 }
 
-#show-hide-disassembly {
+.multiview {
+  width: 100%;
+}
+
+
+#disassembly-collapse {
   right: 0;
 }
 
-#show-hide-source {
+#source-collapse {
   left: 0;
 }
 
@@ -371,14 +371,19 @@ input:hover,
   height: 100%;
 }
 
+.toolbox-anchor {
+  height: 0px;
+}
+
 .graph-toolbox {
   position: relative;
   border-bottom: 2px solid #eee8d5;
   z-index: 5;
-  background: rgba(100%, 100%, 100%);
+  background: rgba(100%, 100%, 100%, 0.7);
   box-sizing: border-box;
   padding: 3px;
-  overflow-x: hidden;
+  margin-left: 4px;
+  margin-right: 4px;
 }
 
 .disassembly-toolbox {
@@ -425,20 +430,28 @@ text {
   dominant-baseline: text-before-edge;
 }
 
-.tab-content {
-  z-index: 6;
-}
-
 .resizer {
+  position: absolute;
   z-index: 10;
-  width: 10px;
-  height: 100vh;
+  width: 4px;
+  height: 100%;
   background: #a0a0a0;
   cursor: pointer;
 }
 
+.resizer.snapped {
+  width: 12px;
+}
+
+.resizer.snapped:hover {
+  width: 12px;
+  margin-left: 0px;
+}
+
 .resizer:hover,
 .resizer.dragged {
+  width: 10px;
+  margin-left: -4px;
   background: orange;
 }
 
@@ -498,10 +511,12 @@ text {
 
 #sequence {
   font-family: monospace;
+  margin-top: 50px;
 }
 
 #schedule {
   font-family: monospace;
+  margin-top: 50px;
 }
 
 .schedule-block {
@@ -601,10 +616,6 @@ text {
   padding-right: .5ex;
 }
 
-.instruction span {
-  padding-right: 0;
-}
-
 .phi-label,
 .instruction-id {
   display: inline-block;
@@ -636,10 +647,6 @@ text {
   display: inline-block;
 }
 
-.phi span {
-  padding-right: 0;
-}
-
 .gap .gap-move {
   padding-left: .5ex;
   padding-right: .5ex;
@@ -651,10 +658,6 @@ text {
 
 .gap>*:after {
   content: ")";
-}
-
-.virtual-reg {
-  outline: 1px dotted blue;
 }
 
 .parameter.constant {
@@ -692,66 +695,4 @@ text {
 .temps {
   padding-left: .5ex;
   outline: 1px dotted grey;
-}
-
-.last-tab {
-  display: none !important;
-}
-
-ul.disassembly-list .block-id {
-  width: 4ex;
-  display: block;
-  padding-top: 2px;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="gap"]+span+span {
-  background-color: #FAEEEE;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="arch"]+span+span {
-  background-color: #EEFFEE;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="condition"]+span+span {
-  background-color: #FFFFEE;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="gap"] {
-  background-color: #FAEEEE;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="arch"] {
-  background-color: #EEFFEE;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="condition"] {
-  background-color: #FFFFEE;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="deopt-check"] {
-  background-color: #FAEEFA;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="init-poison"] {
-  background-color: #EEFFAA;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="pools"] {
-  background-color: #6AA84F;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="code-start-register"] {
-  background-color: #FFCCCC;
-}
-
-div.highlight-gap-instructions [data-instruction-kind="deoptimization-exits"] {
-  background-color: #CCCCFF;
-}
-
-[data-instruction-kind].selected {
-  background-color: yellow;
-}
-
-div.highlight-gap-instructions [data-instruction-kind].selected {
-  background-color: yellow;
 }

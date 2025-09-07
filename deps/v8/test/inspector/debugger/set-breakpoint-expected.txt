@@ -39,6 +39,10 @@ hitBreakpoints contains breakpoint: true
 
 Set breakpoint at empty line by url in top level function..
 Breakpoint resolved at:
-function i2(){#}
-// last line
+// last line#
+
+Breakpoint hit at:
+// last line#
+
+hitBreakpoints contains breakpoint: true
 

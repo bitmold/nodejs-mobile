@@ -18,24 +18,37 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/js-relative-time-format-tq-inl.inc"
-
-TQ_OBJECT_CONSTRUCTORS_IMPL(JSRelativeTimeFormat)
+OBJECT_CONSTRUCTORS_IMPL(JSRelativeTimeFormat, JSObject)
 
 // Base relative time format accessors.
+ACCESSORS(JSRelativeTimeFormat, locale, String, kLocaleOffset)
 ACCESSORS(JSRelativeTimeFormat, icu_formatter,
           Managed<icu::RelativeDateTimeFormatter>, kIcuFormatterOffset)
+SMI_ACCESSORS(JSRelativeTimeFormat, flags, kFlagsOffset)
+
+inline void JSRelativeTimeFormat::set_style(Style style) {
+  DCHECK_GT(Style::COUNT, style);
+  int hints = flags();
+  hints = StyleBits::update(hints, style);
+  set_flags(hints);
+}
+
+inline JSRelativeTimeFormat::Style JSRelativeTimeFormat::style() const {
+  return StyleBits::decode(flags());
+}
 
 inline void JSRelativeTimeFormat::set_numeric(Numeric numeric) {
-  DCHECK_GE(NumericBit::kMax, numeric);
+  DCHECK_GT(Numeric::COUNT, numeric);
   int hints = flags();
-  hints = NumericBit::update(hints, numeric);
+  hints = NumericBits::update(hints, numeric);
   set_flags(hints);
 }
 
 inline JSRelativeTimeFormat::Numeric JSRelativeTimeFormat::numeric() const {
-  return NumericBit::decode(flags());
+  return NumericBits::decode(flags());
 }
+
+CAST_ACCESSOR(JSRelativeTimeFormat)
 
 }  // namespace internal
 }  // namespace v8

@@ -4,14 +4,14 @@
 
 // Flags: --expose-wasm --experimental-wasm-eh
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 // Helper function to return a new exported exception with the {kSig_v_v} type
 // signature from an anonymous module. The underlying module is thrown away.
 function NewExportedException() {
   let builder = new WasmModuleBuilder();
-  let except = builder.addTag(kSig_v_v);
-  builder.addExportOfKind("ex", kExternalTag, except);
+  let except = builder.addException(kSig_v_v);
+  builder.addExportOfKind("ex", kExternalException, except);
   let instance = builder.instantiate();
   return instance.exports.ex;
 }
@@ -23,22 +23,24 @@ function NewExportedException() {
   let builder = new WasmModuleBuilder();
   let sig_index = builder.addType(kSig_v_v);
   let fun = builder.addImport("m", "f", sig_index);
-  let except = builder.addTag(kSig_v_v);
+  let except = builder.addException(kSig_v_v);
   builder.addFunction("throw", kSig_v_v)
       .addBody([
         kExprThrow, except
       ]).exportFunc();
   builder.addFunction("catch", kSig_v_v)
       .addBody([
-        kExprTry, kWasmVoid,
+        kExprTry, kWasmStmt,
           kExprCallFunction, fun,
-        kExprCatch, except,
+        kExprCatch,
+          kExprBrOnExn, 0, except,
+          kExprRethrow,
         kExprEnd,
       ]).exportFunc();
   let ex_obj = new Error("my exception");
   let instance = builder.instantiate({ m: { f: function() { throw ex_obj }}});
 
-  assertThrows(() => instance.exports.throw(), WebAssembly.Exception);
+  assertThrows(() => instance.exports.throw(), WebAssembly.RuntimeError);
   assertThrowsEquals(() => instance.exports.catch(), ex_obj);
   try {
     instance.exports.throw();
@@ -55,23 +57,25 @@ function NewExportedException() {
   let builder = new WasmModuleBuilder();
   let sig_index = builder.addType(kSig_v_v);
   let fun = builder.addImport("m", "f", sig_index);
-  let except = builder.addTag(kSig_v_v);
+  let except = builder.addException(kSig_v_v);
   builder.addFunction("throw", kSig_v_v)
       .addBody([
         kExprThrow, except
       ]).exportFunc();
   builder.addFunction("catch", kSig_v_v)
       .addBody([
-        kExprTry, kWasmVoid,
+        kExprTry, kWasmStmt,
           kExprCallFunction, fun,
-        kExprCatch, except,
+        kExprCatch,
+          kExprBrOnExn, 0, except,
+          kExprRethrow,
         kExprEnd,
       ]).exportFunc();
   let ex_obj = new Error("my exception");
   let instance1 = builder.instantiate({ m: { f: assertUnreachable }});
   let instance2 = builder.instantiate({ m: { f: function() { throw ex_obj }}});
 
-  assertThrows(() => instance1.exports.throw(), WebAssembly.Exception);
+  assertThrows(() => instance1.exports.throw(), WebAssembly.RuntimeError);
   assertThrowsEquals(() => instance2.exports.catch(), ex_obj);
   try {
     instance1.exports.throw();
@@ -88,18 +92,20 @@ function NewExportedException() {
   let builder = new WasmModuleBuilder();
   let sig_index = builder.addType(kSig_v_v);
   let fun = builder.addImport("m", "f", sig_index);
-  let except1 = builder.addImportedTag("m", "ex1", kSig_v_v);
-  let except2 = builder.addTag(kSig_v_v);
-  builder.addExportOfKind("ex2", kExternalTag, except2);
+  let except1 = builder.addImportedException("m", "ex1", kSig_v_v);
+  let except2 = builder.addException(kSig_v_v);
+  builder.addExportOfKind("ex2", kExternalException, except2);
   builder.addFunction("throw", kSig_v_v)
       .addBody([
         kExprThrow, except2
       ]).exportFunc();
   builder.addFunction("catch", kSig_v_v)
       .addBody([
-        kExprTry, kWasmVoid,
+        kExprTry, kWasmStmt,
           kExprCallFunction, fun,
-        kExprCatch, except1,
+        kExprCatch,
+          kExprBrOnExn, 0, except1,
+          kExprRethrow,
         kExprEnd,
       ]).exportFunc();
   let ex_obj = new Error("my exception");
@@ -108,7 +114,7 @@ function NewExportedException() {
   let instance2 = builder.instantiate({ m: { f: function() { throw ex_obj },
                                              ex1: instance1.exports.ex2 }});
 
-  assertThrows(() => instance1.exports.throw(), WebAssembly.Exception);
+  assertThrows(() => instance1.exports.throw(), WebAssembly.RuntimeError);
   assertThrowsEquals(() => instance2.exports.catch(), ex_obj);
   try {
     instance1.exports.throw();
@@ -123,9 +129,9 @@ function NewExportedException() {
 (function TestMultiModuleShared() {
   print(arguments.callee.name);
   let builder1 = new WasmModuleBuilder();
-  let except1 = builder1.addTag(kSig_v_v);
-  let except2 = builder1.addTag(kSig_v_v);
-  builder1.addExportOfKind("ex", kExternalTag, except2);
+  let except1 = builder1.addException(kSig_v_v);
+  let except2 = builder1.addException(kSig_v_v);
+  builder1.addExportOfKind("ex", kExternalException, except2);
   builder1.addFunction("throw", kSig_v_v)
       .addBody([
         kExprThrow, except2
@@ -133,12 +139,14 @@ function NewExportedException() {
   let builder2 = new WasmModuleBuilder();
   let sig_index = builder2.addType(kSig_v_v);
   let fun = builder2.addImport("m", "f", sig_index);
-  let except = builder2.addImportedTag("m", "ex", kSig_v_v);
+  let except = builder2.addImportedException("m", "ex", kSig_v_v);
   builder2.addFunction("catch", kSig_v_v)
       .addBody([
-        kExprTry, kWasmVoid,
+        kExprTry, kWasmStmt,
           kExprCallFunction, fun,
-        kExprCatch, except,
+        kExprCatch,
+          kExprBrOnExn, 0, except,
+          kExprRethrow,
         kExprEnd,
       ]).exportFunc();
   let ex_obj = new Error("my exception");
@@ -146,7 +154,7 @@ function NewExportedException() {
   let instance2 = builder2.instantiate({ m: { f: function() { throw ex_obj },
                                               ex: instance1.exports.ex }});
 
-  assertThrows(() => instance1.exports.throw(), WebAssembly.Exception);
+  assertThrows(() => instance1.exports.throw(), WebAssembly.RuntimeError);
   assertThrowsEquals(() => instance2.exports.catch(), ex_obj);
   try {
     instance1.exports.throw();

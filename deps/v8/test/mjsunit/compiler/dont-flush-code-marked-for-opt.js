@@ -3,7 +3,7 @@
 // found in the LICENSE file.
 
 // Flags: --opt --allow-natives-syntax --expose-gc --flush-bytecode
-// Flags: --stress-flush-code --flush-bytecode
+// Flags: --stress-flush-bytecode
 
 function foo(a) {}
 

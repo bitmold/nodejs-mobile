@@ -23,7 +23,7 @@ class Linkage;
 // Lowers JS-level operators to runtime and IC calls in the "generic" case.
 class JSGenericLowering final : public AdvancedReducer {
  public:
-  JSGenericLowering(JSGraph* jsgraph, Editor* editor, JSHeapBroker* broker);
+  JSGenericLowering(JSGraph* jsgraph, Editor* editor);
   ~JSGenericLowering() final;
 
   const char* reducer_name() const override { return "JSGenericLowering"; }
@@ -31,26 +31,16 @@ class JSGenericLowering final : public AdvancedReducer {
   Reduction Reduce(Node* node) final;
 
  protected:
-#define DECLARE_LOWER(x, ...) void Lower##x(Node* node);
+#define DECLARE_LOWER(x) void Lower##x(Node* node);
   // Dispatched depending on opcode.
   JS_OP_LIST(DECLARE_LOWER)
 #undef DECLARE_LOWER
 
   // Helpers to replace existing nodes with a generic call.
-  void ReplaceWithBuiltinCall(Node* node, Builtin builtin);
-  void ReplaceWithBuiltinCall(Node* node, Callable c,
-                              CallDescriptor::Flags flags);
-  void ReplaceWithBuiltinCall(Node* node, Callable c,
-                              CallDescriptor::Flags flags,
-                              Operator::Properties properties);
+  void ReplaceWithStubCall(Node* node, Callable c, CallDescriptor::Flags flags);
+  void ReplaceWithStubCall(Node* node, Callable c, CallDescriptor::Flags flags,
+                           Operator::Properties properties);
   void ReplaceWithRuntimeCall(Node* node, Runtime::FunctionId f, int args = -1);
-
-  void ReplaceUnaryOpWithBuiltinCall(Node* node,
-                                     Builtin builtin_without_feedback,
-                                     Builtin builtin_with_feedback);
-  void ReplaceBinaryOpWithBuiltinCall(Node* node,
-                                      Builtin builtin_without_feedback,
-                                      Builtin builtin_with_feedback);
 
   Zone* zone() const;
   Isolate* isolate() const;
@@ -58,11 +48,9 @@ class JSGenericLowering final : public AdvancedReducer {
   Graph* graph() const;
   CommonOperatorBuilder* common() const;
   MachineOperatorBuilder* machine() const;
-  JSHeapBroker* broker() const { return broker_; }
 
  private:
   JSGraph* const jsgraph_;
-  JSHeapBroker* const broker_;
 };
 
 }  // namespace compiler

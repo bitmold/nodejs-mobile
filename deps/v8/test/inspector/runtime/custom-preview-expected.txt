@@ -2,13 +2,7 @@ RemoteObject.CustomPreview
 Dump custom previews..
 {
     bodyGetterId : <bodyGetterId>
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Header formatted by 1 
-        [3] : a
-    ]
+    header : ["span",{},"Header formatted by 1 ","a"]
 }
 {
     id : <messageId>
@@ -36,13 +30,7 @@ Dump custom previews..
 }
 {
     bodyGetterId : <bodyGetterId>
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Header formatted by 2 
-        [3] : b
-    ]
+    header : ["span",{},"Header formatted by 2 ","b"]
 }
 {
     id : <messageId>
@@ -61,13 +49,7 @@ Dump custom previews..
 }
 {
     bodyGetterId : <bodyGetterId>
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Header formatted by 1 
-        [3] : c
-    ]
+    header : ["span",{},"Header formatted by 1 ","c"]
 }
 {
     id : <messageId>
@@ -94,36 +76,12 @@ Dump custom previews..
     }
 }
 {
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Formatter with config 
-        [3] : [
-            [0] : object
-            [1] : {
-                className : Object
-                customPreview : {
-                    bodyGetterId : <bodyGetterId>
-                    header : ["span",{},"Header ","info: ","additional info"]
-                }
-                description : Object
-                objectId : <objectId>
-                type : object
-            }
-        ]
-    ]
+    header : ["span",{},"Formatter with config ",["object",{"type":"object","className":"Object","description":"Object","objectId":"{\"injectedScriptId\":1,\"id\":10}","customPreview":{"header":"[\"span\",{},\"Header \",\"info: \",\"additional info\"]","bodyGetterId":"{\"injectedScriptId\":1,\"id\":11}"}}]]
 }
 Change formatters order and dump again..
 {
     bodyGetterId : <bodyGetterId>
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Header formatted by 1 
-        [3] : a
-    ]
+    header : ["span",{},"Header formatted by 1 ","a"]
 }
 {
     id : <messageId>
@@ -151,13 +109,7 @@ Change formatters order and dump again..
 }
 {
     bodyGetterId : <bodyGetterId>
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Header formatted by 2 
-        [3] : b
-    ]
+    header : ["span",{},"Header formatted by 2 ","b"]
 }
 {
     id : <messageId>
@@ -176,13 +128,7 @@ Change formatters order and dump again..
 }
 {
     bodyGetterId : <bodyGetterId>
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Header formatted by 2 
-        [3] : c
-    ]
+    header : ["span",{},"Header formatted by 2 ","c"]
 }
 {
     id : <messageId>
@@ -200,36 +146,12 @@ Change formatters order and dump again..
     }
 }
 {
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Formatter with config 
-        [3] : [
-            [0] : object
-            [1] : {
-                className : Object
-                customPreview : {
-                    bodyGetterId : <bodyGetterId>
-                    header : ["span",{},"Header ","info: ","additional info"]
-                }
-                description : Object
-                objectId : <objectId>
-                type : object
-            }
-        ]
-    ]
+    header : ["span",{},"Formatter with config ",["object",{"type":"object","className":"Object","description":"Object","objectId":"{\"injectedScriptId\":1,\"id\":21}","customPreview":{"header":"[\"span\",{},\"Header \",\"info: \",\"additional info\"]","bodyGetterId":"{\"injectedScriptId\":1,\"id\":22}"}}]]
 }
 Test Runtime.getProperties
 {
     bodyGetterId : <bodyGetterId>
-    header : [
-        [0] : span
-        [1] : {
-        }
-        [2] : Header formatted by 1 
-        [3] : a
-    ]
+    header : ["span",{},"Header formatted by 1 ","a"]
 }
 {
     id : <messageId>
@@ -240,7 +162,7 @@ Test Runtime.getProperties
                 [0] : span
                 [1] : {
                 }
-                [2] : Body formatted by 1 
+                [2] : Body formatted by 1
                 [3] : a
                 [4] : [
                     [0] : object

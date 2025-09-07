@@ -141,9 +141,8 @@ static int inet_ntop6(const unsigned char *src, char *dst, size_t size) {
   if (best.base != -1 && (best.base + best.len) == ARRAY_SIZE(words))
     *tp++ = ':';
   *tp++ = '\0';
-  if ((size_t) (tp - tmp) > size)
+  if (UV_E2BIG == uv__strscpy(dst, tmp, size))
     return UV_ENOSPC;
-  uv__strscpy(dst, tmp, size);
   return 0;
 }
 

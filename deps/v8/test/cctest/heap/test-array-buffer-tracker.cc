@@ -4,7 +4,7 @@
 
 #include "src/api/api-inl.h"
 #include "src/execution/isolate.h"
-#include "src/heap/array-buffer-sweeper.h"
+#include "src/heap/array-buffer-tracker.h"
 #include "src/heap/heap-inl.h"
 #include "src/heap/spaces.h"
 #include "src/objects/js-array-buffer-inl.h"
@@ -14,29 +14,10 @@
 
 namespace {
 
-bool IsTrackedYoung(i::Heap* heap, i::ArrayBufferExtension* extension) {
-  bool in_young = heap->array_buffer_sweeper()->young().ContainsSlow(extension);
-  bool in_old = heap->array_buffer_sweeper()->old().ContainsSlow(extension);
-  CHECK(!(in_young && in_old));
-  return in_young;
-}
+using LocalTracker = i::LocalArrayBufferTracker;
 
-bool IsTrackedOld(i::Heap* heap, i::ArrayBufferExtension* extension) {
-  bool in_young = heap->array_buffer_sweeper()->young().ContainsSlow(extension);
-  bool in_old = heap->array_buffer_sweeper()->old().ContainsSlow(extension);
-  CHECK(!(in_young && in_old));
-  return in_old;
-}
-
-bool IsTracked(i::Heap* heap, i::ArrayBufferExtension* extension) {
-  bool in_young = heap->array_buffer_sweeper()->young().ContainsSlow(extension);
-  bool in_old = heap->array_buffer_sweeper()->old().ContainsSlow(extension);
-  CHECK(!(in_young && in_old));
-  return in_young || in_old;
-}
-
-bool IsTracked(i::Heap* heap, i::JSArrayBuffer buffer) {
-  return IsTracked(heap, buffer.extension());
+bool IsTracked(i::JSArrayBuffer buf) {
+  return i::ArrayBufferTracker::IsTracked(buf);
 }
 
 }  // namespace
@@ -49,94 +30,99 @@ namespace heap {
 // moving the objects through various spaces during GC phases.
 
 TEST(ArrayBuffer_OnlyMC) {
-  FLAG_concurrent_array_buffer_sweeping = false;
-
   ManualGCScope manual_gc_scope;
   CcTest::InitializeVM();
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
   Heap* heap = reinterpret_cast<Isolate*>(isolate)->heap();
 
-  ArrayBufferExtension* extension;
+  JSArrayBuffer raw_ab;
   {
     v8::HandleScope handle_scope(isolate);
     Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, 100);
     Handle<JSArrayBuffer> buf = v8::Utils::OpenHandle(*ab);
-    extension = buf->extension();
-    CHECK(FLAG_single_generation ? IsTrackedOld(heap, extension)
-                                 : IsTrackedYoung(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, OLD_SPACE);
-    CHECK(IsTrackedOld(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, OLD_SPACE);
-    CHECK(IsTrackedOld(heap, extension));
+    CHECK(IsTracked(*buf));
+    raw_ab = *buf;
+    // Prohibit page from being released.
+    Page::FromHeapObject(*buf)->MarkNeverEvacuate();
   }
+  // 2 GCs are needed because we promote to old space as live, meaning that
+  // we will survive one GC.
   heap::GcAndSweep(heap, OLD_SPACE);
-  CHECK(!IsTracked(heap, extension));
+  heap::GcAndSweep(heap, OLD_SPACE);
+  CHECK(!IsTracked(raw_ab));
 }
 
 TEST(ArrayBuffer_OnlyScavenge) {
-  if (FLAG_single_generation) return;
-  FLAG_concurrent_array_buffer_sweeping = false;
-
   ManualGCScope manual_gc_scope;
   CcTest::InitializeVM();
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
   Heap* heap = reinterpret_cast<Isolate*>(isolate)->heap();
 
-  ArrayBufferExtension* extension;
+  JSArrayBuffer raw_ab;
   {
     v8::HandleScope handle_scope(isolate);
     Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, 100);
     Handle<JSArrayBuffer> buf = v8::Utils::OpenHandle(*ab);
-    extension = buf->extension();
-    CHECK(IsTrackedYoung(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTrackedYoung(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTrackedOld(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTrackedOld(heap, extension));
+    CHECK(IsTracked(*buf));
+    raw_ab = *buf;
+    // Prohibit page from being released.
+    Page::FromHeapObject(*buf)->MarkNeverEvacuate();
   }
+  // 2 GCs are needed because we promote to old space as live, meaning that
+  // we will survive one GC.
   heap::GcAndSweep(heap, OLD_SPACE);
-  CHECK(!IsTracked(heap, extension));
+  heap::GcAndSweep(heap, OLD_SPACE);
+  CHECK(!IsTracked(raw_ab));
 }
 
 TEST(ArrayBuffer_ScavengeAndMC) {
-  if (FLAG_single_generation) return;
-  FLAG_concurrent_array_buffer_sweeping = false;
-
   ManualGCScope manual_gc_scope;
   CcTest::InitializeVM();
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
   Heap* heap = reinterpret_cast<Isolate*>(isolate)->heap();
 
-  ArrayBufferExtension* extension;
+  JSArrayBuffer raw_ab;
   {
     v8::HandleScope handle_scope(isolate);
     Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, 100);
     Handle<JSArrayBuffer> buf = v8::Utils::OpenHandle(*ab);
-    extension = buf->extension();
-    CHECK(IsTrackedYoung(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTrackedYoung(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTrackedOld(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, OLD_SPACE);
-    CHECK(IsTrackedOld(heap, extension));
+    CHECK(IsTracked(*buf));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTrackedOld(heap, extension));
+    CHECK(IsTracked(*buf));
+    raw_ab = *buf;
+    // Prohibit page from being released.
+    Page::FromHeapObject(*buf)->MarkNeverEvacuate();
   }
+  // 2 GCs are needed because we promote to old space as live, meaning that
+  // we will survive one GC.
   heap::GcAndSweep(heap, OLD_SPACE);
-  CHECK(!IsTracked(heap, extension));
+  heap::GcAndSweep(heap, OLD_SPACE);
+  CHECK(!IsTracked(raw_ab));
 }
 
 TEST(ArrayBuffer_Compaction) {
-  if (!FLAG_compact) return;
+  if (FLAG_never_compact) return;
   ManualGCScope manual_gc_scope;
   FLAG_manual_evacuation_candidates_selection = true;
-  FLAG_concurrent_array_buffer_sweeping = false;
   CcTest::InitializeVM();
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
@@ -146,18 +132,18 @@ TEST(ArrayBuffer_Compaction) {
   v8::HandleScope handle_scope(isolate);
   Local<v8::ArrayBuffer> ab1 = v8::ArrayBuffer::New(isolate, 100);
   Handle<JSArrayBuffer> buf1 = v8::Utils::OpenHandle(*ab1);
-  CHECK(IsTracked(heap, *buf1));
+  CHECK(IsTracked(*buf1));
   heap::GcAndSweep(heap, NEW_SPACE);
   heap::GcAndSweep(heap, NEW_SPACE);
 
   Page* page_before_gc = Page::FromHeapObject(*buf1);
   heap::ForceEvacuationCandidate(page_before_gc);
-  CHECK(IsTracked(heap, *buf1));
+  CHECK(IsTracked(*buf1));
 
   CcTest::CollectAllGarbage();
 
   Page* page_after_gc = Page::FromHeapObject(*buf1);
-  CHECK(IsTracked(heap, *buf1));
+  CHECK(IsTracked(*buf1));
 
   CHECK_NE(page_before_gc, page_after_gc);
 }
@@ -165,7 +151,7 @@ TEST(ArrayBuffer_Compaction) {
 TEST(ArrayBuffer_UnregisterDuringSweep) {
 // Regular pages in old space (without compaction) are processed concurrently
 // in the sweeper. If we happen to unregister a buffer (either explicitly, or
-// implicitly through e.g. |Detach|) we need to sync with the sweeper
+// implicitly through e.g. |Externalize|) we need to sync with the sweeper
 // task.
 //
 // Note: This test will will only fail on TSAN configurations.
@@ -176,7 +162,6 @@ TEST(ArrayBuffer_UnregisterDuringSweep) {
   i::FLAG_verify_heap = false;
 #endif  // VERIFY_HEAP
   ManualGCScope manual_gc_scope;
-  i::FLAG_concurrent_array_buffer_sweeping = false;
 
   CcTest::InitializeVM();
   LocalContext env;
@@ -188,30 +173,33 @@ TEST(ArrayBuffer_UnregisterDuringSweep) {
     Handle<JSArrayBuffer> buf = v8::Utils::OpenHandle(*ab);
 
     {
-      v8::HandleScope new_handle_scope(isolate);
+      v8::HandleScope handle_scope(isolate);
       // Allocate another buffer on the same page to force processing a
       // non-empty set of buffers in the last GC.
       Local<v8::ArrayBuffer> ab2 = v8::ArrayBuffer::New(isolate, 100);
       Handle<JSArrayBuffer> buf2 = v8::Utils::OpenHandle(*ab2);
-      CHECK(IsTracked(heap, *buf));
+      CHECK(IsTracked(*buf));
+      CHECK(IsTracked(*buf));
       heap::GcAndSweep(heap, NEW_SPACE);
-      CHECK(IsTracked(heap, *buf));
+      CHECK(IsTracked(*buf));
+      CHECK(IsTracked(*buf));
       heap::GcAndSweep(heap, NEW_SPACE);
-      CHECK(IsTracked(heap, *buf));
-      CHECK(IsTracked(heap, *buf2));
+      CHECK(IsTracked(*buf));
+      CHECK(IsTracked(*buf2));
     }
 
     CcTest::CollectGarbage(OLD_SPACE);
-    // |Detach| will cause the buffer to be |Unregister|ed. Without
+    // |Externalize| will cause the buffer to be |Unregister|ed. Without
     // barriers and proper synchronization this will trigger a data race on
     // TSAN.
-    ab->Detach();
+    v8::ArrayBuffer::Contents contents = ab->Externalize();
+    heap->isolate()->array_buffer_allocator()->Free(contents.Data(),
+                                                    contents.ByteLength());
   }
 }
 
 TEST(ArrayBuffer_NonLivePromotion) {
-  if (!FLAG_incremental_marking || FLAG_separate_gc_phases) return;
-  FLAG_concurrent_array_buffer_sweeping = false;
+  if (!FLAG_incremental_marking) return;
   ManualGCScope manual_gc_scope;
   // The test verifies that the marking state is preserved when promoting
   // a buffer to old space.
@@ -226,30 +214,29 @@ TEST(ArrayBuffer_NonLivePromotion) {
     Handle<FixedArray> root =
         heap->isolate()->factory()->NewFixedArray(1, AllocationType::kOld);
     {
-      v8::HandleScope new_handle_scope(isolate);
+      v8::HandleScope handle_scope(isolate);
       Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, 100);
       Handle<JSArrayBuffer> buf = v8::Utils::OpenHandle(*ab);
       root->set(0, *buf);  // Buffer that should not be promoted as live.
     }
     heap::SimulateIncrementalMarking(heap, false);
-    CHECK(IsTracked(heap, JSArrayBuffer::cast(root->get(0))));
+    CHECK(IsTracked(JSArrayBuffer::cast(root->get(0))));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTracked(heap, JSArrayBuffer::cast(root->get(0))));
+    CHECK(IsTracked(JSArrayBuffer::cast(root->get(0))));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTracked(heap, JSArrayBuffer::cast(root->get(0))));
+    CHECK(IsTracked(JSArrayBuffer::cast(root->get(0))));
     raw_ab = JSArrayBuffer::cast(root->get(0));
     root->set(0, ReadOnlyRoots(heap).undefined_value());
     heap::SimulateIncrementalMarking(heap, true);
     // Prohibit page from being released.
     Page::FromHeapObject(raw_ab)->MarkNeverEvacuate();
     heap::GcAndSweep(heap, OLD_SPACE);
-    CHECK(!IsTracked(heap, raw_ab));
+    CHECK(!IsTracked(raw_ab));
   }
 }
 
 TEST(ArrayBuffer_LivePromotion) {
-  if (!FLAG_incremental_marking || FLAG_separate_gc_phases) return;
-  FLAG_concurrent_array_buffer_sweeping = false;
+  if (!FLAG_incremental_marking) return;
   ManualGCScope manual_gc_scope;
   // The test verifies that the marking state is preserved when promoting
   // a buffer to old space.
@@ -264,33 +251,28 @@ TEST(ArrayBuffer_LivePromotion) {
     Handle<FixedArray> root =
         heap->isolate()->factory()->NewFixedArray(1, AllocationType::kOld);
     {
-      v8::HandleScope new_handle_scope(isolate);
+      v8::HandleScope handle_scope(isolate);
       Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, 100);
       Handle<JSArrayBuffer> buf = v8::Utils::OpenHandle(*ab);
       root->set(0, *buf);  // Buffer that should be promoted as live.
     }
-    // Store array in Global such that it is part of the root set when
-    // starting incremental marking.
-    v8::Global<Value> global_root(CcTest::isolate(),
-                                  Utils::ToLocal(Handle<Object>::cast(root)));
     heap::SimulateIncrementalMarking(heap, true);
-    CHECK(IsTracked(heap, JSArrayBuffer::cast(root->get(0))));
+    CHECK(IsTracked(JSArrayBuffer::cast(root->get(0))));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTracked(heap, JSArrayBuffer::cast(root->get(0))));
+    CHECK(IsTracked(JSArrayBuffer::cast(root->get(0))));
     heap::GcAndSweep(heap, NEW_SPACE);
-    CHECK(IsTracked(heap, JSArrayBuffer::cast(root->get(0))));
+    CHECK(IsTracked(JSArrayBuffer::cast(root->get(0))));
     raw_ab = JSArrayBuffer::cast(root->get(0));
     root->set(0, ReadOnlyRoots(heap).undefined_value());
     // Prohibit page from being released.
     Page::FromHeapObject(raw_ab)->MarkNeverEvacuate();
     heap::GcAndSweep(heap, OLD_SPACE);
-    CHECK(IsTracked(heap, raw_ab));
+    CHECK(IsTracked(raw_ab));
   }
 }
 
 TEST(ArrayBuffer_SemiSpaceCopyThenPagePromotion) {
   if (!i::FLAG_incremental_marking) return;
-  FLAG_concurrent_array_buffer_sweeping = false;
   ManualGCScope manual_gc_scope;
   // The test verifies that the marking state is preserved across semispace
   // copy.
@@ -305,7 +287,7 @@ TEST(ArrayBuffer_SemiSpaceCopyThenPagePromotion) {
     Handle<FixedArray> root =
         heap->isolate()->factory()->NewFixedArray(1, AllocationType::kOld);
     {
-      v8::HandleScope new_handle_scope(isolate);
+      v8::HandleScope handle_scope(isolate);
       Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, 100);
       Handle<JSArrayBuffer> buf = v8::Utils::OpenHandle(*ab);
       root->set(0, *buf);  // Buffer that should be promoted as live.
@@ -316,56 +298,21 @@ TEST(ArrayBuffer_SemiSpaceCopyThenPagePromotion) {
     // processed in the sweeper (relying on marking information) instead of
     // processing during newspace evacuation.
     heap::FillCurrentPage(heap->new_space(), &handles);
-    CHECK(IsTracked(heap, JSArrayBuffer::cast(root->get(0))));
+    CHECK(IsTracked(JSArrayBuffer::cast(root->get(0))));
     heap::GcAndSweep(heap, NEW_SPACE);
     heap::SimulateIncrementalMarking(heap, true);
     heap::GcAndSweep(heap, OLD_SPACE);
-    CHECK(IsTracked(heap, JSArrayBuffer::cast(root->get(0))));
-  }
-}
-
-TEST(ArrayBuffer_PagePromotion) {
-  if (!i::FLAG_incremental_marking || i::FLAG_single_generation) return;
-  i::FLAG_concurrent_array_buffer_sweeping = false;
-
-  ManualGCScope manual_gc_scope;
-  // The test verifies that the marking state is preserved across semispace
-  // copy.
-  CcTest::InitializeVM();
-  LocalContext env;
-  v8::Isolate* isolate = env->GetIsolate();
-  Heap* heap = reinterpret_cast<Isolate*>(isolate)->heap();
-
-  heap::SealCurrentObjects(heap);
-  {
-    v8::HandleScope handle_scope(isolate);
-    Handle<FixedArray> root =
-        heap->isolate()->factory()->NewFixedArray(1, AllocationType::kOld);
-    ArrayBufferExtension* extension;
-    {
-      v8::HandleScope new_handle_scope(isolate);
-      Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, 100);
-      Handle<JSArrayBuffer> buf = v8::Utils::OpenHandle(*ab);
-      extension = buf->extension();
-      root->set(0, *buf);  // Buffer that should be promoted as live.
-    }
-    std::vector<Handle<FixedArray>> handles;
-    // Create live objects on page such that the whole page gets promoted
-    heap::FillCurrentPage(heap->new_space(), &handles);
-    CHECK(IsTrackedYoung(heap, extension));
-    heap::SimulateIncrementalMarking(heap, true);
-    heap::GcAndSweep(heap, OLD_SPACE);
-    CHECK(IsTrackedOld(heap, extension));
+    CHECK(IsTracked(JSArrayBuffer::cast(root->get(0))));
   }
 }
 
 UNINITIALIZED_TEST(ArrayBuffer_SemiSpaceCopyMultipleTasks) {
-  if (FLAG_optimize_for_size || FLAG_single_generation) return;
+  if (FLAG_optimize_for_size) return;
   ManualGCScope manual_gc_scope;
   // Test allocates JSArrayBuffer on different pages before triggering a
   // full GC that performs the semispace copy. If parallelized, this test
   // ensures proper synchronization in TSAN configurations.
-  FLAG_min_semi_space_size = std::max(2 * Page::kPageSize / MB, 1);
+  FLAG_min_semi_space_size = Max(2 * Page::kPageSize / MB, 1);
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
   v8::Isolate* isolate = v8::Isolate::New(create_params);
@@ -392,30 +339,26 @@ UNINITIALIZED_TEST(ArrayBuffer_SemiSpaceCopyMultipleTasks) {
 }
 
 TEST(ArrayBuffer_ExternalBackingStoreSizeIncreases) {
-  if (FLAG_single_generation) return;
   CcTest::InitializeVM();
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
   Heap* heap = reinterpret_cast<Isolate*>(isolate)->heap();
   ExternalBackingStoreType type = ExternalBackingStoreType::kArrayBuffer;
 
-  const Space* space = FLAG_incremental_marking
-                           ? static_cast<Space*>(heap->new_space())
-                           : static_cast<Space*>(heap->old_space());
-  const size_t backing_store_before = space->ExternalBackingStoreBytes(type);
+  const size_t backing_store_before =
+      heap->new_space()->ExternalBackingStoreBytes(type);
   {
     const size_t kArraybufferSize = 117;
     v8::HandleScope handle_scope(isolate);
     Local<v8::ArrayBuffer> ab = v8::ArrayBuffer::New(isolate, kArraybufferSize);
     USE(ab);
-    const size_t backing_store_after = space->ExternalBackingStoreBytes(type);
+    const size_t backing_store_after =
+        heap->new_space()->ExternalBackingStoreBytes(type);
     CHECK_EQ(kArraybufferSize, backing_store_after - backing_store_before);
   }
 }
 
 TEST(ArrayBuffer_ExternalBackingStoreSizeDecreases) {
-  if (FLAG_single_generation) return;
-  FLAG_concurrent_array_buffer_sweeping = false;
   CcTest::InitializeVM();
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
@@ -437,10 +380,9 @@ TEST(ArrayBuffer_ExternalBackingStoreSizeDecreases) {
 }
 
 TEST(ArrayBuffer_ExternalBackingStoreSizeIncreasesMarkCompact) {
-  if (!FLAG_compact) return;
+  if (FLAG_never_compact) return;
   ManualGCScope manual_gc_scope;
   FLAG_manual_evacuation_candidates_selection = true;
-  FLAG_concurrent_array_buffer_sweeping = false;
   CcTest::InitializeVM();
   LocalContext env;
   v8::Isolate* isolate = env->GetIsolate();
@@ -457,13 +399,13 @@ TEST(ArrayBuffer_ExternalBackingStoreSizeIncreasesMarkCompact) {
     Local<v8::ArrayBuffer> ab1 =
         v8::ArrayBuffer::New(isolate, kArraybufferSize);
     Handle<JSArrayBuffer> buf1 = v8::Utils::OpenHandle(*ab1);
-    CHECK(IsTracked(heap, *buf1));
+    CHECK(IsTracked(*buf1));
     heap::GcAndSweep(heap, NEW_SPACE);
     heap::GcAndSweep(heap, NEW_SPACE);
 
     Page* page_before_gc = Page::FromHeapObject(*buf1);
     heap::ForceEvacuationCandidate(page_before_gc);
-    CHECK(IsTracked(heap, *buf1));
+    CHECK(IsTracked(*buf1));
 
     CcTest::CollectAllGarbage();
 

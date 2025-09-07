@@ -31,7 +31,7 @@ void ReadAndParseTorqueFile(const std::string& path) {
   CurrentSourceFile::Scope source_id_scope(source_id);
 
   // path might be either a normal file path or an encoded URI.
-  auto maybe_content = ReadFile(SourceFileMap::AbsolutePath(source_id));
+  auto maybe_content = ReadFile(path);
   if (!maybe_content) {
     if (auto maybe_path = FileUriDecode(path)) {
       maybe_content = ReadFile(*maybe_path);
@@ -50,60 +50,46 @@ void CompileCurrentAst(TorqueCompilerOptions options) {
   if (options.collect_language_server_data) {
     GlobalContext::SetCollectLanguageServerData();
   }
-  if (options.collect_kythe_data) {
-    GlobalContext::SetCollectKytheData();
-  }
   if (options.force_assert_statements) {
     GlobalContext::SetForceAssertStatements();
   }
-  if (options.annotate_ir) {
-    GlobalContext::SetAnnotateIR();
-  }
-  TargetArchitecture::Scope target_architecture(options.force_32bit_output);
   TypeOracle::Scope type_oracle;
-  CurrentScope::Scope current_namespace(GlobalContext::GetDefaultNamespace());
 
   // Two-step process of predeclaration + resolution allows to resolve type
   // declarations independent of the order they are given.
-  PredeclarationVisitor::Predeclare(GlobalContext::ast());
+  PredeclarationVisitor::Predeclare(GlobalContext::Get().ast());
   PredeclarationVisitor::ResolvePredeclarations();
 
   // Process other declarations.
-  DeclarationVisitor::Visit(GlobalContext::ast());
+  DeclarationVisitor::Visit(GlobalContext::Get().ast());
 
   // A class types' fields are resolved here, which allows two class fields to
   // mutually refer to each others.
-  TypeOracle::FinalizeAggregateTypes();
+  TypeOracle::FinalizeClassTypes();
 
   std::string output_directory = options.output_directory;
 
   ImplementationVisitor implementation_visitor;
   implementation_visitor.SetDryRun(output_directory.length() == 0);
 
-  implementation_visitor.GenerateInstanceTypes(output_directory);
-  implementation_visitor.BeginGeneratedFiles();
-  implementation_visitor.BeginDebugMacrosFile();
+  for (Namespace* n : GlobalContext::Get().GetNamespaces()) {
+    implementation_visitor.BeginNamespaceFile(n);
+  }
 
   implementation_visitor.VisitAllDeclarables();
 
-  ReportAllUnusedMacros();
-
-  implementation_visitor.GenerateBuiltinDefinitionsAndInterfaceDescriptors(
-      output_directory);
-  implementation_visitor.GenerateVisitorLists(output_directory);
-  implementation_visitor.GenerateBitFields(output_directory);
+  implementation_visitor.GenerateBuiltinDefinitions(output_directory);
+  implementation_visitor.GenerateClassFieldOffsets(output_directory);
   implementation_visitor.GeneratePrintDefinitions(output_directory);
   implementation_visitor.GenerateClassDefinitions(output_directory);
   implementation_visitor.GenerateClassVerifiers(output_directory);
-  implementation_visitor.GenerateClassDebugReaders(output_directory);
-  implementation_visitor.GenerateEnumVerifiers(output_directory);
-  implementation_visitor.GenerateBodyDescriptors(output_directory);
   implementation_visitor.GenerateExportedMacrosAssembler(output_directory);
   implementation_visitor.GenerateCSATypes(output_directory);
 
-  implementation_visitor.EndGeneratedFiles();
-  implementation_visitor.EndDebugMacrosFile();
-  implementation_visitor.GenerateImplementation(output_directory);
+  for (Namespace* n : GlobalContext::Get().GetNamespaces()) {
+    implementation_visitor.EndNamespaceFile(n);
+    implementation_visitor.GenerateImplementation(output_directory, n);
+  }
 
   if (GlobalContext::collect_language_server_data()) {
     LanguageServerData::SetGlobalContext(std::move(GlobalContext::Get()));
@@ -115,9 +101,8 @@ void CompileCurrentAst(TorqueCompilerOptions options) {
 
 TorqueCompilerResult CompileTorque(const std::string& source,
                                    TorqueCompilerOptions options) {
-  SourceFileMap::Scope source_map_scope(options.v8_root);
-  CurrentSourceFile::Scope no_file_scope(
-      SourceFileMap::AddSource("dummy-filename.tq"));
+  SourceFileMap::Scope source_map_scope;
+  CurrentSourceFile::Scope no_file_scope(SourceFileMap::AddSource("<torque>"));
   CurrentAst::Scope ast_scope;
   TorqueMessages::Scope messages_scope;
   LanguageServerData::Scope server_data_scope;
@@ -140,7 +125,7 @@ TorqueCompilerResult CompileTorque(const std::string& source,
 
 TorqueCompilerResult CompileTorque(std::vector<std::string> files,
                                    TorqueCompilerOptions options) {
-  SourceFileMap::Scope source_map_scope(options.v8_root);
+  SourceFileMap::Scope source_map_scope;
   CurrentSourceFile::Scope unknown_source_file_scope(SourceId::Invalid());
   CurrentAst::Scope ast_scope;
   TorqueMessages::Scope messages_scope;
@@ -148,41 +133,7 @@ TorqueCompilerResult CompileTorque(std::vector<std::string> files,
 
   TorqueCompilerResult result;
   try {
-    for (const auto& path : files) {
-      ReadAndParseTorqueFile(path);
-    }
-    CompileCurrentAst(options);
-  } catch (TorqueAbortCompilation&) {
-    // Do nothing. The relevant TorqueMessage is part of the
-    // TorqueMessages contextual.
-  }
-
-  result.source_file_map = SourceFileMap::Get();
-  result.language_server_data = std::move(LanguageServerData::Get());
-  result.messages = std::move(TorqueMessages::Get());
-
-  return result;
-}
-
-TorqueCompilerResult CompileTorqueForKythe(
-    std::vector<TorqueCompilationUnit> units, TorqueCompilerOptions options,
-    KytheConsumer* consumer) {
-  SourceFileMap::Scope source_map_scope(options.v8_root);
-  CurrentSourceFile::Scope unknown_source_file_scope(SourceId::Invalid());
-  CurrentAst::Scope ast_scope;
-  TorqueMessages::Scope messages_scope;
-  LanguageServerData::Scope server_data_scope;
-  KytheData::Scope kythe_scope;
-
-  KytheData::Get().SetConsumer(consumer);
-
-  TorqueCompilerResult result;
-  try {
-    for (const auto& unit : units) {
-      SourceId source_id = SourceFileMap::AddSource(unit.source_file_path);
-      CurrentSourceFile::Scope source_id_scope(source_id);
-      ParseTorque(unit.file_content);
-    }
+    for (const auto& path : files) ReadAndParseTorqueFile(path);
     CompileCurrentAst(options);
   } catch (TorqueAbortCompilation&) {
     // Do nothing. The relevant TorqueMessage is part of the

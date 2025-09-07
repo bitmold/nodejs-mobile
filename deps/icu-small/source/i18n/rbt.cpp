@@ -27,14 +27,14 @@ U_NAMESPACE_BEGIN
 
 UOBJECT_DEFINE_RTTI_IMPLEMENTATION(RuleBasedTransliterator)
 
-static Replaceable *gLockedText = nullptr;
+static Replaceable *gLockedText = NULL;
 
 void RuleBasedTransliterator::_construct(const UnicodeString& rules,
                                          UTransDirection direction,
                                          UParseError& parseError,
                                          UErrorCode& status) {
     fData = 0;
-    isDataOwned = true;
+    isDataOwned = TRUE;
     if (U_FAILURE(status)) {
         return;
     }
@@ -46,7 +46,7 @@ void RuleBasedTransliterator::_construct(const UnicodeString& rules,
     }
 
     if (parser.idBlockVector.size() != 0 ||
-        parser.compoundFilter != nullptr ||
+        parser.compoundFilter != NULL ||
         parser.dataVector.size() == 0) {
         status = U_INVALID_RBT_SYNTAX; // ::ID blocks disallowed in RBT
         return;
@@ -62,7 +62,7 @@ void RuleBasedTransliterator::_construct(const UnicodeString& rules,
  * @param rules         rules, separated by ';'
  * @param direction     either FORWARD or REVERSE.
  * @param adoptedFilter the filter for this transliterator.
- * @param parseError    Struct to receive information on position 
+ * @param parseError    Struct to recieve information on position
  *                      of error if an error is encountered
  * @param status        Output param set to success/failure code.
  * @exception IllegalArgumentException if rules are malformed
@@ -101,7 +101,7 @@ RuleBasedTransliterator::RuleBasedTransliterator(
 }*/
 
 /**
- * Convenience constructor with no filter.
+ * Covenience constructor with no filter.
  */
 /*RuleBasedTransliterator::RuleBasedTransliterator(
                             const UnicodeString& id,
@@ -114,7 +114,7 @@ RuleBasedTransliterator::RuleBasedTransliterator(
 }*/
 
 /**
- * Convenience constructor with no filter and FORWARD direction.
+ * Covenience constructor with no filter and FORWARD direction.
  */
 /*RuleBasedTransliterator::RuleBasedTransliterator(
                             const UnicodeString& id,
@@ -126,7 +126,7 @@ RuleBasedTransliterator::RuleBasedTransliterator(
 }*/
 
 /**
- * Convenience constructor with FORWARD direction.
+ * Covenience constructor with FORWARD direction.
  */
 /*RuleBasedTransliterator::RuleBasedTransliterator(
                             const UnicodeString& id,
@@ -143,7 +143,7 @@ RuleBasedTransliterator::RuleBasedTransliterator(const UnicodeString& id,
                                  UnicodeFilter* adoptedFilter) :
     Transliterator(id, adoptedFilter),
     fData((TransliterationRuleData*)theData), // cast away const
-    isDataOwned(false) {
+    isDataOwned(FALSE) {
     setMaximumContextLength(fData->ruleSet.getMaximumContextLength());
 }
 
@@ -191,8 +191,8 @@ RuleBasedTransliterator::~RuleBasedTransliterator() {
     }
 }
 
-RuleBasedTransliterator*
-RuleBasedTransliterator::clone() const {
+Transliterator* // Covariant return NOT ALLOWED (for portability)
+RuleBasedTransliterator::clone(void) const {
     return new RuleBasedTransliterator(*this);
 }
 
@@ -235,16 +235,16 @@ RuleBasedTransliterator::handleTransliterate(Replaceable& text, UTransPosition& 
     }
 
     // Transliterator locking.  Rule-based Transliterators are not thread safe; concurrent
-    //   operations must be prevented.  
+    //   operations must be prevented.
     // A Complication: compound transliterators can result in recursive entries to this
-    //   function, sometimes with different "This" objects, always with the same text. 
+    //   function, sometimes with different "This" objects, always with the same text.
     //   Double-locking must be prevented in these cases.
-    //   
+    //
 
-    UBool    lockedMutexAtThisLevel = false;
+    UBool    lockedMutexAtThisLevel = FALSE;
 
     // Test whether this request is operating on the same text string as
-    //   some other transliteration that is still in progress and holding the 
+    //   some other transliteration that is still in progress and holding the
     //   transliteration mutex.  If so, do not lock the transliteration
     //    mutex again.
     //
@@ -253,7 +253,7 @@ RuleBasedTransliterator::handleTransliterate(Replaceable& text, UTransPosition& 
     //
     // TODO(andy): Need a better scheme for handling this.
 
-    static UMutex transliteratorDataMutex;
+    static UMutex transliteratorDataMutex = U_MUTEX_INITIALIZER;
     UBool needToLock;
     {
         Mutex m;
@@ -263,11 +263,11 @@ RuleBasedTransliterator::handleTransliterate(Replaceable& text, UTransPosition& 
         umtx_lock(&transliteratorDataMutex);  // Contention, longish waits possible here.
         Mutex m;
         gLockedText = &text;
-        lockedMutexAtThisLevel = true;
+        lockedMutexAtThisLevel = TRUE;
     }
-    
+
     // Check to make sure we don't dereference a null pointer.
-    if (fData != nullptr) {
+    if (fData != NULL) {
 	    while (index.start < index.limit &&
 	           loopCount <= loopLimit &&
 	           fData->ruleSet.transliterate(text, index, isIncremental)) {
@@ -277,7 +277,7 @@ RuleBasedTransliterator::handleTransliterate(Replaceable& text, UTransPosition& 
     if (lockedMutexAtThisLevel) {
         {
             Mutex m;
-            gLockedText = nullptr;
+            gLockedText = NULL;
         }
         umtx_unlock(&transliteratorDataMutex);
     }
@@ -292,14 +292,14 @@ UnicodeString& RuleBasedTransliterator::toRules(UnicodeString& rulesSource,
  * Implement Transliterator framework
  */
 void RuleBasedTransliterator::handleGetSourceSet(UnicodeSet& result) const {
-    fData->ruleSet.getSourceTargetSet(result, false);
+    fData->ruleSet.getSourceTargetSet(result, FALSE);
 }
 
 /**
  * Override Transliterator framework
  */
 UnicodeSet& RuleBasedTransliterator::getTargetSet(UnicodeSet& result) const {
-    return fData->ruleSet.getSourceTargetSet(result, true);
+    return fData->ruleSet.getSourceTargetSet(result, TRUE);
 }
 
 U_NAMESPACE_END

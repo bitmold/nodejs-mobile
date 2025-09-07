@@ -20,15 +20,12 @@
 #define __ERRORCODE_H__
 
 /**
- * \file 
+ * \file
  * \brief C++ API: ErrorCode class intended to make it easier to use
  *                 ICU C and C++ APIs from C++ user code.
  */
 
 #include "unicode/utypes.h"
-
-#if U_SHOW_CPLUSPLUS_API
-
 #include "unicode/uobject.h"
 
 U_NAMESPACE_BEGIN
@@ -138,7 +135,5 @@ protected:
 };
 
 U_NAMESPACE_END
-
-#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif  // __ERRORCODE_H__

@@ -1,53 +1,26 @@
-// Copyright 2020 the V8 project authors. All rights reserved.
+// Copyright 2018 the V8 project authors. All rights reserved.
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "include/v8.h"
+#include "src/api/api.h"
 #include "src/execution/arguments-inl.h"
+#include "src/execution/execution.h"
+#include "src/handles/handles-inl.h"
+#include "src/logging/counters.h"
 #include "src/objects/js-weak-refs-inl.h"
+#include "src/objects/objects-inl.h"
 #include "src/runtime/runtime-utils.h"
 
 namespace v8 {
 namespace internal {
 
-RUNTIME_FUNCTION(Runtime_ShrinkFinalizationRegistryUnregisterTokenMap) {
+RUNTIME_FUNCTION(Runtime_FinalizationGroupCleanupJob) {
   HandleScope scope(isolate);
-  DCHECK_EQ(1, args.length());
-  Handle<JSFinalizationRegistry> finalization_registry =
-      args.at<JSFinalizationRegistry>(0);
+  CONVERT_ARG_HANDLE_CHECKED(JSFinalizationGroup, finalization_group, 0);
+  finalization_group->set_scheduled_for_cleanup(false);
 
-  if (!finalization_registry->key_map().IsUndefined(isolate)) {
-    Handle<SimpleNumberDictionary> key_map =
-        handle(SimpleNumberDictionary::cast(finalization_registry->key_map()),
-               isolate);
-    key_map = SimpleNumberDictionary::Shrink(isolate, key_map);
-    finalization_registry->set_key_map(*key_map);
-  }
-
-  return ReadOnlyRoots(isolate).undefined_value();
-}
-
-RUNTIME_FUNCTION(
-    Runtime_JSFinalizationRegistryRegisterWeakCellWithUnregisterToken) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(2, args.length());
-  Handle<JSFinalizationRegistry> finalization_registry =
-      args.at<JSFinalizationRegistry>(0);
-  Handle<WeakCell> weak_cell = args.at<WeakCell>(1);
-
-  JSFinalizationRegistry::RegisterWeakCellWithUnregisterToken(
-      finalization_registry, weak_cell, isolate);
-
-  return ReadOnlyRoots(isolate).undefined_value();
-}
-
-RUNTIME_FUNCTION(Runtime_JSWeakRefAddToKeptObjects) {
-  HandleScope scope(isolate);
-  DCHECK_EQ(1, args.length());
-  Handle<HeapObject> object = args.at<HeapObject>(0);
-  DCHECK(object->CanBeHeldWeakly());
-
-  isolate->heap()->KeepDuringJob(object);
-
+  JSFinalizationGroup::Cleanup(finalization_group, isolate);
   return ReadOnlyRoots(isolate).undefined_value();
 }
 

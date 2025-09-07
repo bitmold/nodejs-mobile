@@ -65,7 +65,6 @@ class ObjectWrap {
   }
 
 
-  // NOLINTNEXTLINE(runtime/v8_persistent)
   inline v8::Persistent<v8::Object>& persistent() {
     return handle_;
   }
@@ -123,7 +122,6 @@ class ObjectWrap {
     delete wrap;
   }
 
-  // NOLINTNEXTLINE(runtime/v8_persistent)
   v8::Persistent<v8::Object> handle_;
 };
 

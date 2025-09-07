@@ -22,15 +22,15 @@ class TurboAssemblerTest : public TestWithIsolate {};
 
 TEST_F(TurboAssemblerTest, TestHardAbort) {
   auto buffer = AllocateAssemblerBuffer();
-  TurboAssembler tasm(isolate(), AssemblerOptions{}, CodeObjectRequired::kNo,
+  TurboAssembler tasm(nullptr, AssemblerOptions{}, CodeObjectRequired::kNo,
                       buffer->CreateView());
-  __ set_root_array_available(false);
+
   __ set_abort_hard(true);
 
   __ Abort(AbortReason::kNoReason);
 
   CodeDesc desc;
-  tasm.GetCode(isolate(), &desc);
+  tasm.GetCode(nullptr, &desc);
   buffer->MakeExecutable();
   // We need an isolate here to execute in the simulator.
   auto f = GeneratedCode<void>::FromBuffer(isolate(), buffer->start());
@@ -40,9 +40,9 @@ TEST_F(TurboAssemblerTest, TestHardAbort) {
 
 TEST_F(TurboAssemblerTest, TestCheck) {
   auto buffer = AllocateAssemblerBuffer();
-  TurboAssembler tasm(isolate(), AssemblerOptions{}, CodeObjectRequired::kNo,
+  TurboAssembler tasm(nullptr, AssemblerOptions{}, CodeObjectRequired::kNo,
                       buffer->CreateView());
-  __ set_root_array_available(false);
+
   __ set_abort_hard(true);
 
   // Fail if the first parameter is 17.
@@ -52,7 +52,7 @@ TEST_F(TurboAssemblerTest, TestCheck) {
   __ Ret();
 
   CodeDesc desc;
-  tasm.GetCode(isolate(), &desc);
+  tasm.GetCode(nullptr, &desc);
   buffer->MakeExecutable();
   // We need an isolate here to execute in the simulator.
   auto f = GeneratedCode<void, int>::FromBuffer(isolate(), buffer->start());
@@ -60,70 +60,6 @@ TEST_F(TurboAssemblerTest, TestCheck) {
   f.Call(0);
   f.Call(18);
   ASSERT_DEATH_IF_SUPPORTED({ f.Call(17); }, "abort: no reason");
-}
-
-TEST_F(TurboAssemblerTest, ReverseBitsU64) {
-  struct {
-    uint64_t expected; uint64_t input;
-  } values[] = {
-    {0x0000000000000000, 0x0000000000000000},
-    {0xffffffffffffffff, 0xffffffffffffffff},
-    {0x8000000000000000, 0x0000000000000001},
-    {0x0000000000000001, 0x8000000000000000},
-    {0x800066aa22cc4488, 0x1122334455660001},
-    {0x1122334455660001, 0x800066aa22cc4488},
-    {0xffffffff00000000, 0x00000000ffffffff},
-    {0x00000000ffffffff, 0xffffffff00000000},
-    {0xff01020304050607, 0xe060a020c04080ff},
-    {0xe060a020c04080ff, 0xff01020304050607},
-  };
-  auto buffer = AllocateAssemblerBuffer();
-  TurboAssembler tasm(isolate(), AssemblerOptions{}, CodeObjectRequired::kNo,
-                      buffer->CreateView());
-  __ set_root_array_available(false);
-  __ set_abort_hard(true);
-  __ Push(r4, r5);
-  __ ReverseBitsU64(r3, r3, r4, r5);
-  __ Pop(r4, r5);
-  __ Ret();
-  CodeDesc desc;
-  tasm.GetCode(isolate(), &desc);
-  buffer->MakeExecutable();
-  auto f = GeneratedCode<uint64_t, uint64_t>::FromBuffer(isolate(),
-                                                         buffer->start());
-  for (unsigned int i=0; i < (sizeof(values) / sizeof(values[0])); i++) {
-    CHECK_EQ(values[i].expected, f.Call(values[i].input));
-  }
-}
-
-TEST_F(TurboAssemblerTest, ReverseBitsU32) {
-  struct {
-    uint64_t expected; uint64_t input;
-  } values[] = {
-    {0x00000000, 0x00000000},
-    {0xffffffff, 0xffffffff},
-    {0x00000001, 0x80000000},
-    {0x80000000, 0x00000001},
-    {0x22334455, 0xaa22cc44},
-    {0xaa22cc44, 0x22334455},
-  };
-  auto buffer = AllocateAssemblerBuffer();
-  TurboAssembler tasm(isolate(), AssemblerOptions{}, CodeObjectRequired::kNo,
-                      buffer->CreateView());
-  __ set_root_array_available(false);
-  __ set_abort_hard(true);
-  __ Push(r4, r5);
-  __ ReverseBitsU32(r3, r3, r4, r5);
-  __ Pop(r4, r5);
-  __ Ret();
-  CodeDesc desc;
-  tasm.GetCode(isolate(), &desc);
-  buffer->MakeExecutable();
-  auto f = GeneratedCode<uint64_t, uint64_t>::FromBuffer(isolate(),
-                                                         buffer->start());
-  for (unsigned int i=0; i < (sizeof(values) / sizeof(values[0])); i++) {
-    CHECK_EQ(values[i].expected, f.Call(values[i].input));
-  }
 }
 
 #undef __

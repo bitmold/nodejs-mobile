@@ -18,7 +18,7 @@ namespace v8 {
 
 namespace tracing {
 class TracedValue;
-}  // namespace tracing
+}
 
 namespace internal {
 
@@ -34,7 +34,6 @@ struct ICInfo {
   int script_offset;
   const char* script_name;
   int line_num;
-  int column_num;
   bool is_constructor;
   bool is_optimized;
   std::string state;

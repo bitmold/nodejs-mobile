@@ -4,7 +4,7 @@
 
 // Flags: --expose-wasm --allow-natives-syntax
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 let importingModuleBinary1 = (() => {
   var builder = new WasmModuleBuilder();

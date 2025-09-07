@@ -16,143 +16,114 @@ class RegExpStack;
 
 // Maintains a per-v8thread stack area that can be used by irregexp
 // implementation for its backtracking stack.
-class V8_NODISCARD RegExpStackScope final {
+// Since there is only one stack area, the Irregexp implementation is not
+// re-entrant. I.e., no regular expressions may be executed in the same thread
+// during a preempted Irregexp execution.
+class RegExpStackScope {
  public:
   // Create and delete an instance to control the life-time of a growing stack.
 
   // Initializes the stack memory area if necessary.
   explicit RegExpStackScope(Isolate* isolate);
   ~RegExpStackScope();  // Releases the stack if it has grown.
-  RegExpStackScope(const RegExpStackScope&) = delete;
-  RegExpStackScope& operator=(const RegExpStackScope&) = delete;
 
   RegExpStack* stack() const { return regexp_stack_; }
 
  private:
-  RegExpStack* const regexp_stack_;
-  const ptrdiff_t old_sp_top_delta_;
+  RegExpStack* regexp_stack_;
+
+  DISALLOW_COPY_AND_ASSIGN(RegExpStackScope);
 };
 
-class RegExpStack final {
+
+class RegExpStack {
  public:
-  RegExpStack();
-  ~RegExpStack();
-  RegExpStack(const RegExpStack&) = delete;
-  RegExpStack& operator=(const RegExpStack&) = delete;
+  // Number of allocated locations on the stack below the limit.
+  // No sequence of pushes must be longer that this without doing a stack-limit
+  // check.
+  static const int kStackLimitSlack = 32;
 
-  // Number of allocated locations on the stack below the limit. No sequence of
-  // pushes must be longer than this without doing a stack-limit check.
-  static constexpr int kStackLimitSlack = 32;
-
-  Address memory_top() const {
+  // Gives the top of the memory used as stack.
+  Address stack_base() {
     DCHECK_NE(0, thread_local_.memory_size_);
-    DCHECK_EQ(thread_local_.memory_top_,
-              thread_local_.memory_ + thread_local_.memory_size_);
-    return reinterpret_cast<Address>(thread_local_.memory_top_);
+    return reinterpret_cast<Address>(thread_local_.memory_) +
+           thread_local_.memory_size_;
   }
 
-  Address stack_pointer() const {
-    return reinterpret_cast<Address>(thread_local_.stack_pointer_);
-  }
-
-  size_t memory_size() const { return thread_local_.memory_size_; }
+  // The total size of the memory allocated for the stack.
+  size_t stack_capacity() { return thread_local_.memory_size_; }
 
   // If the stack pointer gets below the limit, we should react and
   // either grow the stack or report an out-of-stack exception.
   // There is only a limited number of locations below the stack limit,
   // so users of the stack should check the stack limit during any
   // sequence of pushes longer that this.
-  Address* limit_address_address() { return &thread_local_.limit_; }
+  Address* limit_address() { return &(thread_local_.limit_); }
 
   // Ensures that there is a memory area with at least the specified size.
   // If passing zero, the default/minimum size buffer is allocated.
   Address EnsureCapacity(size_t size);
 
   // Thread local archiving.
-  static constexpr int ArchiveSpacePerThread() {
-    return static_cast<int>(kThreadLocalSize);
+  static int ArchiveSpacePerThread() {
+    return static_cast<int>(sizeof(ThreadLocal));
   }
   char* ArchiveStack(char* to);
   char* RestoreStack(char* from);
-  void FreeThreadResources() { thread_local_.ResetToStaticStack(this); }
-
-  // Maximal size of allocated stack area.
-  static constexpr size_t kMaximumStackSize = 64 * MB;
+  void FreeThreadResources() { thread_local_.Free(); }
 
  private:
-  // Artificial limit used when the thread-local state has been destroyed.
+  RegExpStack();
+  ~RegExpStack();
+
+  // Artificial limit used when no memory has been allocated.
   static const Address kMemoryTop =
       static_cast<Address>(static_cast<uintptr_t>(-1));
 
-  // Minimal size of dynamically-allocated stack area.
-  static constexpr size_t kMinimumDynamicStackSize = 1 * KB;
+  // Minimal size of allocated stack area.
+  static const size_t kMinimumStackSize = 1 * KB;
 
-  // In addition to dynamically-allocated, variable-sized stacks, we also have
-  // a statically allocated and sized area that is used whenever no dynamic
-  // stack is allocated. This guarantees that a stack is always available and
-  // we can skip availability-checks later on.
-  // It's double the slack size to ensure that we have a bit of breathing room
-  // before NativeRegExpMacroAssembler::GrowStack must be called.
-  static constexpr size_t kStaticStackSize =
-      2 * kStackLimitSlack * kSystemPointerSize;
-  byte static_stack_[kStaticStackSize] = {0};
+  // Maximal size of allocated stack area.
+  static const size_t kMaximumStackSize = 64 * MB;
 
-  STATIC_ASSERT(kStaticStackSize <= kMaximumStackSize);
-
-  // Structure holding the allocated memory, size and limit. Thread switching
-  // archives and restores this struct.
+  // Structure holding the allocated memory, size and limit.
   struct ThreadLocal {
-    explicit ThreadLocal(RegExpStack* regexp_stack) {
-      ResetToStaticStack(regexp_stack);
+    ThreadLocal() { Clear(); }
+    // If memory_size_ > 0 then memory_ must be non-nullptr.
+    byte* memory_;
+    size_t memory_size_;
+    Address limit_;
+    void Clear() {
+      memory_ = nullptr;
+      memory_size_ = 0;
+      limit_ = kMemoryTop;
     }
-
-    // If memory_size_ > 0 then
-    //  - memory_, memory_top_, stack_pointer_ must be non-nullptr
-    //  - memory_top_ = memory_ + memory_size_
-    //  - memory_ <= stack_pointer_ <= memory_top_
-    byte* memory_ = nullptr;
-    byte* memory_top_ = nullptr;
-    size_t memory_size_ = 0;
-    byte* stack_pointer_ = nullptr;
-    Address limit_ = kNullAddress;
-    bool owns_memory_ = false;  // Whether memory_ is owned and must be freed.
-
-    void ResetToStaticStack(RegExpStack* regexp_stack);
-    void ResetToStaticStackIfEmpty(RegExpStack* regexp_stack) {
-      if (stack_pointer_ == memory_top_) ResetToStaticStack(regexp_stack);
-    }
-    void FreeAndInvalidate();
+    void Free();
   };
-  static constexpr size_t kThreadLocalSize = sizeof(ThreadLocal);
 
-  Address memory_top_address_address() {
-    return reinterpret_cast<Address>(&thread_local_.memory_top_);
+  // Address of allocated memory.
+  Address memory_address() {
+    return reinterpret_cast<Address>(&thread_local_.memory_);
   }
 
-  Address stack_pointer_address() {
-    return reinterpret_cast<Address>(&thread_local_.stack_pointer_);
+  // Address of size of allocated memory.
+  Address memory_size_address() {
+    return reinterpret_cast<Address>(&thread_local_.memory_size_);
   }
 
-  // A position-independent representation of the stack pointer.
-  ptrdiff_t sp_top_delta() const {
-    ptrdiff_t result =
-        reinterpret_cast<intptr_t>(thread_local_.stack_pointer_) -
-        reinterpret_cast<intptr_t>(thread_local_.memory_top_);
-    DCHECK_LE(result, 0);
-    return result;
-  }
-
-  // Resets the buffer if it has grown beyond the default/minimum size and is
-  // empty.
-  void ResetIfEmpty() { thread_local_.ResetToStaticStackIfEmpty(this); }
-
-  // Whether the ThreadLocal storage has been invalidated.
-  bool IsValid() const { return thread_local_.memory_ != nullptr; }
+  // Resets the buffer if it has grown beyond the default/minimum size.
+  // After this, the buffer is either the default size, or it is empty, so
+  // you have to call EnsureCapacity before using it again.
+  void Reset();
 
   ThreadLocal thread_local_;
+  Isolate* isolate_;
 
   friend class ExternalReference;
+  friend class Isolate;
   friend class RegExpStackScope;
+
+  DISALLOW_COPY_AND_ASSIGN(RegExpStack);
 };
 
 }  // namespace internal

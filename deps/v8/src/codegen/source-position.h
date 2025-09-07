@@ -5,12 +5,12 @@
 #ifndef V8_CODEGEN_SOURCE_POSITION_H_
 #define V8_CODEGEN_SOURCE_POSITION_H_
 
-#include <iosfwd>
+#include <ostream>
 
-#include "src/base/bit-field.h"
 #include "src/common/globals.h"
 #include "src/flags/flags.h"
 #include "src/handles/handles.h"
+#include "src/utils/utils.h"
 
 namespace v8 {
 namespace internal {
@@ -84,7 +84,6 @@ class SourcePosition final {
   std::vector<SourcePositionInfo> InliningStack(Handle<Code> code) const;
   std::vector<SourcePositionInfo> InliningStack(
       OptimizedCompilationInfo* cinfo) const;
-  SourcePositionInfo FirstInfo(Handle<Code> code) const;
 
   void Print(std::ostream& out, Code code) const;
   void PrintJson(std::ostream& out) const;
@@ -143,18 +142,18 @@ class SourcePosition final {
 
   void Print(std::ostream& out, SharedFunctionInfo function) const;
 
-  using IsExternalField = base::BitField64<bool, 0, 1>;
+  using IsExternalField = BitField64<bool, 0, 1>;
 
   // The two below are only used if IsExternal() is true.
-  using ExternalLineField = base::BitField64<int, 1, 20>;
-  using ExternalFileIdField = base::BitField64<int, 21, 10>;
+  using ExternalLineField = BitField64<int, 1, 20>;
+  using ExternalFileIdField = BitField64<int, 21, 10>;
 
   // ScriptOffsetField is only used if IsExternal() is false.
-  using ScriptOffsetField = base::BitField64<int, 1, 30>;
+  using ScriptOffsetField = BitField64<int, 1, 30>;
 
   // InliningId is in the high bits for better compression in
   // SourcePositionTable.
-  using InliningIdField = base::BitField64<int, 31, 16>;
+  using InliningIdField = BitField64<int, 31, 16>;
 
   // Leaving the highest bit untouched to allow for signed conversion.
   uint64_t value_;

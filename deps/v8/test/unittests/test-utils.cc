@@ -5,7 +5,7 @@
 #include "test/unittests/test-utils.h"
 
 #include "include/libplatform/libplatform.h"
-#include "include/v8-isolate.h"
+#include "include/v8.h"
 #include "src/api/api-inl.h"
 #include "src/base/platform/time.h"
 #include "src/execution/isolate.h"
@@ -15,60 +15,56 @@
 
 namespace v8 {
 
-namespace {
-// counter_lookup_callback doesn't pass through any state information about
-// the current Isolate, so we have to store the current counter map somewhere.
-// Fortunately tests run serially, so we can just store it in a static global.
-CounterMap* kCurrentCounterMap = nullptr;
-}  // namespace
-
-IsolateWrapper::IsolateWrapper(CountersMode counters_mode)
+IsolateWrapper::IsolateWrapper(CounterLookupCallback counter_lookup_callback,
+                               bool enforce_pointer_compression)
     : array_buffer_allocator_(
           v8::ArrayBuffer::Allocator::NewDefaultAllocator()) {
-  CHECK_NULL(kCurrentCounterMap);
-
   v8::Isolate::CreateParams create_params;
-  create_params.array_buffer_allocator = array_buffer_allocator_.get();
-
-  if (counters_mode == kEnableCounters) {
-    counter_map_ = std::make_unique<CounterMap>();
-    kCurrentCounterMap = counter_map_.get();
-
-    create_params.counter_lookup_callback = [](const char* name) {
-      CHECK_NOT_NULL(kCurrentCounterMap);
-      // If the name doesn't exist in the counter map, operator[] will default
-      // initialize it to zero.
-      return &(*kCurrentCounterMap)[name];
-    };
+  create_params.array_buffer_allocator = array_buffer_allocator_;
+  create_params.counter_lookup_callback = counter_lookup_callback;
+  if (enforce_pointer_compression) {
+    isolate_ = reinterpret_cast<v8::Isolate*>(
+        i::Isolate::New(i::IsolateAllocationMode::kInV8Heap));
+    v8::Isolate::Initialize(isolate_, create_params);
   } else {
-    create_params.counter_lookup_callback = [](const char* name) -> int* {
-      return nullptr;
-    };
+    isolate_ = v8::Isolate::New(create_params);
   }
-
-  isolate_ = v8::Isolate::New(create_params);
-  CHECK_NOT_NULL(isolate());
+  CHECK_NOT_NULL(isolate_);
 }
 
 IsolateWrapper::~IsolateWrapper() {
   v8::Platform* platform = internal::V8::GetCurrentPlatform();
   CHECK_NOT_NULL(platform);
-  while (platform::PumpMessageLoop(platform, isolate())) continue;
+  while (platform::PumpMessageLoop(platform, isolate_)) continue;
   isolate_->Dispose();
-  if (counter_map_) {
-    CHECK_EQ(kCurrentCounterMap, counter_map_.get());
-    kCurrentCounterMap = nullptr;
-  } else {
-    CHECK_NULL(kCurrentCounterMap);
-  }
+  delete array_buffer_allocator_;
 }
+
+// static
+v8::IsolateWrapper* SharedIsolateHolder::isolate_wrapper_ = nullptr;
+
+// static
+int* SharedIsolateAndCountersHolder::LookupCounter(const char* name) {
+  DCHECK_NOT_NULL(counter_map_);
+  auto map_entry = counter_map_->find(name);
+  if (map_entry == counter_map_->end()) {
+    counter_map_->emplace(name, 0);
+  }
+  return &counter_map_->at(name);
+}
+
+// static
+v8::IsolateWrapper* SharedIsolateAndCountersHolder::isolate_wrapper_ = nullptr;
+
+// static
+CounterMap* SharedIsolateAndCountersHolder::counter_map_ = nullptr;
 
 namespace internal {
 
 SaveFlags::SaveFlags() {
   // For each flag, save the current flag value.
 #define FLAG_MODE_APPLY(ftype, ctype, nam, def, cmt) SAVED_##nam = FLAG_##nam;
-#include "src/flags/flag-definitions.h"
+#include "src/flags/flag-definitions.h"  // NOLINT
 #undef FLAG_MODE_APPLY
 }
 
@@ -81,24 +77,6 @@ SaveFlags::~SaveFlags() {
   }
 #include "src/flags/flag-definitions.h"  // NOLINT
 #undef FLAG_MODE_APPLY
-}
-
-ManualGCScope::ManualGCScope(i::Isolate* isolate) {
-  // Some tests run threaded (back-to-back) and thus the GC may already be
-  // running by the time a ManualGCScope is created. Finalizing existing marking
-  // prevents any undefined/unexpected behavior.
-  if (isolate && isolate->heap()->incremental_marking()->IsMarking()) {
-    isolate->heap()->CollectGarbage(i::OLD_SPACE,
-                                    i::GarbageCollectionReason::kTesting);
-  }
-
-  i::FLAG_concurrent_marking = false;
-  i::FLAG_concurrent_sweeping = false;
-  i::FLAG_stress_incremental_marking = false;
-  i::FLAG_stress_concurrent_allocation = false;
-  // Parallel marking has a dependency on concurrent marking.
-  i::FLAG_parallel_marking = false;
-  i::FLAG_detect_ineffective_gcs_near_heap_limit = false;
 }
 
 }  // namespace internal

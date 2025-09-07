@@ -34,26 +34,22 @@ TEST_IMPL(dlerror) {
   lib.errmsg = NULL;
   lib.handle = NULL;
   msg = uv_dlerror(&lib);
-  ASSERT_NOT_NULL(msg);
-  ASSERT_NOT_NULL(strstr(msg, dlerror_no_error));
+  ASSERT(msg != NULL);
+  ASSERT(strstr(msg, dlerror_no_error) != NULL);
 
   r = uv_dlopen(path, &lib);
   ASSERT(r == -1);
 
   msg = uv_dlerror(&lib);
-  ASSERT_NOT_NULL(msg);
-#if !defined(__OpenBSD__) && !defined(__QNX__)
-  ASSERT_NOT_NULL(strstr(msg, path));
-#endif
-  ASSERT_NULL(strstr(msg, dlerror_no_error));
+  ASSERT(msg != NULL);
+  ASSERT(strstr(msg, path) != NULL);
+  ASSERT(strstr(msg, dlerror_no_error) == NULL);
 
   /* Should return the same error twice in a row. */
   msg = uv_dlerror(&lib);
-  ASSERT_NOT_NULL(msg);
-#if !defined(__OpenBSD__) && !defined(__QNX__)
-  ASSERT_NOT_NULL(strstr(msg, path));
-#endif
-  ASSERT_NULL(strstr(msg, dlerror_no_error));
+  ASSERT(msg != NULL);
+  ASSERT(strstr(msg, path) != NULL);
+  ASSERT(strstr(msg, dlerror_no_error) == NULL);
 
   uv_dlclose(&lib);
 

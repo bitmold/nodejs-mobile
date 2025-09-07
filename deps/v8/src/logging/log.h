@@ -5,27 +5,23 @@
 #ifndef V8_LOGGING_LOG_H_
 #define V8_LOGGING_LOG_H_
 
-#include <atomic>
-#include <memory>
 #include <set>
 #include <string>
 
-#include "include/v8-callbacks.h"
 #include "include/v8-profiler.h"
 #include "src/base/platform/elapsed-timer.h"
-#include "src/execution/isolate.h"
 #include "src/logging/code-events.h"
 #include "src/objects/objects.h"
 
 namespace v8 {
 
+struct TickSample;
+
 namespace sampler {
 class Sampler;
-}  // namespace sampler
+}
 
 namespace internal {
-
-struct TickSample;
 
 // Logger is used for collecting logging information from V8 during
 // execution. The result is dumped to a file.
@@ -37,7 +33,7 @@ struct TickSample;
 //
 // --log-all
 // Log all events to the file, default is off.  This is the same as combining
-// --log-api and --log-code.
+// --log-api, --log-code, and --log-regexp.
 //
 // --log-api
 // Log API events to the logfile, default is off.  --log-api implies --log.
@@ -45,6 +41,10 @@ struct TickSample;
 // --log-code
 // Log code (create, move, and delete) events to the logfile, default is off.
 // --log-code implies --log.
+//
+// --log-regexp
+// Log creation and use of regular expressions, Default is off.
+// --log-regexp implies --log.
 //
 // --logfile <filename>
 // Specify the name of the logfile, default is "v8.log".
@@ -66,18 +66,18 @@ class LowLevelLogger;
 class PerfBasicLogger;
 class PerfJitLogger;
 class Profiler;
-class SourcePosition;
 class Ticker;
 
 #undef LOG
-#define LOG(isolate, Call)                                 \
-  do {                                                     \
-    if (v8::internal::FLAG_log) (isolate)->logger()->Call; \
+#define LOG(isolate, Call)                              \
+  do {                                                  \
+    v8::internal::Logger* logger = (isolate)->logger(); \
+    if (logger->is_logging()) logger->Call;             \
   } while (false)
 
 #define LOG_CODE_EVENT(isolate, Call)                        \
   do {                                                       \
-    auto&& logger = (isolate)->logger();                     \
+    v8::internal::Logger* logger = (isolate)->logger();      \
     if (logger->is_listening_to_code_events()) logger->Call; \
   } while (false)
 
@@ -88,13 +88,12 @@ class ExistingCodeLogger {
       : isolate_(isolate), listener_(listener) {}
 
   void LogCodeObjects();
-  void LogBuiltins();
 
   void LogCompiledFunctions();
   void LogExistingFunction(Handle<SharedFunctionInfo> shared,
                            Handle<AbstractCode> code,
                            CodeEventListener::LogEventsAndTags tag =
-                               CodeEventListener::FUNCTION_TAG);
+                               CodeEventListener::LAZY_COMPILE_TAG);
   void LogCodeObject(Object object);
 
  private:
@@ -106,6 +105,8 @@ enum class LogSeparator;
 
 class Logger : public CodeEventListener {
  public:
+  enum StartEnd { START = 0, END = 1, STAMP = 2 };
+
   enum class ScriptEventType {
     kReserveId,
     kCreate,
@@ -114,30 +115,23 @@ class Logger : public CodeEventListener {
     kStreamingCompile
   };
 
-  explicit Logger(Isolate* isolate);
-  ~Logger() override;
-
   // The separator is used to write an unescaped "," into the log.
   static const LogSeparator kNext;
 
   // Acquires resources for logging if the right flags are set.
   bool SetUp(Isolate* isolate);
 
-  // Additional steps taken after the logger has been set up.
-  void LateSetup(Isolate* isolate);
-
-  // Frees resources acquired in SetUp.
-  // When a temporary file is used for the log, returns its stream descriptor,
-  // leaving the file open.
-  V8_EXPORT_PRIVATE FILE* TearDownAndGetLogFile();
-
   // Sets the current code event handler.
   void SetCodeEventHandler(uint32_t options, JitCodeEventHandler event_handler);
 
   sampler::Sampler* sampler();
-  V8_EXPORT_PRIVATE std::string file_name() const;
 
   V8_EXPORT_PRIVATE void StopProfilerThread();
+
+  // Frees resources acquired in SetUp.
+  // When a temporary file is used for the log, returns its stream descriptor,
+  // leaving the file open.
+  V8_EXPORT_PRIVATE FILE* TearDown();
 
   // Emits an event with a string value -> (name, value).
   V8_EXPORT_PRIVATE void StringEvent(const char* name, const char* value);
@@ -145,9 +139,22 @@ class Logger : public CodeEventListener {
   // Emits an event with an int value -> (name, value).
   void IntPtrTEvent(const char* name, intptr_t value);
 
+  // Emits an event with an handle value -> (name, location).
+  void HandleEvent(const char* name, Address* location);
+
   // Emits memory management events for C allocated structures.
   void NewEvent(const char* name, void* object, size_t size);
   void DeleteEvent(const char* name, void* object);
+
+  // Emits an event with a tag, and some resource usage information.
+  // -> (name, tag, <rusage information>).
+  // Currently, the resource usage information is a process time stamp
+  // and a real time timestamp.
+  void ResourceEvent(const char* name, const char* tag);
+
+  // Emits an event that an undefined property was read from an
+  // object.
+  void SuspectReadEvent(Name name, Object obj);
 
   // ==== Events logged by --log-function-events ====
   void FunctionEvent(const char* reason, int script_id, double time_delta_ms,
@@ -156,111 +163,88 @@ class Logger : public CodeEventListener {
   void FunctionEvent(const char* reason, int script_id, double time_delta_ms,
                      int start_position, int end_position,
                      const char* function_name = nullptr,
-                     size_t function_name_length = 0, bool is_one_byte = true);
+                     size_t function_name_length = 0);
 
   void CompilationCacheEvent(const char* action, const char* cache_type,
                              SharedFunctionInfo sfi);
   void ScriptEvent(ScriptEventType type, int script_id);
   void ScriptDetails(Script script);
 
+  // ==== Events logged by --log-api. ====
+  void ApiSecurityCheck();
+  void ApiNamedPropertyAccess(const char* tag, JSObject holder, Object name);
+  void ApiIndexedPropertyAccess(const char* tag, JSObject holder,
+                                uint32_t index);
+  void ApiObjectAccess(const char* tag, JSObject obj);
+  void ApiEntryCall(const char* name);
+
   // ==== Events logged by --log-code. ====
   V8_EXPORT_PRIVATE void AddCodeEventListener(CodeEventListener* listener);
   V8_EXPORT_PRIVATE void RemoveCodeEventListener(CodeEventListener* listener);
 
-  // CodeEventListener implementation.
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       const char* name) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<Name> name) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<SharedFunctionInfo> shared,
-                       Handle<Name> script_name) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<SharedFunctionInfo> shared,
-                       Handle<Name> script_name, int line, int column) override;
-#if V8_ENABLE_WEBASSEMBLY
-  void CodeCreateEvent(LogEventsAndTags tag, const wasm::WasmCode* code,
-                       wasm::WasmName name, const char* source_url,
-                       int code_offset, int script_id) override;
-#endif  // V8_ENABLE_WEBASSEMBLY
-
-  void CallbackEvent(Handle<Name> name, Address entry_point) override;
-  void GetterCallbackEvent(Handle<Name> name, Address entry_point) override;
-  void SetterCallbackEvent(Handle<Name> name, Address entry_point) override;
-  void RegExpCodeCreateEvent(Handle<AbstractCode> code,
-                             Handle<String> source) override;
-  void CodeMoveEvent(AbstractCode from, AbstractCode to) override;
-  void SharedFunctionInfoMoveEvent(Address from, Address to) override;
-  void NativeContextMoveEvent(Address from, Address to) override {}
+  // Emits a code event for a callback function.
+  void CallbackEvent(Name name, Address entry_point) override;
+  void GetterCallbackEvent(Name name, Address entry_point) override;
+  void SetterCallbackEvent(Name name, Address entry_point) override;
+  // Emits a code create event.
+  void CodeCreateEvent(CodeEventListener::LogEventsAndTags tag,
+                       AbstractCode code, const char* source) override;
+  void CodeCreateEvent(CodeEventListener::LogEventsAndTags tag,
+                       AbstractCode code, Name name) override;
+  void CodeCreateEvent(CodeEventListener::LogEventsAndTags tag,
+                       AbstractCode code, SharedFunctionInfo shared,
+                       Name name) override;
+  void CodeCreateEvent(CodeEventListener::LogEventsAndTags tag,
+                       AbstractCode code, SharedFunctionInfo shared,
+                       Name source, int line, int column) override;
+  void CodeCreateEvent(CodeEventListener::LogEventsAndTags tag,
+                       const wasm::WasmCode* code,
+                       wasm::WasmName name) override;
+  // Emits a code deoptimization event.
+  void CodeDisableOptEvent(AbstractCode code,
+                           SharedFunctionInfo shared) override;
   void CodeMovingGCEvent() override;
-  void CodeDisableOptEvent(Handle<AbstractCode> code,
-                           Handle<SharedFunctionInfo> shared) override;
-  void CodeDeoptEvent(Handle<Code> code, DeoptimizeKind kind, Address pc,
-                      int fp_to_sp_delta) override;
-  void CodeDependencyChangeEvent(Handle<Code> code,
-                                 Handle<SharedFunctionInfo> sfi,
-                                 const char* reason) override;
-  void FeedbackVectorEvent(FeedbackVector vector, AbstractCode code);
-  void WeakCodeClearEvent() override {}
-
-  void ProcessDeoptEvent(Handle<Code> code, SourcePosition position,
-                         const char* kind, const char* reason);
-
+  // Emits a code create event for a RegExp.
+  void RegExpCodeCreateEvent(AbstractCode code, String source) override;
+  // Emits a code move event.
+  void CodeMoveEvent(AbstractCode from, AbstractCode to) override;
   // Emits a code line info record event.
   void CodeLinePosInfoRecordEvent(Address code_start,
-                                  ByteArray source_position_table,
-                                  JitCodeEvent::CodeType code_type);
-#if V8_ENABLE_WEBASSEMBLY
-  void WasmCodeLinePosInfoRecordEvent(
-      Address code_start, base::Vector<const byte> source_position_table);
-#endif  // V8_ENABLE_WEBASSEMBLY
+                                  ByteArray source_position_table);
+  void CodeLinePosInfoRecordEvent(Address code_start,
+                                  Vector<const byte> source_position_table);
+
+  void SharedFunctionInfoMoveEvent(Address from, Address to) override;
 
   void CodeNameEvent(Address addr, int pos, const char* code_name);
 
-  void ICEvent(const char* type, bool keyed, Handle<Map> map,
-               Handle<Object> key, char old_state, char new_state,
-               const char* modifier, const char* slow_stub_reason);
+  void CodeDeoptEvent(Code code, DeoptimizeKind kind, Address pc,
+                      int fp_to_sp_delta) override;
 
-  void MapEvent(const char* type, Handle<Map> from, Handle<Map> to,
+  void ICEvent(const char* type, bool keyed, Map map, Object key,
+               char old_state, char new_state, const char* modifier,
+               const char* slow_stub_reason);
+
+  void MapEvent(const char* type, Map from, Map to,
                 const char* reason = nullptr,
-                Handle<HeapObject> name_or_sfi = Handle<HeapObject>());
+                HeapObject name_or_sfi = HeapObject());
   void MapCreate(Map map);
   void MapDetails(Map map);
 
   void SharedLibraryEvent(const std::string& library_path, uintptr_t start,
                           uintptr_t end, intptr_t aslr_slide);
-  void SharedLibraryEnd();
 
   void CurrentTimeEvent();
 
-  V8_EXPORT_PRIVATE void TimerEvent(v8::LogEventStatus se, const char* name);
-
-  void BasicBlockCounterEvent(const char* name, int block_id, uint32_t count);
-
-  void BuiltinHashEvent(const char* name, int hash);
+  V8_EXPORT_PRIVATE void TimerEvent(StartEnd se, const char* name);
 
   static void EnterExternal(Isolate* isolate);
   static void LeaveExternal(Isolate* isolate);
 
   static void DefaultEventLoggerSentinel(const char* name, int event) {}
 
-  V8_INLINE static void CallEventLoggerInternal(Isolate* isolate,
-                                                const char* name,
-                                                v8::LogEventStatus se,
-                                                bool expose_to_api) {
-    if (isolate->event_logger() == DefaultEventLoggerSentinel) {
-      LOG(isolate, TimerEvent(se, name));
-    } else if (expose_to_api) {
-      isolate->event_logger()(name, static_cast<v8::LogEventStatus>(se));
-    }
-  }
-
   V8_INLINE static void CallEventLogger(Isolate* isolate, const char* name,
-                                        v8::LogEventStatus se,
-                                        bool expose_to_api) {
-    if (!isolate->event_logger()) return;
-    CallEventLoggerInternal(isolate, name, se, expose_to_api);
-  }
+                                        StartEnd se, bool expose_to_api);
 
   V8_EXPORT_PRIVATE bool is_logging();
 
@@ -276,7 +260,6 @@ class Logger : public CodeEventListener {
   V8_EXPORT_PRIVATE void LogAccessorCallbacks();
   // Used for logging stubs found in the snapshot.
   V8_EXPORT_PRIVATE void LogCodeObjects();
-  V8_EXPORT_PRIVATE void LogBuiltins();
   // Logs all Maps found on the heap.
   void LogAllMaps();
 
@@ -284,14 +267,18 @@ class Logger : public CodeEventListener {
   V8_INLINE static CodeEventListener::LogEventsAndTags ToNativeByScript(
       CodeEventListener::LogEventsAndTags, Script);
 
+  // Used for logging stubs found in the snapshot.
+  void LogCodeObject(Object code_object);
+
  private:
-  void UpdateIsLogging(bool value);
+  explicit Logger(Isolate* isolate);
+  ~Logger() override;
 
   // Emits the profiler's first message.
   void ProfilerBeginEvent();
 
   // Emits callback event messages.
-  void CallbackEventInternal(const char* prefix, Handle<Name> name,
+  void CallbackEventInternal(const char* prefix, Name name,
                              Address entry_point);
 
   // Internal configurable move event.
@@ -308,23 +295,12 @@ class Logger : public CodeEventListener {
   // Logs a StringEvent regardless of whether FLAG_log is true.
   void UncheckedStringEvent(const char* name, const char* value);
 
+  // Logs an IntPtrTEvent regardless of whether FLAG_log is true.
+  void UncheckedIntPtrTEvent(const char* name, intptr_t value);
+
   // Logs a scripts sources. Keeps track of all logged scripts to ensure that
   // each script is logged only once.
   bool EnsureLogScriptSource(Script script);
-
-  void LogSourceCodeInformation(Handle<AbstractCode> code,
-                                Handle<SharedFunctionInfo> shared);
-  void LogCodeDisassemble(Handle<AbstractCode> code);
-
-  void WriteApiSecurityCheck();
-  void WriteApiNamedPropertyAccess(const char* tag, JSObject holder,
-                                   Object name);
-  void WriteApiIndexedPropertyAccess(const char* tag, JSObject holder,
-                                     uint32_t index);
-  void WriteApiObjectAccess(const char* tag, JSReceiver obj);
-  void WriteApiEntryCall(const char* name);
-
-  int64_t Time();
 
   Isolate* isolate_;
 
@@ -336,23 +312,25 @@ class Logger : public CodeEventListener {
   // of samples.
   std::unique_ptr<Profiler> profiler_;
 
-  // Internal implementation classes with access to private members.
-  friend class Profiler;
+  // An array of log events names.
+  const char* const* log_events_;
 
-  std::atomic<bool> is_logging_;
-  std::unique_ptr<Log> log_;
-#if V8_OS_LINUX
+  // Internal implementation classes with access to
+  // private members.
+  friend class EventLog;
+  friend class Isolate;
+  friend class TimeLog;
+  friend class Profiler;
+  template <StateTag Tag>
+  friend class VMState;
+  friend class LoggerTestHelper;
+
+  bool is_logging_;
+  Log* log_;
   std::unique_ptr<PerfBasicLogger> perf_basic_logger_;
   std::unique_ptr<PerfJitLogger> perf_jit_logger_;
-#endif
   std::unique_ptr<LowLevelLogger> ll_logger_;
   std::unique_ptr<JitLogger> jit_logger_;
-#ifdef ENABLE_GDB_JIT_INTERFACE
-  std::unique_ptr<JitLogger> gdb_jit_logger_;
-#endif
-#if defined(V8_OS_WIN) && defined(V8_ENABLE_SYSTEM_INSTRUMENTATION)
-  std::unique_ptr<JitLogger> etw_jit_logger_;
-#endif
   std::set<int> logged_source_code_;
   uint32_t next_source_info_id_ = 0;
 
@@ -388,57 +366,44 @@ TIMER_EVENTS_LIST(V)
 #undef V
 
 template <class TimerEvent>
-class V8_NODISCARD TimerEventScope {
+class TimerEventScope {
  public:
   explicit TimerEventScope(Isolate* isolate) : isolate_(isolate) {
-    LogTimerEvent(v8::LogEventStatus::kStart);
+    LogTimerEvent(Logger::START);
   }
 
-  ~TimerEventScope() { LogTimerEvent(v8::LogEventStatus::kEnd); }
+  ~TimerEventScope() { LogTimerEvent(Logger::END); }
 
  private:
-  void LogTimerEvent(v8::LogEventStatus se);
+  void LogTimerEvent(Logger::StartEnd se);
   Isolate* isolate_;
 };
 
-// Abstract
 class V8_EXPORT_PRIVATE CodeEventLogger : public CodeEventListener {
  public:
   explicit CodeEventLogger(Isolate* isolate);
   ~CodeEventLogger() override;
 
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       const char* name) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<Name> name) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<SharedFunctionInfo> shared,
-                       Handle<Name> script_name) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<SharedFunctionInfo> shared,
-                       Handle<Name> script_name, int line, int column) override;
-#if V8_ENABLE_WEBASSEMBLY
+  void CodeCreateEvent(LogEventsAndTags tag, AbstractCode code,
+                       const char* comment) override;
+  void CodeCreateEvent(LogEventsAndTags tag, AbstractCode code,
+                       Name name) override;
+  void CodeCreateEvent(LogEventsAndTags tag, AbstractCode code,
+                       SharedFunctionInfo shared, Name name) override;
+  void CodeCreateEvent(LogEventsAndTags tag, AbstractCode code,
+                       SharedFunctionInfo shared, Name source, int line,
+                       int column) override;
   void CodeCreateEvent(LogEventsAndTags tag, const wasm::WasmCode* code,
-                       wasm::WasmName name, const char* source_url,
-                       int code_offset, int script_id) override;
-#endif  // V8_ENABLE_WEBASSEMBLY
+                       wasm::WasmName name) override;
 
-  void RegExpCodeCreateEvent(Handle<AbstractCode> code,
-                             Handle<String> source) override;
-  void CallbackEvent(Handle<Name> name, Address entry_point) override {}
-  void GetterCallbackEvent(Handle<Name> name, Address entry_point) override {}
-  void SetterCallbackEvent(Handle<Name> name, Address entry_point) override {}
+  void RegExpCodeCreateEvent(AbstractCode code, String source) override;
+  void CallbackEvent(Name name, Address entry_point) override {}
+  void GetterCallbackEvent(Name name, Address entry_point) override {}
+  void SetterCallbackEvent(Name name, Address entry_point) override {}
   void SharedFunctionInfoMoveEvent(Address from, Address to) override {}
-  void NativeContextMoveEvent(Address from, Address to) override {}
   void CodeMovingGCEvent() override {}
-  void CodeDeoptEvent(Handle<Code> code, DeoptimizeKind kind, Address pc,
+  void CodeDeoptEvent(Code code, DeoptimizeKind kind, Address pc,
                       int fp_to_sp_delta) override {}
-  void CodeDependencyChangeEvent(Handle<Code> code,
-                                 Handle<SharedFunctionInfo> sfi,
-                                 const char* reason) override {}
-  void WeakCodeClearEvent() override {}
-
-  bool is_listening_to_code_events() override { return true; }
 
  protected:
   Isolate* isolate_;
@@ -446,15 +411,12 @@ class V8_EXPORT_PRIVATE CodeEventLogger : public CodeEventListener {
  private:
   class NameBuffer;
 
-  virtual void LogRecordedBuffer(Handle<AbstractCode> code,
-                                 MaybeHandle<SharedFunctionInfo> maybe_shared,
+  virtual void LogRecordedBuffer(AbstractCode code, SharedFunctionInfo shared,
                                  const char* name, int length) = 0;
-#if V8_ENABLE_WEBASSEMBLY
   virtual void LogRecordedBuffer(const wasm::WasmCode* code, const char* name,
                                  int length) = 0;
-#endif  // V8_ENABLE_WEBASSEMBLY
 
-  std::unique_ptr<NameBuffer> name_buffer_;
+  NameBuffer* name_buffer_;
 };
 
 struct CodeEvent {
@@ -467,7 +429,6 @@ struct CodeEvent {
   int script_column;
   CodeEventType code_type;
   const char* comment;
-  uintptr_t previous_code_start_address;
 };
 
 class ExternalCodeEventListener : public CodeEventListener {
@@ -475,39 +436,29 @@ class ExternalCodeEventListener : public CodeEventListener {
   explicit ExternalCodeEventListener(Isolate* isolate);
   ~ExternalCodeEventListener() override;
 
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
+  void CodeCreateEvent(LogEventsAndTags tag, AbstractCode code,
                        const char* comment) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<Name> name) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<SharedFunctionInfo> shared,
-                       Handle<Name> name) override;
-  void CodeCreateEvent(LogEventsAndTags tag, Handle<AbstractCode> code,
-                       Handle<SharedFunctionInfo> shared, Handle<Name> source,
-                       int line, int column) override;
-#if V8_ENABLE_WEBASSEMBLY
+  void CodeCreateEvent(LogEventsAndTags tag, AbstractCode code,
+                       Name name) override;
+  void CodeCreateEvent(LogEventsAndTags tag, AbstractCode code,
+                       SharedFunctionInfo shared, Name name) override;
+  void CodeCreateEvent(LogEventsAndTags tag, AbstractCode code,
+                       SharedFunctionInfo shared, Name source, int line,
+                       int column) override;
   void CodeCreateEvent(LogEventsAndTags tag, const wasm::WasmCode* code,
-                       wasm::WasmName name, const char* source_url,
-                       int code_offset, int script_id) override;
-#endif  // V8_ENABLE_WEBASSEMBLY
+                       wasm::WasmName name) override;
 
-  void RegExpCodeCreateEvent(Handle<AbstractCode> code,
-                             Handle<String> source) override;
-  void CallbackEvent(Handle<Name> name, Address entry_point) override {}
-  void GetterCallbackEvent(Handle<Name> name, Address entry_point) override {}
-  void SetterCallbackEvent(Handle<Name> name, Address entry_point) override {}
+  void RegExpCodeCreateEvent(AbstractCode code, String source) override;
+  void CallbackEvent(Name name, Address entry_point) override {}
+  void GetterCallbackEvent(Name name, Address entry_point) override {}
+  void SetterCallbackEvent(Name name, Address entry_point) override {}
   void SharedFunctionInfoMoveEvent(Address from, Address to) override {}
-  void NativeContextMoveEvent(Address from, Address to) override {}
-  void CodeMoveEvent(AbstractCode from, AbstractCode to) override;
-  void CodeDisableOptEvent(Handle<AbstractCode> code,
-                           Handle<SharedFunctionInfo> shared) override {}
+  void CodeMoveEvent(AbstractCode from, AbstractCode to) override {}
+  void CodeDisableOptEvent(AbstractCode code,
+                           SharedFunctionInfo shared) override {}
   void CodeMovingGCEvent() override {}
-  void CodeDeoptEvent(Handle<Code> code, DeoptimizeKind kind, Address pc,
+  void CodeDeoptEvent(Code code, DeoptimizeKind kind, Address pc,
                       int fp_to_sp_delta) override {}
-  void CodeDependencyChangeEvent(Handle<Code> code,
-                                 Handle<SharedFunctionInfo> sfi,
-                                 const char* reason) override {}
-  void WeakCodeClearEvent() override {}
 
   void StartListening(v8::CodeEventHandler* code_event_handler);
   void StopListening();

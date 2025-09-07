@@ -6,7 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "src/objects/managed-inl.h"
+#include "src/objects/managed.h"
+
 #include "src/objects/objects-inl.h"
 #include "test/cctest/cctest.h"
 

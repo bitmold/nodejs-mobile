@@ -4,19 +4,15 @@
 
 // Flags: --allow-natives-syntax
 
-function h(y) {
-  return y.u;
-}
+function h(y) { return y.u; }
 
-function g() {
-  return h.apply(0, arguments);
-}
+function g() { return h.apply(0, arguments); }
 
 function f(x) {
-  var o = {u: x};
+  var o = { u : x };
   return g(o);
-};
-%PrepareFunctionForOptimization(f);
+}
+
 f(42);
 f(0.1);
 

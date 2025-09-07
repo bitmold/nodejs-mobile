@@ -17,28 +17,37 @@ namespace internal {
 class OrderedHashSet;
 class OrderedHashMap;
 
-#include "torque-generated/src/objects/js-collection-tq.inc"
-
-class JSCollection
-    : public TorqueGeneratedJSCollection<JSCollection, JSObject> {
+class JSCollection : public JSObject {
  public:
+  DECL_CAST(JSCollection)
+
+  // [table]: the backing hash table
+  DECL_ACCESSORS(table, Object)
+
+  // Layout description.
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                TORQUE_GENERATED_JSCOLLECTION_FIELDS)
+
   static const int kAddFunctionDescriptorIndex = 3;
 
-  TQ_OBJECT_CONSTRUCTORS(JSCollection)
+  OBJECT_CONSTRUCTORS(JSCollection, JSObject);
 };
 
 // The JSSet describes EcmaScript Harmony sets
-class JSSet : public TorqueGeneratedJSSet<JSSet, JSCollection> {
+class JSSet : public JSCollection {
  public:
+  DECL_CAST(JSSet)
+
   static void Initialize(Handle<JSSet> set, Isolate* isolate);
   static void Clear(Isolate* isolate, Handle<JSSet> set);
-  void Rehash(Isolate* isolate);
 
   // Dispatched behavior.
   DECL_PRINTER(JSSet)
   DECL_VERIFIER(JSSet)
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSCollection::kHeaderSize,
+                                TORQUE_GENERATED_JSWEAK_SET_FIELDS)
 
-  TQ_OBJECT_CONSTRUCTORS(JSSet)
+  OBJECT_CONSTRUCTORS(JSSet, JSCollection);
 };
 
 class JSSetIterator
@@ -55,17 +64,20 @@ class JSSetIterator
 };
 
 // The JSMap describes EcmaScript Harmony maps
-class JSMap : public TorqueGeneratedJSMap<JSMap, JSCollection> {
+class JSMap : public JSCollection {
  public:
+  DECL_CAST(JSMap)
+
   static void Initialize(Handle<JSMap> map, Isolate* isolate);
   static void Clear(Isolate* isolate, Handle<JSMap> map);
-  void Rehash(Isolate* isolate);
 
   // Dispatched behavior.
   DECL_PRINTER(JSMap)
   DECL_VERIFIER(JSMap)
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSCollection::kHeaderSize,
+                                TORQUE_GENERATED_JSWEAK_MAP_FIELDS)
 
-  TQ_OBJECT_CONSTRUCTORS(JSMap)
+  OBJECT_CONSTRUCTORS(JSMap, JSCollection);
 };
 
 class JSMapIterator
@@ -86,9 +98,13 @@ class JSMapIterator
 };
 
 // Base class for both JSWeakMap and JSWeakSet
-class JSWeakCollection
-    : public TorqueGeneratedJSWeakCollection<JSWeakCollection, JSObject> {
+class JSWeakCollection : public JSObject {
  public:
+  DECL_CAST(JSWeakCollection)
+
+  // [table]: the backing hash table mapping keys to values.
+  DECL_ACCESSORS(table, Object)
+
   static void Initialize(Handle<JSWeakCollection> collection, Isolate* isolate);
   V8_EXPORT_PRIVATE static void Set(Handle<JSWeakCollection> collection,
                                     Handle<Object> key, Handle<Object> value,
@@ -98,6 +114,9 @@ class JSWeakCollection
   static Handle<JSArray> GetEntries(Handle<JSWeakCollection> holder,
                                     int max_entries);
 
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSObject::kHeaderSize,
+                                TORQUE_GENERATED_JSWEAK_COLLECTION_FIELDS)
+
   static const int kAddFunctionDescriptorIndex = 3;
 
   // Iterates the function object according to the visiting policy.
@@ -106,31 +125,39 @@ class JSWeakCollection
   // Visit the whole object.
   using BodyDescriptor = BodyDescriptorImpl;
 
-  static const int kHeaderSizeOfAllWeakCollections = kHeaderSize;
+  static const int kSizeOfAllWeakCollections = kHeaderSize;
 
-  TQ_OBJECT_CONSTRUCTORS(JSWeakCollection)
+  OBJECT_CONSTRUCTORS(JSWeakCollection, JSObject);
 };
 
 // The JSWeakMap describes EcmaScript Harmony weak maps
-class JSWeakMap : public TorqueGeneratedJSWeakMap<JSWeakMap, JSWeakCollection> {
+class JSWeakMap : public JSWeakCollection {
  public:
+  DECL_CAST(JSWeakMap)
+
   // Dispatched behavior.
   DECL_PRINTER(JSWeakMap)
   DECL_VERIFIER(JSWeakMap)
 
-  STATIC_ASSERT(kHeaderSize == kHeaderSizeOfAllWeakCollections);
-  TQ_OBJECT_CONSTRUCTORS(JSWeakMap)
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSWeakCollection::kHeaderSize,
+                                TORQUE_GENERATED_JSWEAK_MAP_FIELDS)
+  STATIC_ASSERT(kSize == kSizeOfAllWeakCollections);
+  OBJECT_CONSTRUCTORS(JSWeakMap, JSWeakCollection);
 };
 
 // The JSWeakSet describes EcmaScript Harmony weak sets
-class JSWeakSet : public TorqueGeneratedJSWeakSet<JSWeakSet, JSWeakCollection> {
+class JSWeakSet : public JSWeakCollection {
  public:
+  DECL_CAST(JSWeakSet)
+
   // Dispatched behavior.
   DECL_PRINTER(JSWeakSet)
   DECL_VERIFIER(JSWeakSet)
+  DEFINE_FIELD_OFFSET_CONSTANTS(JSWeakCollection::kHeaderSize,
+                                TORQUE_GENERATED_JSWEAK_SET_FIELDS)
+  STATIC_ASSERT(kSize == kSizeOfAllWeakCollections);
 
-  STATIC_ASSERT(kHeaderSize == kHeaderSizeOfAllWeakCollections);
-  TQ_OBJECT_CONSTRUCTORS(JSWeakSet)
+  OBJECT_CONSTRUCTORS(JSWeakSet, JSWeakCollection);
 };
 
 }  // namespace internal

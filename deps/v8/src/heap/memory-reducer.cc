@@ -150,8 +150,7 @@ MemoryReducer::State MemoryReducer::Step(const State& state,
         return state;
       } else if (event.type == kMarkCompact) {
         if (event.committed_memory <
-            std::max(
-                static_cast<size_t>(state.committed_memory_at_last_run *
+            Max(static_cast<size_t>(state.committed_memory_at_last_run *
                                     kCommittedMemoryFactor),
                 state.committed_memory_at_last_run + kCommittedMemoryDelta)) {
           return state;
@@ -215,8 +214,9 @@ void MemoryReducer::ScheduleTimer(double delay_ms) {
   if (heap()->IsTearingDown()) return;
   // Leave some room for precision error in task scheduler.
   const double kSlackMs = 100;
-  taskrunner_->PostDelayedTask(std::make_unique<MemoryReducer::TimerTask>(this),
-                               (delay_ms + kSlackMs) / 1000.0);
+  taskrunner_->PostDelayedTask(
+      base::make_unique<MemoryReducer::TimerTask>(this),
+      (delay_ms + kSlackMs) / 1000.0);
 }
 
 void MemoryReducer::TearDown() { state_ = State(kDone, 0, 0, 0.0, 0); }

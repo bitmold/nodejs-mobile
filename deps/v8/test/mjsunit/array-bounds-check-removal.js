@@ -25,7 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --expose-gc --no-always-opt --opt
+// Flags: --allow-natives-syntax --expose-gc --no-always-opt
 
 var a = new Int32Array(1024);
 
@@ -45,7 +45,6 @@ function test_do_not_assert_on_non_int32(vector, base) {
   }
   return r;
 }
-%PrepareFunctionForOptimization(test_do_not_assert_on_non_int32);
 test_do_not_assert_on_non_int32(v,1);
 test_do_not_assert_on_non_int32(v,1);
 test_do_not_assert_on_non_int32(v,"a");
@@ -87,7 +86,7 @@ function check_test_base(a, base, condition) {
   }
 }
 
-%PrepareFunctionForOptimization(test_base);
+
 test_base(a, 1, true);
 test_base(a, 2, true);
 test_base(a, 1, false);
@@ -97,69 +96,27 @@ test_base(a, 3, true);
 check_test_base(a, 3, true);
 test_base(a, 3, false);
 check_test_base(a, 3, false);
-assertOptimized(test_base);
-
-function test_base_for_dictionary_map(a, base, condition) {
-  a[base + 1] = 1;
-  a[base + 4] = 2;
-  a[base + 3] = 3;
-  a[base + 2] = 4;
-  a[base + 4] = base + 4;
-  if (condition) {
-    a[base + 1] = 1;
-    a[base + 2] = 2;
-    a[base + 2] = 3;
-    a[base + 2] = 4;
-    a[base + 4] = base + 4;
-  } else {
-    a[base + 6] = 1;
-    a[base + 4] = 2;
-    a[base + 3] = 3;
-    a[base + 2] = 4;
-    a[base + 4] = base - 4;
-  }
-}
 
 // Test that we deopt on failed bounds checks.
 var dictionary_map_array = new Int32Array(128);
-test_base_for_dictionary_map(dictionary_map_array, 5, true);
-%PrepareFunctionForOptimization(test_base_for_dictionary_map);
-test_base_for_dictionary_map(dictionary_map_array, 6, true);
-test_base_for_dictionary_map(dictionary_map_array, 5, false);
-test_base_for_dictionary_map(dictionary_map_array, 6, false);
-%OptimizeFunctionOnNextCall(test_base_for_dictionary_map);
-test_base_for_dictionary_map(dictionary_map_array, -2, true);
-assertUnoptimized(test_base_for_dictionary_map);
+test_base(dictionary_map_array, 5, true);
+test_base(dictionary_map_array, 6, true);
+test_base(dictionary_map_array, 5, false);
+test_base(dictionary_map_array, 6, false);
+%OptimizeFunctionOnNextCall(test_base);
+test_base(dictionary_map_array, -2, true);
+assertUnoptimized(test_base);
 
-function test_base_for_oob(a, base, condition) {
-  a[base + 1] = 1;
-  a[base + 4] = 2;
-  a[base + 3] = 3;
-  a[base + 2] = 4;
-  a[base + 4] = base + 4;
-  if (condition) {
-    a[base + 1] = 1;
-    a[base + 2] = 2;
-    a[base + 2] = 3;
-    a[base + 2] = 4;
-    a[base + 4] = base + 4;
-  } else {
-    a[base + 6] = 1;
-    a[base + 4] = 2;
-    a[base + 3] = 3;
-    a[base + 2] = 4;
-    a[base + 4] = base - 4;
-  }
-}
+// Forget about the dictionary_map_array's map.
+%ClearFunctionFeedback(test_base);
 
-%PrepareFunctionForOptimization(test_base_for_oob);
-test_base_for_oob(a, 5, true);
-test_base_for_oob(a, 6, true);
-test_base_for_oob(a, 5, false);
-test_base_for_oob(a, 6, false);
-%OptimizeFunctionOnNextCall(test_base_for_oob);
-test_base_for_oob(a, 2048, true);
-assertUnoptimized(test_base_for_oob);
+test_base(a, 5, true);
+test_base(a, 6, true);
+test_base(a, 5, false);
+test_base(a, 6, false);
+%OptimizeFunctionOnNextCall(test_base);
+test_base(a, 2048, true);
+assertUnoptimized(test_base);
 
 function test_minus(base,cond) {
   a[base - 1] = 1;
@@ -196,7 +153,6 @@ function check_test_minus(base,cond) {
   }
 }
 
-%PrepareFunctionForOptimization(test_minus);
 test_minus(5,true);
 test_minus(6,true);
 %OptimizeFunctionOnNextCall(test_minus);
@@ -212,17 +168,12 @@ function short_test(a, i) {
   a[i + 9] = 0;
   a[i - 10] = 0;
 }
-%PrepareFunctionForOptimization(short_test);
 short_test(short_a, 50);
 short_test(short_a, 50);
 %OptimizeFunctionOnNextCall(short_test);
 short_a.length = 10;
 short_test(short_a, 0);
-// TODO(v8:11457) Currently, we cannot inline stores if there is a dictionary
-// mode prototype on the prototype chain. Therefore, if
-// v8_dict_property_const_tracking is enabled, the optimized code only contains
-// a call to the IC handler and doesn't get deopted.
-assertEquals(%IsDictPropertyConstTrackingEnabled(), isOptimized(short_test));
+assertUnoptimized(test_base);
 
 
 // A test for when we would modify a phi index.
@@ -239,7 +190,6 @@ function test_phi(a, base, check) {
   result += a[index - 1];
   return result;
 }
-%PrepareFunctionForOptimization(test_phi);
 var result_phi = 0;
 result_phi = test_phi(data_phi, 3,  true);
 assertEquals(12, result_phi);
@@ -268,7 +218,6 @@ function test_composition(a, base0, check) {
 
   return result;
 }
-%PrepareFunctionForOptimization(test_composition);
 var result_composition = 0;
 result_composition = test_composition(data_composition_long, 2);
 assertEquals(19, result_composition);

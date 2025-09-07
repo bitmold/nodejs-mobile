@@ -4,7 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-var o = {};
+var o = {}
 function bar() {
   o[0] = +o[0];
   o = /\u23a1|__v_4/;
@@ -12,9 +12,6 @@ function bar() {
 bar();
 bar();
 bar();
-function foo() {
-  bar();
-};
-%PrepareFunctionForOptimization(foo);
+function foo() { bar(); }
 %OptimizeFunctionOnNextCall(foo);
 foo();

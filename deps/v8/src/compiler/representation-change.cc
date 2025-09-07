@@ -7,13 +7,9 @@
 #include <sstream>
 
 #include "src/base/bits.h"
-#include "src/base/safe_conversions.h"
 #include "src/codegen/code-factory.h"
-#include "src/compiler/js-heap-broker.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-matchers.h"
-#include "src/compiler/simplified-lowering-verifier.h"
-#include "src/compiler/simplified-operator.h"
 #include "src/compiler/type-cache.h"
 #include "src/heap/factory-inl.h"
 
@@ -29,14 +25,12 @@ const char* Truncation::description() const {
       return "truncate-to-bool";
     case TruncationKind::kWord32:
       return "truncate-to-word32";
-    case TruncationKind::kWord64:
-      return "truncate-to-word64";
-    case TruncationKind::kOddballAndBigIntToNumber:
+    case TruncationKind::kFloat64:
       switch (identify_zeros()) {
         case kIdentifyZeros:
-          return "truncate-oddball&bigint-to-number (identify zeros)";
+          return "truncate-to-float64 (identify zeros)";
         case kDistinguishZeros:
-          return "truncate-oddball&bigint-to-number (distinguish zeros)";
+          return "truncate-to-float64 (distinguish zeros)";
       }
     case TruncationKind::kAny:
       switch (identify_zeros()) {
@@ -51,25 +45,22 @@ const char* Truncation::description() const {
 
 // Partial order for truncations:
 //
-//               kAny <-------+
-//                 ^          |
-//                 |          |
-//  kOddballAndBigIntToNumber |
-//               ^            |
-//               /            |
-//        kWord64             |
-//             ^              |
-//             |              |
-//        kWord32           kBool
-//              ^            ^
-//              \            /
-//               \          /
-//                \        /
-//                 \      /
-//                  \    /
-//                  kNone
+//          kAny <-------+
+//            ^          |
+//            |          |
+//          kFloat64     |
+//          ^            |
+//          /            |
+//   kWord32           kBool
+//         ^            ^
+//         \            /
+//          \          /
+//           \        /
+//            \      /
+//             \    /
+//             kNone
 //
-// TODO(jarin) We might consider making kBool < kOddballAndBigIntToNumber.
+// TODO(jarin) We might consider making kBool < kFloat64.
 
 // static
 Truncation::TruncationKind Truncation::Generalize(TruncationKind rep1,
@@ -77,9 +68,9 @@ Truncation::TruncationKind Truncation::Generalize(TruncationKind rep1,
   if (LessGeneral(rep1, rep2)) return rep2;
   if (LessGeneral(rep2, rep1)) return rep1;
   // Handle the generalization of float64-representable values.
-  if (LessGeneral(rep1, TruncationKind::kOddballAndBigIntToNumber) &&
-      LessGeneral(rep2, TruncationKind::kOddballAndBigIntToNumber)) {
-    return TruncationKind::kOddballAndBigIntToNumber;
+  if (LessGeneral(rep1, TruncationKind::kFloat64) &&
+      LessGeneral(rep2, TruncationKind::kFloat64)) {
+    return TruncationKind::kFloat64;
   }
   // Handle the generalization of any-representable values.
   if (LessGeneral(rep1, TruncationKind::kAny) &&
@@ -88,6 +79,7 @@ Truncation::TruncationKind Truncation::Generalize(TruncationKind rep1,
   }
   // All other combinations are illegal.
   FATAL("Tried to combine incompatible truncations");
+  return TruncationKind::kNone;
 }
 
 // static
@@ -109,16 +101,9 @@ bool Truncation::LessGeneral(TruncationKind rep1, TruncationKind rep2) {
       return rep2 == TruncationKind::kBool || rep2 == TruncationKind::kAny;
     case TruncationKind::kWord32:
       return rep2 == TruncationKind::kWord32 ||
-             rep2 == TruncationKind::kWord64 ||
-             rep2 == TruncationKind::kOddballAndBigIntToNumber ||
-             rep2 == TruncationKind::kAny;
-    case TruncationKind::kWord64:
-      return rep2 == TruncationKind::kWord64 ||
-             rep2 == TruncationKind::kOddballAndBigIntToNumber ||
-             rep2 == TruncationKind::kAny;
-    case TruncationKind::kOddballAndBigIntToNumber:
-      return rep2 == TruncationKind::kOddballAndBigIntToNumber ||
-             rep2 == TruncationKind::kAny;
+             rep2 == TruncationKind::kFloat64 || rep2 == TruncationKind::kAny;
+    case TruncationKind::kFloat64:
+      return rep2 == TruncationKind::kFloat64 || rep2 == TruncationKind::kAny;
     case TruncationKind::kAny:
       return rep2 == TruncationKind::kAny;
   }
@@ -140,18 +125,15 @@ bool IsWord(MachineRepresentation rep) {
 
 }  // namespace
 
-RepresentationChanger::RepresentationChanger(
-    JSGraph* jsgraph, JSHeapBroker* broker,
-    SimplifiedLoweringVerifier* verifier)
+RepresentationChanger::RepresentationChanger(JSGraph* jsgraph, Isolate* isolate)
     : cache_(TypeCache::Get()),
       jsgraph_(jsgraph),
-      broker_(broker),
-      verifier_(verifier),
+      isolate_(isolate),
       testing_type_errors_(false),
       type_error_(false) {}
 
 // Changes representation from {output_rep} to {use_rep}. The {truncation}
-// parameter is only used for checking - if the changer cannot figure
+// parameter is only used for sanity checking - if the changer cannot figure
 // out signedness for the word32->float64 conversion, then we check that the
 // uses truncate to word32 (so they do not care about signedness).
 Node* RepresentationChanger::GetRepresentationFor(
@@ -163,28 +145,9 @@ Node* RepresentationChanger::GetRepresentationFor(
     return TypeError(node, output_rep, output_type, use_info.representation());
   }
 
-  // Rematerialize any truncated BigInt if user is not expecting a BigInt.
-  if (output_type.Is(Type::BigInt()) &&
-      output_rep == MachineRepresentation::kWord64 &&
-      use_info.type_check() != TypeCheckKind::kBigInt) {
-    if (output_type.Is(Type::UnsignedBigInt64())) {
-      node = InsertConversion(node, simplified()->ChangeUint64ToBigInt(),
-                              use_node);
-    } else {
-      node =
-          InsertConversion(node, simplified()->ChangeInt64ToBigInt(), use_node);
-    }
-    output_rep = MachineRepresentation::kTaggedPointer;
-  }
-
   // Handle the no-op shortcuts when no checking is necessary.
   if (use_info.type_check() == TypeCheckKind::kNone ||
-      // TODO(nicohartmann@, chromium:1077804): Ignoring {use_info.type_check()}
-      // in case the representation already matches is not correct. For now,
-      // this behavior is disabled only for TypeCheckKind::kBigInt, but should
-      // be fixed for all other type checks.
-      (output_rep != MachineRepresentation::kWord32 &&
-       use_info.type_check() != TypeCheckKind::kBigInt)) {
+      output_rep != MachineRepresentation::kWord32) {
     if (use_info.representation() == output_rep) {
       // Representations are the same. That's a no-op.
       return node;
@@ -206,23 +169,32 @@ Node* RepresentationChanger::GetRepresentationFor(
                                               use_node, use_info);
     case MachineRepresentation::kTaggedPointer:
       DCHECK(use_info.type_check() == TypeCheckKind::kNone ||
-             use_info.type_check() == TypeCheckKind::kHeapObject ||
-             use_info.type_check() == TypeCheckKind::kBigInt);
+             use_info.type_check() == TypeCheckKind::kHeapObject);
       return GetTaggedPointerRepresentationFor(node, output_rep, output_type,
                                                use_node, use_info);
     case MachineRepresentation::kTagged:
       DCHECK_EQ(TypeCheckKind::kNone, use_info.type_check());
       return GetTaggedRepresentationFor(node, output_rep, output_type,
                                         use_info.truncation());
+    case MachineRepresentation::kCompressedSigned:
+      DCHECK(use_info.type_check() == TypeCheckKind::kNone ||
+             use_info.type_check() == TypeCheckKind::kSignedSmall);
+      return GetCompressedSignedRepresentationFor(node, output_rep, output_type,
+                                                  use_node, use_info);
+    case MachineRepresentation::kCompressedPointer:
+      DCHECK(use_info.type_check() == TypeCheckKind::kNone ||
+             use_info.type_check() == TypeCheckKind::kHeapObject);
+      return GetCompressedPointerRepresentationFor(
+          node, output_rep, output_type, use_node, use_info);
+    case MachineRepresentation::kCompressed:
+      DCHECK_EQ(TypeCheckKind::kNone, use_info.type_check());
+      return GetCompressedRepresentationFor(node, output_rep, output_type,
+                                            use_info.truncation());
     case MachineRepresentation::kFloat32:
       DCHECK_EQ(TypeCheckKind::kNone, use_info.type_check());
       return GetFloat32RepresentationFor(node, output_rep, output_type,
                                          use_info.truncation());
     case MachineRepresentation::kFloat64:
-      DCHECK(use_info.type_check() == TypeCheckKind::kNone ||
-             use_info.type_check() == TypeCheckKind::kNumber ||
-             use_info.type_check() == TypeCheckKind::kNumberOrBoolean ||
-             use_info.type_check() == TypeCheckKind::kNumberOrOddball);
       return GetFloat64RepresentationFor(node, output_rep, output_type,
                                          use_node, use_info);
     case MachineRepresentation::kBit:
@@ -235,19 +207,12 @@ Node* RepresentationChanger::GetRepresentationFor(
                                         use_info);
     case MachineRepresentation::kWord64:
       DCHECK(use_info.type_check() == TypeCheckKind::kNone ||
-             use_info.type_check() == TypeCheckKind::kSigned64 ||
-             use_info.type_check() == TypeCheckKind::kBigInt ||
-             use_info.type_check() == TypeCheckKind::kArrayIndex);
+             use_info.type_check() == TypeCheckKind::kSigned64);
       return GetWord64RepresentationFor(node, output_rep, output_type, use_node,
                                         use_info);
     case MachineRepresentation::kSimd128:
     case MachineRepresentation::kNone:
       return node;
-    case MachineRepresentation::kCompressed:
-    case MachineRepresentation::kCompressedPointer:
-    case MachineRepresentation::kSandboxedPointer:
-    case MachineRepresentation::kMapWord:
-      UNREACHABLE();
   }
   UNREACHABLE();
 }
@@ -335,12 +300,12 @@ Node* RepresentationChanger::GetTaggedSignedRepresentationFor(
       node = InsertChangeFloat64ToUint32(node);
       op = simplified()->CheckedUint32ToTaggedSigned(use_info.feedback());
     } else if (use_info.type_check() == TypeCheckKind::kSignedSmall) {
-      node = InsertCheckedFloat64ToInt32(
-          node,
+      op = simplified()->CheckedFloat64ToInt32(
           output_type.Maybe(Type::MinusZero())
               ? CheckForMinusZeroMode::kCheckForMinusZero
               : CheckForMinusZeroMode::kDontCheckForMinusZero,
-          use_info.feedback(), use_node);
+          use_info.feedback());
+      node = InsertConversion(node, op, use_node);
       if (SmiValuesAre32Bits()) {
         op = simplified()->ChangeInt32ToTagged();
       } else {
@@ -352,13 +317,14 @@ Node* RepresentationChanger::GetTaggedSignedRepresentationFor(
     }
   } else if (output_rep == MachineRepresentation::kFloat32) {
     if (use_info.type_check() == TypeCheckKind::kSignedSmall) {
-      node = InsertChangeFloat32ToFloat64(node);
-      node = InsertCheckedFloat64ToInt32(
-          node,
+      op = machine()->ChangeFloat32ToFloat64();
+      node = InsertConversion(node, op, use_node);
+      op = simplified()->CheckedFloat64ToInt32(
           output_type.Maybe(Type::MinusZero())
               ? CheckForMinusZeroMode::kCheckForMinusZero
               : CheckForMinusZeroMode::kDontCheckForMinusZero,
-          use_info.feedback(), use_node);
+          use_info.feedback());
+      node = InsertConversion(node, op, use_node);
       if (SmiValuesAre32Bits()) {
         op = simplified()->ChangeInt32ToTagged();
       } else {
@@ -387,6 +353,17 @@ Node* RepresentationChanger::GetTaggedSignedRepresentationFor(
       return TypeError(node, output_rep, output_type,
                        MachineRepresentation::kTaggedSigned);
     }
+  } else if (output_rep == MachineRepresentation::kCompressedSigned) {
+    op = machine()->ChangeCompressedSignedToTaggedSigned();
+  } else if (CanBeCompressedPointer(output_rep)) {
+    if (use_info.type_check() == TypeCheckKind::kSignedSmall) {
+      op = simplified()->CheckedCompressedToTaggedSigned(use_info.feedback());
+    } else if (output_type.Is(Type::SignedSmall())) {
+      op = simplified()->ChangeCompressedToTaggedSigned();
+    } else {
+      return TypeError(node, output_rep, output_type,
+                       MachineRepresentation::kTaggedSigned);
+    }
   } else {
     return TypeError(node, output_rep, output_type,
                      MachineRepresentation::kTaggedSigned);
@@ -401,7 +378,6 @@ Node* RepresentationChanger::GetTaggedPointerRepresentationFor(
   switch (node->opcode()) {
     case IrOpcode::kHeapConstant:
     case IrOpcode::kDelayedStringConstant:
-      if (use_info.type_check() == TypeCheckKind::kBigInt) break;
       return node;  // No change necessary.
     case IrOpcode::kInt32Constant:
     case IrOpcode::kFloat64Constant:
@@ -417,22 +393,7 @@ Node* RepresentationChanger::GetTaggedPointerRepresentationFor(
     return jsgraph()->graph()->NewNode(
         jsgraph()->common()->DeadValue(MachineRepresentation::kTaggedPointer),
         node);
-  }
-
-  if (use_info.type_check() == TypeCheckKind::kBigInt &&
-      !output_type.Is(Type::BigInt())) {
-    // BigInt checks can only be performed on tagged representations. Note that
-    // a corresponding check is inserted down below.
-    if (!CanBeTaggedPointer(output_rep)) {
-      Node* unreachable =
-          InsertUnconditionalDeopt(use_node, DeoptimizeReason::kNotABigInt);
-      return jsgraph()->graph()->NewNode(
-          jsgraph()->common()->DeadValue(MachineRepresentation::kTaggedPointer),
-          unreachable);
-    }
-  }
-
-  if (output_rep == MachineRepresentation::kBit) {
+  } else if (output_rep == MachineRepresentation::kBit) {
     if (output_type.Is(Type::Boolean())) {
       op = simplified()->ChangeBitToTagged();
     } else {
@@ -457,12 +418,6 @@ Node* RepresentationChanger::GetTaggedPointerRepresentationFor(
       op = machine()->ChangeInt64ToFloat64();
       node = jsgraph()->graph()->NewNode(op, node);
       op = simplified()->ChangeFloat64ToTaggedPointer();
-    } else if (output_type.Is(Type::SignedBigInt64()) &&
-               use_info.type_check() == TypeCheckKind::kBigInt) {
-      op = simplified()->ChangeInt64ToBigInt();
-    } else if (output_type.Is(Type::UnsignedBigInt64()) &&
-               use_info.type_check() == TypeCheckKind::kBigInt) {
-      op = simplified()->ChangeUint64ToBigInt();
     } else {
       return TypeError(node, output_rep, output_type,
                        MachineRepresentation::kTaggedPointer);
@@ -492,13 +447,16 @@ Node* RepresentationChanger::GetTaggedPointerRepresentationFor(
     // TODO(turbofan): Consider adding a Bailout operator that just deopts
     // for TaggedSigned output representation.
     op = simplified()->CheckedTaggedToTaggedPointer(use_info.feedback());
-  } else if (IsAnyTagged(output_rep) &&
-             (use_info.type_check() == TypeCheckKind::kBigInt ||
-              output_type.Is(Type::BigInt()))) {
-    if (output_type.Is(Type::BigInt())) {
-      return node;
+  } else if (output_rep == MachineRepresentation::kCompressedPointer) {
+    op = machine()->ChangeCompressedPointerToTaggedPointer();
+  } else if (CanBeCompressedSigned(output_rep) &&
+             use_info.type_check() == TypeCheckKind::kHeapObject) {
+    if (!output_type.Maybe(Type::SignedSmall())) {
+      op = machine()->ChangeCompressedPointerToTaggedPointer();
     }
-    op = simplified()->CheckBigInt(use_info.feedback());
+    // TODO(turbofan): Consider adding a Bailout operator that just deopts
+    // for CompressedSigned output representation.
+    op = simplified()->CheckedCompressedToTaggedPointer(use_info.feedback());
   } else {
     return TypeError(node, output_rep, output_type,
                      MachineRepresentation::kTaggedPointer);
@@ -523,8 +481,7 @@ Node* RepresentationChanger::GetTaggedRepresentationFor(
       break;
   }
   if (output_rep == MachineRepresentation::kTaggedSigned ||
-      output_rep == MachineRepresentation::kTaggedPointer ||
-      output_rep == MachineRepresentation::kMapWord) {
+      output_rep == MachineRepresentation::kTaggedPointer) {
     // this is a no-op.
     return node;
   }
@@ -578,12 +535,6 @@ Node* RepresentationChanger::GetTaggedRepresentationFor(
     } else if (output_type.Is(cache_->kSafeInteger)) {
       // int64 -> tagged
       op = simplified()->ChangeInt64ToTagged();
-    } else if (output_type.Is(Type::SignedBigInt64())) {
-      // int64 -> BigInt
-      op = simplified()->ChangeInt64ToBigInt();
-    } else if (output_type.Is(Type::UnsignedBigInt64())) {
-      // uint64 -> BigInt
-      op = simplified()->ChangeUint64ToBigInt();
     } else {
       return TypeError(node, output_rep, output_type,
                        MachineRepresentation::kTagged);
@@ -609,7 +560,7 @@ Node* RepresentationChanger::GetTaggedRepresentationFor(
       op = simplified()->ChangeUint32ToTagged();
     } else if (output_type.Is(Type::Number()) ||
                (output_type.Is(Type::NumberOrOddball()) &&
-                truncation.TruncatesOddballAndBigIntToNumber())) {
+                truncation.IsUsedAsFloat64())) {
       op = simplified()->ChangeFloat64ToTagged(
           output_type.Maybe(Type::MinusZero())
               ? CheckForMinusZeroMode::kCheckForMinusZero
@@ -618,9 +569,155 @@ Node* RepresentationChanger::GetTaggedRepresentationFor(
       return TypeError(node, output_rep, output_type,
                        MachineRepresentation::kTagged);
     }
+  } else if (IsAnyCompressed(output_rep)) {
+    op = machine()->ChangeCompressedToTagged();
   } else {
     return TypeError(node, output_rep, output_type,
                      MachineRepresentation::kTagged);
+  }
+  return jsgraph()->graph()->NewNode(op, node);
+}
+
+Node* RepresentationChanger::GetCompressedSignedRepresentationFor(
+    Node* node, MachineRepresentation output_rep, Type output_type,
+    Node* use_node, UseInfo use_info) {
+  // Select the correct X -> Compressed operator.
+  const Operator* op;
+  if (output_type.Is(Type::None())) {
+    // This is an impossible value; it should not be used at runtime.
+    return jsgraph()->graph()->NewNode(
+        jsgraph()->common()->DeadValue(
+            MachineRepresentation::kCompressedSigned),
+        node);
+  } else if (output_rep == MachineRepresentation::kTaggedSigned) {
+    op = machine()->ChangeTaggedSignedToCompressedSigned();
+  } else if (CanBeTaggedPointer(output_rep)) {
+    if (use_info.type_check() == TypeCheckKind::kSignedSmall) {
+      op = simplified()->CheckedTaggedToCompressedSigned(use_info.feedback());
+    } else if (output_type.Is(Type::SignedSmall())) {
+      op = simplified()->ChangeTaggedToCompressedSigned();
+    } else {
+      return TypeError(node, output_rep, output_type,
+                       MachineRepresentation::kTaggedSigned);
+    }
+  } else if (output_rep == MachineRepresentation::kBit) {
+    // TODO(v8:8977): specialize here and below
+    node = GetTaggedSignedRepresentationFor(node, output_rep, output_type,
+                                            use_node, use_info);
+    op = machine()->ChangeTaggedSignedToCompressedSigned();
+  } else if (IsWord(output_rep)) {
+    node = GetTaggedSignedRepresentationFor(node, output_rep, output_type,
+                                            use_node, use_info);
+    op = machine()->ChangeTaggedSignedToCompressedSigned();
+  } else if (output_rep == MachineRepresentation::kWord64) {
+    node = GetTaggedSignedRepresentationFor(node, output_rep, output_type,
+                                            use_node, use_info);
+    op = machine()->ChangeTaggedSignedToCompressedSigned();
+  } else if (output_rep == MachineRepresentation::kFloat32) {
+    node = GetTaggedSignedRepresentationFor(node, output_rep, output_type,
+                                            use_node, use_info);
+    op = machine()->ChangeTaggedSignedToCompressedSigned();
+  } else if (output_rep == MachineRepresentation::kFloat64) {
+    node = GetTaggedSignedRepresentationFor(node, output_rep, output_type,
+                                            use_node, use_info);
+    op = machine()->ChangeTaggedSignedToCompressedSigned();
+  } else {
+    return TypeError(node, output_rep, output_type,
+                     MachineRepresentation::kCompressedSigned);
+  }
+  return InsertConversion(node, op, use_node);
+}
+
+Node* RepresentationChanger::GetCompressedPointerRepresentationFor(
+    Node* node, MachineRepresentation output_rep, Type output_type,
+    Node* use_node, UseInfo use_info) {
+  // Select the correct X -> CompressedPointer operator.
+  Operator const* op;
+  if (output_type.Is(Type::None())) {
+    // This is an impossible value; it should not be used at runtime.
+    return jsgraph()->graph()->NewNode(
+        jsgraph()->common()->DeadValue(
+            MachineRepresentation::kCompressedPointer),
+        node);
+  } else if (output_rep == MachineRepresentation::kTaggedPointer) {
+    op = machine()->ChangeTaggedPointerToCompressedPointer();
+  } else if (CanBeTaggedSigned(output_rep) &&
+             use_info.type_check() == TypeCheckKind::kHeapObject) {
+    if (!output_type.Maybe(Type::SignedSmall())) {
+      op = machine()->ChangeTaggedPointerToCompressedPointer();
+    }
+    // TODO(turbofan): Consider adding a Bailout operator that just deopts
+    // for TaggedSigned output representation.
+    op = simplified()->CheckedTaggedToCompressedPointer(use_info.feedback());
+  } else if (output_rep == MachineRepresentation::kBit) {
+    // TODO(v8:8977): specialize here and below
+    node = GetTaggedPointerRepresentationFor(node, output_rep, output_type,
+                                             use_node, use_info);
+    op = machine()->ChangeTaggedPointerToCompressedPointer();
+  } else if (IsWord(output_rep)) {
+    node = GetTaggedPointerRepresentationFor(node, output_rep, output_type,
+                                             use_node, use_info);
+    op = machine()->ChangeTaggedPointerToCompressedPointer();
+  } else if (output_rep == MachineRepresentation::kWord64) {
+    node = GetTaggedPointerRepresentationFor(node, output_rep, output_type,
+                                             use_node, use_info);
+    op = machine()->ChangeTaggedPointerToCompressedPointer();
+  } else if (output_rep == MachineRepresentation::kFloat32) {
+    node = GetTaggedPointerRepresentationFor(node, output_rep, output_type,
+                                             use_node, use_info);
+    op = machine()->ChangeTaggedPointerToCompressedPointer();
+  } else if (output_rep == MachineRepresentation::kFloat64) {
+    node = GetTaggedPointerRepresentationFor(node, output_rep, output_type,
+                                             use_node, use_info);
+    op = machine()->ChangeTaggedPointerToCompressedPointer();
+  } else {
+    return TypeError(node, output_rep, output_type,
+                     MachineRepresentation::kCompressedPointer);
+  }
+  return InsertConversion(node, op, use_node);
+}
+
+Node* RepresentationChanger::GetCompressedRepresentationFor(
+    Node* node, MachineRepresentation output_rep, Type output_type,
+    Truncation truncation) {
+  if (output_rep == MachineRepresentation::kCompressedSigned ||
+      output_rep == MachineRepresentation::kCompressedPointer) {
+    // this is a no-op.
+    return node;
+  }
+  // Select the correct X -> Compressed operator.
+  const Operator* op;
+  if (output_type.Is(Type::None())) {
+    // This is an impossible value; it should not be used at runtime.
+    return jsgraph()->graph()->NewNode(
+        jsgraph()->common()->DeadValue(MachineRepresentation::kCompressed),
+        node);
+  } else if (output_rep == MachineRepresentation::kBit) {
+    // TODO(v8:8977): specialize here and below
+    node =
+        GetTaggedRepresentationFor(node, output_rep, output_type, truncation);
+    op = machine()->ChangeTaggedToCompressed();
+  } else if (IsWord(output_rep)) {
+    node =
+        GetTaggedRepresentationFor(node, output_rep, output_type, truncation);
+    op = machine()->ChangeTaggedToCompressed();
+  } else if (output_rep == MachineRepresentation::kWord64) {
+    node =
+        GetTaggedRepresentationFor(node, output_rep, output_type, truncation);
+    op = machine()->ChangeTaggedToCompressed();
+  } else if (output_rep == MachineRepresentation::kFloat32) {
+    node =
+        GetTaggedRepresentationFor(node, output_rep, output_type, truncation);
+    op = machine()->ChangeTaggedToCompressed();
+  } else if (output_rep == MachineRepresentation::kFloat64) {
+    node =
+        GetTaggedRepresentationFor(node, output_rep, output_type, truncation);
+    op = machine()->ChangeTaggedToCompressed();
+  } else if (IsAnyTagged(output_rep)) {
+    op = machine()->ChangeTaggedToCompressed();
+  } else {
+    return TypeError(node, output_rep, output_type,
+                     MachineRepresentation::kCompressed);
   }
   return jsgraph()->graph()->NewNode(op, node);
 }
@@ -673,6 +770,24 @@ Node* RepresentationChanger::GetFloat32RepresentationFor(
       node = jsgraph()->graph()->NewNode(op, node);
       op = machine()->TruncateFloat64ToFloat32();
     }
+  } else if (output_rep == MachineRepresentation::kCompressed) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedToTagged();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetFloat32RepresentationFor(node, MachineRepresentation::kTagged,
+                                       output_type, truncation);
+  } else if (output_rep == MachineRepresentation::kCompressedSigned) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedSignedToTaggedSigned();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetFloat32RepresentationFor(
+        node, MachineRepresentation::kTaggedSigned, output_type, truncation);
+  } else if (output_rep == MachineRepresentation::kCompressedPointer) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedPointerToTaggedPointer();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetFloat32RepresentationFor(
+        node, MachineRepresentation::kTaggedPointer, output_type, truncation);
   } else if (output_rep == MachineRepresentation::kFloat64) {
     op = machine()->TruncateFloat64ToFloat32();
   } else if (output_rep == MachineRepresentation::kWord64) {
@@ -694,21 +809,16 @@ Node* RepresentationChanger::GetFloat64RepresentationFor(
     Node* node, MachineRepresentation output_rep, Type output_type,
     Node* use_node, UseInfo use_info) {
   NumberMatcher m(node);
-  if (m.HasResolvedValue()) {
-    // BigInts are not used as number constants.
-    DCHECK(use_info.type_check() != TypeCheckKind::kBigInt);
+  if (m.HasValue()) {
     switch (use_info.type_check()) {
       case TypeCheckKind::kNone:
       case TypeCheckKind::kNumber:
-      case TypeCheckKind::kNumberOrBoolean:
       case TypeCheckKind::kNumberOrOddball:
-        return jsgraph()->Float64Constant(m.ResolvedValue());
-      case TypeCheckKind::kBigInt:
+        return jsgraph()->Float64Constant(m.Value());
       case TypeCheckKind::kHeapObject:
       case TypeCheckKind::kSigned32:
       case TypeCheckKind::kSigned64:
       case TypeCheckKind::kSignedSmall:
-      case TypeCheckKind::kArrayIndex:
         break;
     }
   }
@@ -733,8 +843,9 @@ Node* RepresentationChanger::GetFloat64RepresentationFor(
     }
   } else if (output_rep == MachineRepresentation::kBit) {
     CHECK(output_type.Is(Type::Boolean()));
-    if (use_info.truncation().TruncatesOddballAndBigIntToNumber() ||
-        use_info.type_check() == TypeCheckKind::kNumberOrBoolean ||
+    // TODO(tebbi): TypeCheckKind::kNumberOrOddball should imply Float64
+    // truncation, since this exactly means that we treat Oddballs as Numbers.
+    if (use_info.truncation().IsUsedAsFloat64() ||
         use_info.type_check() == TypeCheckKind::kNumberOrOddball) {
       op = machine()->ChangeUint32ToFloat64();
     } else {
@@ -747,53 +858,55 @@ Node* RepresentationChanger::GetFloat64RepresentationFor(
     }
   } else if (IsAnyTagged(output_rep)) {
     if (output_type.Is(Type::Undefined())) {
-      if (use_info.type_check() == TypeCheckKind::kNumberOrOddball ||
-          (use_info.type_check() == TypeCheckKind::kNone &&
-           use_info.truncation().TruncatesOddballAndBigIntToNumber())) {
-        return jsgraph()->Float64Constant(
-            std::numeric_limits<double>::quiet_NaN());
-      } else {
-        DCHECK(use_info.type_check() == TypeCheckKind::kNone ||
-               use_info.type_check() == TypeCheckKind::kNumber ||
-               use_info.type_check() == TypeCheckKind::kNumberOrBoolean);
-        Node* unreachable = InsertUnconditionalDeopt(
-            use_node, use_info.type_check() == TypeCheckKind::kNumber
-                          ? DeoptimizeReason::kNotANumber
-                          : DeoptimizeReason::kNotANumberOrBoolean);
-        return jsgraph()->graph()->NewNode(
-            jsgraph()->common()->DeadValue(MachineRepresentation::kFloat64),
-            unreachable);
-      }
+      return jsgraph()->Float64Constant(
+          std::numeric_limits<double>::quiet_NaN());
+
     } else if (output_rep == MachineRepresentation::kTaggedSigned) {
       node = InsertChangeTaggedSignedToInt32(node);
       op = machine()->ChangeInt32ToFloat64();
     } else if (output_type.Is(Type::Number())) {
       op = simplified()->ChangeTaggedToFloat64();
     } else if ((output_type.Is(Type::NumberOrOddball()) &&
-                use_info.truncation().TruncatesOddballAndBigIntToNumber()) ||
+                use_info.truncation().IsUsedAsFloat64()) ||
                output_type.Is(Type::NumberOrHole())) {
       // JavaScript 'null' is an Oddball that results in +0 when truncated to
       // Number. In a context like -0 == null, which must evaluate to false,
-      // this truncation must not happen. For this reason we restrict this
-      // case to when either the user explicitly requested a float (and thus
-      // wants +0 if null is the input) or we know from the types that the
-      // input can only be Number | Hole. The latter is necessary to handle
-      // the operator CheckFloat64Hole. We did not put in the type (Number |
-      // Oddball \ Null) to discover more bugs related to this conversion via
-      // crashes.
+      // this truncation must not happen. For this reason we restrict this case
+      // to when either the user explicitly requested a float (and thus wants
+      // +0 if null is the input) or we know from the types that the input can
+      // only be Number | Hole. The latter is necessary to handle the operator
+      // CheckFloat64Hole. We did not put in the type (Number | Oddball \ Null)
+      // to discover more bugs related to this conversion via crashes.
       op = simplified()->TruncateTaggedToFloat64();
     } else if (use_info.type_check() == TypeCheckKind::kNumber ||
                (use_info.type_check() == TypeCheckKind::kNumberOrOddball &&
                 !output_type.Maybe(Type::BooleanOrNullOrNumber()))) {
       op = simplified()->CheckedTaggedToFloat64(CheckTaggedInputMode::kNumber,
                                                 use_info.feedback());
-    } else if (use_info.type_check() == TypeCheckKind::kNumberOrBoolean) {
-      op = simplified()->CheckedTaggedToFloat64(
-          CheckTaggedInputMode::kNumberOrBoolean, use_info.feedback());
     } else if (use_info.type_check() == TypeCheckKind::kNumberOrOddball) {
       op = simplified()->CheckedTaggedToFloat64(
           CheckTaggedInputMode::kNumberOrOddball, use_info.feedback());
     }
+  } else if (output_rep == MachineRepresentation::kCompressed) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedToTagged();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetFloat64RepresentationFor(node, MachineRepresentation::kTagged,
+                                       output_type, use_node, use_info);
+  } else if (output_rep == MachineRepresentation::kCompressedSigned) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedSignedToTaggedSigned();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetFloat64RepresentationFor(node,
+                                       MachineRepresentation::kTaggedSigned,
+                                       output_type, use_node, use_info);
+  } else if (output_rep == MachineRepresentation::kCompressedPointer) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedPointerToTaggedPointer();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetFloat64RepresentationFor(node,
+                                       MachineRepresentation::kTaggedPointer,
+                                       output_type, use_node, use_info);
   } else if (output_rep == MachineRepresentation::kFloat32) {
     op = machine()->ChangeFloat32ToFloat64();
   } else if (output_rep == MachineRepresentation::kWord64) {
@@ -812,12 +925,12 @@ Node* RepresentationChanger::MakeTruncatedInt32Constant(double value) {
   return jsgraph()->Int32Constant(DoubleToInt32(value));
 }
 
-Node* RepresentationChanger::InsertUnconditionalDeopt(
-    Node* node, DeoptimizeReason reason, const FeedbackSource& feedback) {
+Node* RepresentationChanger::InsertUnconditionalDeopt(Node* node,
+                                                      DeoptimizeReason reason) {
   Node* effect = NodeProperties::GetEffectInput(node);
   Node* control = NodeProperties::GetControlInput(node);
   effect =
-      jsgraph()->graph()->NewNode(simplified()->CheckIf(reason, feedback),
+      jsgraph()->graph()->NewNode(simplified()->CheckIf(reason),
                                   jsgraph()->Int32Constant(0), effect, control);
   Node* unreachable = effect = jsgraph()->graph()->NewNode(
       jsgraph()->common()->Unreachable(), effect, control);
@@ -841,11 +954,9 @@ Node* RepresentationChanger::GetWord32RepresentationFor(
           ((use_info.type_check() == TypeCheckKind::kSignedSmall ||
             use_info.type_check() == TypeCheckKind::kSigned32 ||
             use_info.type_check() == TypeCheckKind::kNumber ||
-            use_info.type_check() == TypeCheckKind::kNumberOrOddball ||
-            use_info.type_check() == TypeCheckKind::kArrayIndex) &&
+            use_info.type_check() == TypeCheckKind::kNumberOrOddball) &&
            IsInt32Double(fv))) {
-        return InsertTypeOverrideForVerifier(NodeProperties::GetType(node),
-                                             MakeTruncatedInt32Constant(fv));
+        return MakeTruncatedInt32Constant(fv);
       }
       break;
     }
@@ -878,8 +989,7 @@ Node* RepresentationChanger::GetWord32RepresentationFor(
     if (output_type.Is(Type::Signed32())) {
       op = machine()->ChangeFloat64ToInt32();
     } else if (use_info.type_check() == TypeCheckKind::kSignedSmall ||
-               use_info.type_check() == TypeCheckKind::kSigned32 ||
-               use_info.type_check() == TypeCheckKind::kArrayIndex) {
+               use_info.type_check() == TypeCheckKind::kSigned32) {
       op = simplified()->CheckedFloat64ToInt32(
           output_type.Maybe(Type::MinusZero())
               ? use_info.minus_zero_check()
@@ -898,8 +1008,7 @@ Node* RepresentationChanger::GetWord32RepresentationFor(
     if (output_type.Is(Type::Signed32())) {
       op = machine()->ChangeFloat64ToInt32();
     } else if (use_info.type_check() == TypeCheckKind::kSignedSmall ||
-               use_info.type_check() == TypeCheckKind::kSigned32 ||
-               use_info.type_check() == TypeCheckKind::kArrayIndex) {
+               use_info.type_check() == TypeCheckKind::kSigned32) {
       op = simplified()->CheckedFloat64ToInt32(
           output_type.Maybe(Type::MinusZero())
               ? use_info.minus_zero_check()
@@ -927,8 +1036,6 @@ Node* RepresentationChanger::GetWord32RepresentationFor(
               ? use_info.minus_zero_check()
               : CheckForMinusZeroMode::kDontCheckForMinusZero,
           use_info.feedback());
-    } else if (use_info.type_check() == TypeCheckKind::kArrayIndex) {
-      op = simplified()->CheckedTaggedToArrayIndex(use_info.feedback());
     } else if (output_type.Is(Type::Unsigned32())) {
       op = simplified()->ChangeTaggedToUint32();
     } else if (use_info.truncation().IsUsedAsWord32()) {
@@ -948,18 +1055,37 @@ Node* RepresentationChanger::GetWord32RepresentationFor(
       return TypeError(node, output_rep, output_type,
                        MachineRepresentation::kWord32);
     }
+  } else if (output_rep == MachineRepresentation::kCompressed) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedToTagged();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetWord32RepresentationFor(node, MachineRepresentation::kTagged,
+                                      output_type, use_node, use_info);
+  } else if (output_rep == MachineRepresentation::kCompressedSigned) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedSignedToTaggedSigned();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetWord32RepresentationFor(node,
+                                      MachineRepresentation::kTaggedSigned,
+                                      output_type, use_node, use_info);
+  } else if (output_rep == MachineRepresentation::kCompressedPointer) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedPointerToTaggedPointer();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetWord32RepresentationFor(node,
+                                      MachineRepresentation::kTaggedPointer,
+                                      output_type, use_node, use_info);
   } else if (output_rep == MachineRepresentation::kWord32) {
     // Only the checked case should get here, the non-checked case is
     // handled in GetRepresentationFor.
     if (use_info.type_check() == TypeCheckKind::kSignedSmall ||
-        use_info.type_check() == TypeCheckKind::kSigned32 ||
-        use_info.type_check() == TypeCheckKind::kArrayIndex) {
-      bool identify_zeros = use_info.truncation().IdentifiesZeroAndMinusZero();
+        use_info.type_check() == TypeCheckKind::kSigned32) {
+      bool indentify_zeros = use_info.truncation().IdentifiesZeroAndMinusZero();
       if (output_type.Is(Type::Signed32()) ||
-          (identify_zeros && output_type.Is(Type::Signed32OrMinusZero()))) {
+          (indentify_zeros && output_type.Is(Type::Signed32OrMinusZero()))) {
         return node;
       } else if (output_type.Is(Type::Unsigned32()) ||
-                 (identify_zeros &&
+                 (indentify_zeros &&
                   output_type.Is(Type::Unsigned32OrMinusZero()))) {
         op = simplified()->CheckedUint32ToInt32(use_info.feedback());
       } else {
@@ -978,14 +1104,13 @@ Node* RepresentationChanger::GetWord32RepresentationFor(
     return node;
   } else if (output_rep == MachineRepresentation::kWord64) {
     if (output_type.Is(Type::Signed32()) ||
-        (output_type.Is(Type::Unsigned32()) &&
-         use_info.type_check() == TypeCheckKind::kNone) ||
-        (output_type.Is(cache_->kSafeInteger) &&
-         use_info.truncation().IsUsedAsWord32())) {
+        output_type.Is(Type::Unsigned32())) {
+      op = machine()->TruncateInt64ToInt32();
+    } else if (output_type.Is(cache_->kSafeInteger) &&
+               use_info.truncation().IsUsedAsWord32()) {
       op = machine()->TruncateInt64ToInt32();
     } else if (use_info.type_check() == TypeCheckKind::kSignedSmall ||
-               use_info.type_check() == TypeCheckKind::kSigned32 ||
-               use_info.type_check() == TypeCheckKind::kArrayIndex) {
+               use_info.type_check() == TypeCheckKind::kSigned32) {
       if (output_type.Is(cache_->kPositiveSafeInteger)) {
         op = simplified()->CheckedUint64ToInt32(use_info.feedback());
       } else if (output_type.Is(cache_->kSafeInteger)) {
@@ -1059,15 +1184,28 @@ Node* RepresentationChanger::GetBitRepresentationFor(
       }
     }
   } else if (output_rep == MachineRepresentation::kTaggedSigned) {
-    if (COMPRESS_POINTERS_BOOL) {
-      node = jsgraph()->graph()->NewNode(machine()->Word32Equal(), node,
-                                         jsgraph()->Int32Constant(0));
-    } else {
-      node = jsgraph()->graph()->NewNode(machine()->WordEqual(), node,
-                                         jsgraph()->IntPtrConstant(0));
-    }
+    node = jsgraph()->graph()->NewNode(machine()->WordEqual(), node,
+                                       jsgraph()->IntPtrConstant(0));
     return jsgraph()->graph()->NewNode(machine()->Word32Equal(), node,
                                        jsgraph()->Int32Constant(0));
+  } else if (output_rep == MachineRepresentation::kCompressed) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedToTagged();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetBitRepresentationFor(node, MachineRepresentation::kTagged,
+                                   output_type);
+  } else if (output_rep == MachineRepresentation::kCompressedSigned) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedSignedToTaggedSigned();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetBitRepresentationFor(node, MachineRepresentation::kTaggedSigned,
+                                   output_type);
+  } else if (output_rep == MachineRepresentation::kCompressedPointer) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedPointerToTaggedPointer();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetBitRepresentationFor(node, MachineRepresentation::kTaggedPointer,
+                                   output_type);
   } else if (IsWord(output_rep)) {
     node = jsgraph()->graph()->NewNode(machine()->Word32Equal(), node,
                                        jsgraph()->Int32Constant(0));
@@ -1104,44 +1242,18 @@ Node* RepresentationChanger::GetWord64RepresentationFor(
     case IrOpcode::kFloat64Constant:
       UNREACHABLE();
     case IrOpcode::kNumberConstant: {
-      if (use_info.type_check() != TypeCheckKind::kBigInt) {
-        double const fv = OpParameter<double>(node->op());
-        if (base::IsValueInRangeForNumericType<int64_t>(fv)) {
-          int64_t const iv = static_cast<int64_t>(fv);
-          if (static_cast<double>(iv) == fv) {
-            return InsertTypeOverrideForVerifier(NodeProperties::GetType(node),
-                                                 jsgraph()->Int64Constant(iv));
-          }
+      double const fv = OpParameter<double>(node->op());
+      using limits = std::numeric_limits<int64_t>;
+      if (fv <= limits::max() && fv >= limits::min()) {
+        int64_t const iv = static_cast<int64_t>(fv);
+        if (static_cast<double>(iv) == fv) {
+          return jsgraph()->Int64Constant(iv);
         }
-      }
-      break;
-    }
-    case IrOpcode::kHeapConstant: {
-      HeapObjectMatcher m(node);
-      if (m.HasResolvedValue() && m.Ref(broker_).IsBigInt() &&
-          use_info.truncation().IsUsedAsWord64()) {
-        BigIntRef bigint = m.Ref(broker_).AsBigInt();
-        return InsertTypeOverrideForVerifier(
-            NodeProperties::GetType(node),
-            jsgraph()->Int64Constant(static_cast<int64_t>(bigint.AsUint64())));
       }
       break;
     }
     default:
       break;
-  }
-
-  if (use_info.type_check() == TypeCheckKind::kBigInt) {
-    // BigInts are only represented as tagged pointer and word64.
-    if (!CanBeTaggedPointer(output_rep) &&
-        output_rep != MachineRepresentation::kWord64) {
-      DCHECK(!output_type.Equals(Type::BigInt()));
-      Node* unreachable = InsertUnconditionalDeopt(
-          use_node, DeoptimizeReason::kNotABigInt, use_info.feedback());
-      return jsgraph()->graph()->NewNode(
-          jsgraph()->common()->DeadValue(MachineRepresentation::kWord64),
-          unreachable);
-    }
   }
 
   // Select the correct X -> Word64 operator.
@@ -1154,38 +1266,30 @@ Node* RepresentationChanger::GetWord64RepresentationFor(
     CHECK(output_type.Is(Type::Boolean()));
     CHECK_NE(use_info.type_check(), TypeCheckKind::kNone);
     CHECK_NE(use_info.type_check(), TypeCheckKind::kNumberOrOddball);
-    CHECK_NE(use_info.type_check(), TypeCheckKind::kBigInt);
     Node* unreachable =
         InsertUnconditionalDeopt(use_node, DeoptimizeReason::kNotASmi);
     return jsgraph()->graph()->NewNode(
         jsgraph()->common()->DeadValue(MachineRepresentation::kWord64),
         unreachable);
   } else if (IsWord(output_rep)) {
-    if (output_type.Is(Type::Unsigned32OrMinusZero())) {
-      // uint32 -> uint64
-      CHECK_IMPLIES(output_type.Maybe(Type::MinusZero()),
-                    use_info.truncation().IdentifiesZeroAndMinusZero());
+    if (output_type.Is(Type::Unsigned32())) {
       op = machine()->ChangeUint32ToUint64();
-    } else if (output_type.Is(Type::Signed32OrMinusZero())) {
-      // int32 -> int64
-      CHECK_IMPLIES(output_type.Maybe(Type::MinusZero()),
-                    use_info.truncation().IdentifiesZeroAndMinusZero());
+    } else if (output_type.Is(Type::Signed32())) {
       op = machine()->ChangeInt32ToInt64();
     } else {
       return TypeError(node, output_rep, output_type,
                        MachineRepresentation::kWord64);
     }
   } else if (output_rep == MachineRepresentation::kFloat32) {
-    if (output_type.Is(cache_->kDoubleRepresentableInt64)) {
+    if (output_type.Is(cache_->kInt64)) {
       // float32 -> float64 -> int64
       node = InsertChangeFloat32ToFloat64(node);
       op = machine()->ChangeFloat64ToInt64();
-    } else if (output_type.Is(cache_->kDoubleRepresentableUint64)) {
+    } else if (output_type.Is(cache_->kUint64)) {
       // float32 -> float64 -> uint64
       node = InsertChangeFloat32ToFloat64(node);
       op = machine()->ChangeFloat64ToUint64();
-    } else if (use_info.type_check() == TypeCheckKind::kSigned64 ||
-               use_info.type_check() == TypeCheckKind::kArrayIndex) {
+    } else if (use_info.type_check() == TypeCheckKind::kSigned64) {
       // float32 -> float64 -> int64
       node = InsertChangeFloat32ToFloat64(node);
       op = simplified()->CheckedFloat64ToInt64(
@@ -1198,12 +1302,11 @@ Node* RepresentationChanger::GetWord64RepresentationFor(
                        MachineRepresentation::kWord64);
     }
   } else if (output_rep == MachineRepresentation::kFloat64) {
-    if (output_type.Is(cache_->kDoubleRepresentableInt64)) {
+    if (output_type.Is(cache_->kInt64)) {
       op = machine()->ChangeFloat64ToInt64();
-    } else if (output_type.Is(cache_->kDoubleRepresentableUint64)) {
+    } else if (output_type.Is(cache_->kUint64)) {
       op = machine()->ChangeFloat64ToUint64();
-    } else if (use_info.type_check() == TypeCheckKind::kSigned64 ||
-               use_info.type_check() == TypeCheckKind::kArrayIndex) {
+    } else if (use_info.type_check() == TypeCheckKind::kSigned64) {
       op = simplified()->CheckedFloat64ToInt64(
           output_type.Maybe(Type::MinusZero())
               ? use_info.minus_zero_check()
@@ -1220,15 +1323,8 @@ Node* RepresentationChanger::GetWord64RepresentationFor(
       return TypeError(node, output_rep, output_type,
                        MachineRepresentation::kWord64);
     }
-  } else if (IsAnyTagged(output_rep) &&
-             use_info.truncation().IsUsedAsWord64() &&
-             (use_info.type_check() == TypeCheckKind::kBigInt ||
-              output_type.Is(Type::BigInt()))) {
-    node = GetTaggedPointerRepresentationFor(node, output_rep, output_type,
-                                             use_node, use_info);
-    op = simplified()->TruncateBigIntToWord64();
   } else if (CanBeTaggedPointer(output_rep)) {
-    if (output_type.Is(cache_->kDoubleRepresentableInt64)) {
+    if (output_type.Is(cache_->kInt64)) {
       op = simplified()->ChangeTaggedToInt64();
     } else if (use_info.type_check() == TypeCheckKind::kSigned64) {
       op = simplified()->CheckedTaggedToInt64(
@@ -1236,30 +1332,30 @@ Node* RepresentationChanger::GetWord64RepresentationFor(
               ? use_info.minus_zero_check()
               : CheckForMinusZeroMode::kDontCheckForMinusZero,
           use_info.feedback());
-    } else if (use_info.type_check() == TypeCheckKind::kArrayIndex) {
-      op = simplified()->CheckedTaggedToArrayIndex(use_info.feedback());
     } else {
       return TypeError(node, output_rep, output_type,
                        MachineRepresentation::kWord64);
     }
-  } else if (output_rep == MachineRepresentation::kWord64) {
-    DCHECK_EQ(use_info.type_check(), TypeCheckKind::kBigInt);
-    if (output_type.Is(Type::BigInt())) {
-      return node;
-    } else {
-      Node* unreachable = InsertUnconditionalDeopt(
-          use_node, DeoptimizeReason::kNotABigInt, use_info.feedback());
-      return jsgraph()->graph()->NewNode(
-          jsgraph()->common()->DeadValue(MachineRepresentation::kWord64),
-          unreachable);
-    }
-  } else if (output_rep == MachineRepresentation::kSandboxedPointer) {
-    if (output_type.Is(Type::SandboxedPointer())) {
-      return node;
-    } else {
-      return TypeError(node, output_rep, output_type,
-                       MachineRepresentation::kWord64);
-    }
+  } else if (output_rep == MachineRepresentation::kCompressed) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedToTagged();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetWord64RepresentationFor(node, MachineRepresentation::kTagged,
+                                      output_type, use_node, use_info);
+  } else if (output_rep == MachineRepresentation::kCompressedSigned) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedSignedToTaggedSigned();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetWord64RepresentationFor(node,
+                                      MachineRepresentation::kTaggedSigned,
+                                      output_type, use_node, use_info);
+  } else if (output_rep == MachineRepresentation::kCompressedPointer) {
+    // TODO(v8:8977): Specialise here
+    op = machine()->ChangeCompressedPointerToTaggedPointer();
+    node = jsgraph()->graph()->NewNode(op, node);
+    return GetWord64RepresentationFor(node,
+                                      MachineRepresentation::kTaggedPointer,
+                                      output_type, use_node, use_info);
   } else {
     return TypeError(node, output_rep, output_type,
                      MachineRepresentation::kWord64);
@@ -1346,17 +1442,14 @@ const Operator* RepresentationChanger::TaggedSignedOperatorFor(
     IrOpcode::Value opcode) {
   switch (opcode) {
     case IrOpcode::kSpeculativeNumberLessThan:
-      return (COMPRESS_POINTERS_BOOL || machine()->Is32())
-                 ? machine()->Int32LessThan()
-                 : machine()->Int64LessThan();
+      return machine()->Is32() ? machine()->Int32LessThan()
+                               : machine()->Int64LessThan();
     case IrOpcode::kSpeculativeNumberLessThanOrEqual:
-      return (COMPRESS_POINTERS_BOOL || machine()->Is32())
-                 ? machine()->Int32LessThanOrEqual()
-                 : machine()->Int64LessThanOrEqual();
+      return machine()->Is32() ? machine()->Int32LessThanOrEqual()
+                               : machine()->Int64LessThanOrEqual();
     case IrOpcode::kSpeculativeNumberEqual:
-      return (COMPRESS_POINTERS_BOOL || machine()->Is32())
-                 ? machine()->Word32Equal()
-                 : machine()->Word64Equal();
+      return machine()->Is32() ? machine()->Word32Equal()
+                               : machine()->Word64Equal();
     default:
       UNREACHABLE();
   }
@@ -1481,7 +1574,6 @@ const Operator* RepresentationChanger::Float64OperatorFor(
       return machine()->Float64Max();
     case IrOpcode::kNumberMin:
       return machine()->Float64Min();
-    case IrOpcode::kSpeculativeNumberPow:
     case IrOpcode::kNumberPow:
       return machine()->Float64Pow();
     case IrOpcode::kNumberSin:
@@ -1563,26 +1655,6 @@ Node* RepresentationChanger::InsertChangeUint32ToFloat64(Node* node) {
 Node* RepresentationChanger::InsertTruncateInt64ToInt32(Node* node) {
   return jsgraph()->graph()->NewNode(machine()->TruncateInt64ToInt32(), node);
 }
-
-Node* RepresentationChanger::InsertCheckedFloat64ToInt32(
-    Node* node, CheckForMinusZeroMode check, const FeedbackSource& feedback,
-    Node* use_node) {
-  return InsertConversion(
-      node, simplified()->CheckedFloat64ToInt32(check, feedback), use_node);
-}
-
-Node* RepresentationChanger::InsertTypeOverrideForVerifier(const Type& type,
-                                                           Node* node) {
-  if (verification_enabled()) {
-    DCHECK(!type.IsInvalid());
-    node = jsgraph()->graph()->NewNode(
-        jsgraph()->common()->SLVerifierHint(nullptr, type), node);
-    verifier_->RecordHint(node);
-  }
-  return node;
-}
-
-Isolate* RepresentationChanger::isolate() const { return broker_->isolate(); }
 
 }  // namespace compiler
 }  // namespace internal

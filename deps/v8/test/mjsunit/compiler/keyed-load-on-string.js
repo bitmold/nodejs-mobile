@@ -8,17 +8,15 @@ var s = "hello";
 
 function foo() {
   return s[4];
-};
-%PrepareFunctionForOptimization(foo);
-assertTrue('o' === foo());
+}
+assertTrue("o" === foo());
 assertTrue("o" === foo());
 %OptimizeFunctionOnNextCall(foo);
 assertTrue("o" === foo());
 
 function bar() {
   return s[5];
-};
-%PrepareFunctionForOptimization(bar);
+}
 assertSame(undefined, bar());
 assertSame(undefined, bar());
 %OptimizeFunctionOnNextCall(bar);

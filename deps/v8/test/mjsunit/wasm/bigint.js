@@ -2,10 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+// Flags: --experimental-wasm-bigint
+
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 (function TestWasmI64ToJSBigInt() {
-  let builder = new WasmModuleBuilder();
+  var builder = new WasmModuleBuilder();
 
   builder
     .addFunction("fn", kSig_l_v) // () -> i64
@@ -14,53 +16,53 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
     ])
     .exportFunc();
 
-  let module = builder.instantiate();
+  var module = builder.instantiate();
 
   assertEquals(typeof module.exports.fn(), "bigint");
   assertEquals(module.exports.fn(), 3n);
 })();
 
 (function TestJSBigIntToWasmI64Global() {
-  let builder = new WasmModuleBuilder();
+  var builder = new WasmModuleBuilder();
 
-  let a_global_index = builder
-    .addImportedGlobal("mod", "a", kWasmI64);
+  var a_global_index = builder
+    .addImportedGlobal("mod", "a", kWasmI64)
 
-  let b_global_index = builder
+  var b_global_index = builder
     .addImportedGlobal("mod", "b", kWasmI64);
+
+  var c_global_index = builder
+    .addImportedGlobal("mod", "c", kWasmI64);
 
   builder
     .addExportOfKind('a', kExternalGlobal, a_global_index)
     .addExportOfKind('b', kExternalGlobal, b_global_index)
+    .addExportOfKind('c', kExternalGlobal, c_global_index);
 
-  let module = builder.instantiate({
+  var module = builder.instantiate({
     mod: {
       a: 1n,
       b: 2n ** 63n,
+      c: "123",
     }
   });
 
   assertEquals(module.exports.a.value, 1n);
   assertEquals(module.exports.b.value, - (2n ** 63n));
-})();
-
-(function TestJSBigIntGlobalImportInvalidType() {
-  let builder = new WasmModuleBuilder();
-  builder.addImportedGlobal("mod", "a", kWasmI64);
-  assertThrows(() => builder.instantiate({mod: { a: {} } }), WebAssembly.LinkError);
+  assertEquals(module.exports.c.value, 123n);
 })();
 
 (function TestJSBigIntToWasmI64MutableGlobal() {
-  let builder = new WasmModuleBuilder();
+  var builder = new WasmModuleBuilder();
 
-  let a_global_index = builder
+  var a_global_index = builder
     .addImportedGlobal("mod", "a", kWasmI64, /* mutable = */ true)
 
   builder
     .addExportOfKind('a', kExternalGlobal, a_global_index);
 
   // as non object
-  let fn = () => builder.instantiate({
+  var fn = () => builder.instantiate({
     mod: {
       a: 1n,
     }
@@ -69,7 +71,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   assertThrows(fn, WebAssembly.LinkError);
 
   // as WebAssembly.Global object
-  let module = builder.instantiate({
+  var module = builder.instantiate({
     mod: {
       a: new WebAssembly.Global({ value: "i64", mutable: true }, 1n),
     }
@@ -79,19 +81,20 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 })();
 
 (function TestJSBigIntToWasmI64Identity() {
-  let builder = new WasmModuleBuilder();
+  var builder = new WasmModuleBuilder();
 
   builder
     .addFunction("f", kSig_l_l) // i64 -> i64
     .addBody([
-      kExprLocalGet, 0,
+      kExprGetLocal, 0x0,
     ])
     .exportFunc();
 
-  let module = builder.instantiate();
-  let f = module.exports.f;
+  var module = builder.instantiate();
+  var f = module.exports.f;
 
   assertEquals(f(0n), 0n);
+  assertEquals(f(-0n), -0n);
   assertEquals(f(123n), 123n);
   assertEquals(f(-123n), -123n);
 
@@ -100,31 +103,9 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   assertThrows(() => f(5), TypeError);
 })();
 
-(function TestJSBigIntToWasmI64Projection() {
-  let builder = new WasmModuleBuilder();
-
-  builder
-    .addFunction("f", kSig_l_ll) // i64 -> i64
-    .addBody([
-      kExprLocalGet, 1,
-    ])
-    .exportFunc();
-
-  let module = builder.instantiate();
-  let f = module.exports.f;
-
-  assertEquals(f(1n, 0n), 0n);
-  assertEquals(f(1n, 123n), 123n);
-  assertEquals(f(1n, -123n), -123n);
-
-  assertEquals(f(1n, "5"), 5n);
-
-  assertThrows(() => f(1n, 5), TypeError);
-})();
-
 (function TestI64Global() {
-  let argument = { "value": "i64", "mutable": true };
-  let global = new WebAssembly.Global(argument);
+  var argument = { "value": "i64", "mutable": true };
+  var global = new WebAssembly.Global(argument);
 
   assertEquals(global.value, 0n); // initial value
 
@@ -136,10 +117,10 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 })();
 
 (function TestI64GlobalValueOf() {
-  let argument = { "value": "i64" };
+  var argument = { "value": "i64" };
 
   // as literal
-  let global = new WebAssembly.Global(argument, {
+  var global = new WebAssembly.Global(argument, {
     valueOf() {
       return 123n;
     }
@@ -147,7 +128,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   assertEquals(global.value, 123n);
 
   // as string
-  let global2 = new WebAssembly.Global(argument, {
+  var global2 = new WebAssembly.Global(argument, {
     valueOf() {
       return "321";
     }
@@ -156,37 +137,38 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
 })();
 
 (function TestInvalidValtypeGlobalErrorMessage() {
-  let argument = { "value": "some string" };
+  var argument = { "value": "some string" };
   assertThrows(() => new WebAssembly.Global(argument), TypeError);
 
   try {
     new WebAssembly.Global(argument);
   } catch (e) {
-    assertContains("'value' must be a WebAssembly type", e.message);
+    assertContains("'value' must be", e.message);
+    assertContains("i64", e.message);
   }
 })();
 
 (function TestGlobalI64ValueWrongType() {
-  let argument = { "value": "i64" };
+  var argument = { "value": "i64" };
   assertThrows(() => new WebAssembly.Global(argument, 666), TypeError);
 })();
 
 (function TestGlobalI64SetWrongType() {
-  let argument = { "value": "i64", "mutable": true };
-  let global = new WebAssembly.Global(argument);
+  var argument = { "value": "i64", "mutable": true };
+  var global = new WebAssembly.Global(argument);
 
   assertThrows(() => global.value = 1, TypeError);
 })();
 
 (function TestFuncParamF64PassingBigInt() {
-  let builder = new WasmModuleBuilder();
+  var builder = new WasmModuleBuilder();
 
   builder
       .addFunction("f", kSig_v_d) // f64 -> ()
       .addBody([])
       .exportFunc();
 
-  let module = builder.instantiate();
+  var module = builder.instantiate();
 
   assertThrows(() => module.exports.f(123n), TypeError);
 })();

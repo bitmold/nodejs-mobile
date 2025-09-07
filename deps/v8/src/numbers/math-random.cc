@@ -16,8 +16,9 @@ namespace internal {
 
 void MathRandom::InitializeContext(Isolate* isolate,
                                    Handle<Context> native_context) {
-  Handle<FixedDoubleArray> cache = Handle<FixedDoubleArray>::cast(
-      isolate->factory()->NewFixedDoubleArray(kCacheSize));
+  Handle<FixedDoubleArray> cache =
+      Handle<FixedDoubleArray>::cast(isolate->factory()->NewFixedDoubleArray(
+          kCacheSize, AllocationType::kOld));
   for (int i = 0; i < kCacheSize; i++) cache->set(i, 0);
   native_context->set_math_random_cache(*cache);
   Handle<PodArray<State>> pod =
@@ -34,7 +35,7 @@ void MathRandom::ResetContext(Context native_context) {
 
 Address MathRandom::RefillCache(Isolate* isolate, Address raw_native_context) {
   Context native_context = Context::cast(Object(raw_native_context));
-  DisallowGarbageCollection no_gc;
+  DisallowHeapAllocation no_gc;
   PodArray<State> pod =
       PodArray<State>::cast(native_context.math_random_state());
   State state = pod.get(0);

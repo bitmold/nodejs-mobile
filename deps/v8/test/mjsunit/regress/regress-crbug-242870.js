@@ -30,9 +30,9 @@
 var non_const_true = true;
 
 function f() {
-  return non_const_true || true && g();
-};
-%PrepareFunctionForOptimization(f);
+  return (non_const_true || true && g());
+}
+
 function g() {
   for (;;) {}
 }

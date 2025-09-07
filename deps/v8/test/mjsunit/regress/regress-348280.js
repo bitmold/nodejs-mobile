@@ -4,17 +4,12 @@
 
 // Flags: --allow-natives-syntax
 
-function baz(f) {
-  f();
-}
+function baz(f) { f(); }
 function goo() {}
 baz(goo);
 baz(goo);
 
-function bar(p) {
-  if (p == 0) baz(1);
-};
-%PrepareFunctionForOptimization(bar);
+function bar(p) { if (p == 0) baz(1); }
 bar(1);
 bar(1);
 %OptimizeFunctionOnNextCall(bar);

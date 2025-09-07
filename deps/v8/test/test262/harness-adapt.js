@@ -98,10 +98,7 @@ function RealmOperators(realm) {
     createRealm() {
       return RealmOperators(Realm.createAllowCrossRealmAccess());
     },
-    global: Realm.eval(realm, 'this'),
-    gc() {
-      v8GC();
-    }
+    global: Realm.eval(realm, 'this')
   };
   $262.global.$262 = $262;
   return $262;

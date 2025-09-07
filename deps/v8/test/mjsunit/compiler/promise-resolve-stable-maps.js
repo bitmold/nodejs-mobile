@@ -29,13 +29,6 @@
   const b = makeObjectWithStableMap();
   b.d = 1;
 
-  if (%IsDictPropertyConstTrackingEnabled()) {
-    // TODO(v8:11457) In this mode we weren't able to inline the access, yet, so
-    // it stays optimized. See related TODO in
-    // JSNativeContextSpecialization::ReduceJSResolvePromise.
-    return;
-  }
-
   // This should deoptimize foo.
   assertUnoptimized(foo);
 })();
@@ -64,13 +57,6 @@
   // Now invalidate the stability of a's map.
   const b = makeObjectWithStableMap();
   b.z = 1;
-
-  if (%IsDictPropertyConstTrackingEnabled()) {
-    // TODO(v8:11457) In this mode we weren't able to inline the access, yet, so
-    // it stays optimized. See related TODO in
-    // JSNativeContextSpecialization::ReduceJSResolvePromise.
-    return;
-  }
 
   // This should deoptimize foo.
   assertUnoptimized(foo);

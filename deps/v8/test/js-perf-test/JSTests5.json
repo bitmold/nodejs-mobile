@@ -19,7 +19,7 @@
         "baseline-babel-es2017.js",
         "baseline-naive-promises.js"
       ],
-      "flags": ["--allow-natives-syntax", "--ignore-unhandled-promises"],
+      "flags": ["--allow-natives-syntax"],
       "results_regexp": "^%s\\-AsyncAwait\\(Score\\): (.+)$",
       "tests": [
         {"name": "BaselineES2017"},
@@ -135,18 +135,6 @@
         {"name": "ForOfPush"},
         {"name": "ForOfSet"},
         {"name": "Spread"}
-      ]
-    },
-    {
-      "name": "ObjectDestructuringAssignment",
-      "path": ["ObjectDestructuringAssignment"],
-      "main": "run.js",
-      "resources": [],
-      "results_regexp": "^%s\\-ObjectDestructuringAssignment\\(Score\\): (.+)$",
-      "tests": [
-        {"name": "Babel"},
-        {"name": "ForLoop"},
-        {"name": "DestructuringAssignment"}
       ]
     },
     {
@@ -456,7 +444,8 @@
       "main": "run.js",
       "resources": ["basic-export.js", "basic-import.js", "basic-namespace.js", "value.js"],
       "flags": [
-        "--allow-natives-syntax"
+        "--allow-natives-syntax",
+        "--harmony-dynamic-import"
       ],
       "results_regexp": "^%s\\-Modules\\(Score\\): (.+)$",
       "tests": [
@@ -521,17 +510,6 @@
       ]
     },
     {
-      "name": "ApiAccessors",
-      "path": ["ApiAccessors"],
-      "main": "run.js",
-      "resources": [ "accessor.js" ],
-      "flags": [],
-      "results_regexp": "^%s\\-ApiAccessors\\(Score\\): (.+)$",
-      "tests": [
-        {"name": "nodeType"}
-      ]
-    },
-    {
       "name": "Inspector",
       "path": ["Inspector"],
       "main": "run.js",
@@ -573,17 +551,15 @@
       "main": "run.js",
       "flags": ["--allow-natives-syntax"],
       "resources": [
-        "toNumber.js",
-        "toLocaleString.js",
-        "toHexString.js"
+	      "toNumber.js",
+	      "toLocaleString.js"
       ],
       "results_regexp": "^%s\\-Numbers\\(Score\\): (.+)$",
       "tests": [
         {"name": "Constructor"},
         {"name": "UnaryPlus"},
         {"name": "ParseFloat"},
-        {"name": "toLocaleString"},
-        {"name": "toHexString"}
+        {"name": "toLocaleString"}
       ]
     },
     {
@@ -594,10 +570,7 @@
       "resources": [
 	      "array-indexof-includes.js",
 	      "spread-call.js",
-        "tagged-template.js",
-        "has-own-property.js",
-        "array-map.js",
-        "array-reduce.js"
+	      "tagged-template.js"
       ],
       "results_regexp": "^%s\\-Numbers\\(Score\\): (.+)$",
       "tests": [
@@ -607,11 +580,7 @@
         {"name": "ArrayIncludes"},
         {"name": "ApplySpreadLiteral"},
         {"name": "SpreadCall"},
-        {"name": "SpreadCallSpreadLiteral"},
-        {"name": "HasOwnProperty"},
-        {"name": "ArrayMap"},
-        {"name": "ArrayReduce"},
-        {"name": "ArrayReduceRight"}
+        {"name": "SpreadCallSpreadLiteral"}
       ]
     },
     {
@@ -641,18 +610,6 @@
         {"name": "Custom-Serialize-Error.stack"},
         {"name": "Inline-Serialize-Error.stack"},
         {"name": "Recursive-Serialize-Error.stack"}
-      ]
-    },
-    {
-      "name": "IC",
-      "path": ["IC"],
-      "main": "run.js",
-      "flags": ["--no-opt"],
-      "resources": ["loadconstantfromprototype.js"],
-      "results_regexp": "^%s\\-IC\\(Score\\): (.+)$",
-      "tests": [
-        {"name": "LoadConstantFromPrototype"
-        }
       ]
     }
   ]

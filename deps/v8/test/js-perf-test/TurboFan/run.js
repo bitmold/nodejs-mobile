@@ -3,11 +3,11 @@
 // found in the LICENSE file.
 
 
-d8.file.execute("../base.js");
+load("../base.js");
 
 const iterations = 100;
 
-d8.file.execute("typedLowering.js");
+load("typedLowering.js");
 
 var success = true;
 

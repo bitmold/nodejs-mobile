@@ -6,10 +6,9 @@
 #define V8_LIBSAMPLER_SAMPLER_H_
 
 #include <atomic>
-#include <memory>
 #include <unordered_map>
-#include <vector>
 
+#include "include/v8.h"
 #include "src/base/lazy-instance.h"
 #include "src/base/macros.h"
 
@@ -18,10 +17,6 @@
 #endif
 
 namespace v8 {
-
-class Isolate;
-struct RegisterState;
-
 namespace sampler {
 
 // ----------------------------------------------------------------------------
@@ -76,7 +71,7 @@ class V8_EXPORT_PRIVATE Sampler {
 
  protected:
   // Counts stack samples taken in various VM states.
-  bool is_counting_samples_ = false;
+  bool is_counting_samples_ = 0;
   unsigned js_sample_count_ = 0;
   unsigned external_sample_count_ = 0;
 
@@ -101,7 +96,7 @@ using AtomicMutex = std::atomic_bool;
 
 // A helper that uses an std::atomic_bool to create a lock that is obtained on
 // construction and released on destruction.
-class V8_EXPORT_PRIVATE V8_NODISCARD AtomicGuard {
+class V8_EXPORT_PRIVATE AtomicGuard {
  public:
   // Attempt to obtain the lock represented by |atomic|. |is_blocking|
   // determines whether we will block to obtain the lock, or only make one
@@ -127,9 +122,6 @@ class V8_EXPORT_PRIVATE SamplerManager {
  public:
   using SamplerList = std::vector<Sampler*>;
 
-  SamplerManager(const SamplerManager&) = delete;
-  SamplerManager& operator=(const SamplerManager&) = delete;
-
   // Add |sampler| to the map if it is not already present.
   void AddSampler(Sampler* sampler);
 
@@ -153,6 +145,8 @@ class V8_EXPORT_PRIVATE SamplerManager {
 
   std::unordered_map<pthread_t, SamplerList> sampler_map_;
   AtomicMutex samplers_access_counter_{false};
+
+  DISALLOW_COPY_AND_ASSIGN(SamplerManager);
 };
 
 #endif  // USE_SIGNALS

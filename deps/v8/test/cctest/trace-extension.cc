@@ -28,10 +28,8 @@
 #include "test/cctest/trace-extension.h"
 
 #include "include/v8-profiler.h"
-#include "include/v8-template.h"
 #include "src/execution/vm-state-inl.h"
 #include "src/objects/smi.h"
-#include "src/profiler/tick-sample.h"
 #include "test/cctest/cctest.h"
 
 namespace v8 {
@@ -46,16 +44,24 @@ const char* TraceExtension::kSource =
 
 v8::Local<v8::FunctionTemplate> TraceExtension::GetNativeFunctionTemplate(
     v8::Isolate* isolate, v8::Local<v8::String> name) {
-  if (name->StrictEquals(v8::String::NewFromUtf8Literal(isolate, "trace"))) {
+  if (name->StrictEquals(
+          v8::String::NewFromUtf8(isolate, "trace", v8::NewStringType::kNormal)
+              .ToLocalChecked())) {
     return v8::FunctionTemplate::New(isolate, TraceExtension::Trace);
   } else if (name->StrictEquals(
-                 v8::String::NewFromUtf8Literal(isolate, "js_trace"))) {
+                 v8::String::NewFromUtf8(isolate, "js_trace",
+                                         v8::NewStringType::kNormal)
+                     .ToLocalChecked())) {
     return v8::FunctionTemplate::New(isolate, TraceExtension::JSTrace);
   } else if (name->StrictEquals(
-                 v8::String::NewFromUtf8Literal(isolate, "js_entry_sp"))) {
+                 v8::String::NewFromUtf8(isolate, "js_entry_sp",
+                                         v8::NewStringType::kNormal)
+                     .ToLocalChecked())) {
     return v8::FunctionTemplate::New(isolate, TraceExtension::JSEntrySP);
-  } else if (name->StrictEquals(v8::String::NewFromUtf8Literal(
-                 isolate, "js_entry_sp_level2"))) {
+  } else if (name->StrictEquals(
+                 v8::String::NewFromUtf8(isolate, "js_entry_sp_level2",
+                                         v8::NewStringType::kNormal)
+                     .ToLocalChecked())) {
     return v8::FunctionTemplate::New(isolate, TraceExtension::JSEntrySPLevel2);
   }
   UNREACHABLE();
@@ -83,11 +89,12 @@ Address TraceExtension::GetFP(const v8::FunctionCallbackInfo<v8::Value>& args) {
   return fp;
 }
 
-static struct { TickSample* sample; } trace_env = {nullptr};
+static struct { v8::TickSample* sample; } trace_env = {nullptr};
 
-void TraceExtension::InitTraceEnv(TickSample* sample) {
+void TraceExtension::InitTraceEnv(v8::TickSample* sample) {
   trace_env.sample = sample;
 }
+
 
 void TraceExtension::DoTrace(Address fp) {
   RegisterState regs;
@@ -95,8 +102,8 @@ void TraceExtension::DoTrace(Address fp) {
   // sp is only used to define stack high bound
   regs.sp = reinterpret_cast<void*>(
       reinterpret_cast<Address>(trace_env.sample) - 10240);
-  trace_env.sample->Init(CcTest::i_isolate(), regs,
-                         TickSample::kSkipCEntryFrame, true);
+  trace_env.sample->Init(CcTest::isolate(), regs,
+                         v8::TickSample::kSkipCEntryFrame, true);
 }
 
 

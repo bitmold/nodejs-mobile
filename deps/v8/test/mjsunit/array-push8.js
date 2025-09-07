@@ -7,12 +7,9 @@
 function push_wrapper(array, value) {
   array.push(value);
 }
-%PrepareFunctionForOptimization(push_wrapper);
-
 function pop_wrapper(array) {
   return array.pop();
 }
-%PrepareFunctionForOptimization(pop_wrapper);
 
 // Test the frzon arrays throw an exception if you try to push to them, both in
 // optimized and non-optimized code.

@@ -4,13 +4,13 @@
 
 // Flags: --wasm-test-streaming
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 (function TestCompileStreaming() {
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction("main", kSig_i_i)
-         .addBody([kExprLocalGet, 0])
+         .addBody([kExprGetLocal, 0])
          .exportAs("main");
   let bytes = builder.toBuffer();
   assertPromiseResult(WebAssembly.compileStreaming(Promise.resolve(bytes)).then(
@@ -22,7 +22,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction("main", kSig_i_i)
-         .addBody([kExprLocalGet, 0])
+         .addBody([kExprGetLocal, 0])
          .exportAs("main");
   let bytes = builder.toBuffer();
   assertPromiseResult(WebAssembly.instantiateStreaming(Promise.resolve(bytes)).then(
@@ -47,8 +47,8 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction("main", kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprF32Mul])
          .exportAs("main");
   let bytes = builder.toBuffer();

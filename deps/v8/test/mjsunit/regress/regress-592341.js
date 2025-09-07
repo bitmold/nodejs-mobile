@@ -10,27 +10,27 @@ function id(a) {
 
 (function LiteralCompareNullDeopt() {
   function f() {
-    return id(null == %DeoptimizeNow());
-  };
-  %PrepareFunctionForOptimization(f);
+   return id(null == %DeoptimizeNow());
+  }
+
   %OptimizeFunctionOnNextCall(f);
   assertTrue(f());
 })();
 
 (function LiteralCompareUndefinedDeopt() {
   function f() {
-    return id(undefined == %DeoptimizeNow());
-  };
-  %PrepareFunctionForOptimization(f);
+   return id(undefined == %DeoptimizeNow());
+  }
+
   %OptimizeFunctionOnNextCall(f);
   assertTrue(f());
 })();
 
 (function LiteralCompareTypeofDeopt() {
   function f() {
-    return id('undefined' == typeof %DeoptimizeNow());
-  };
-  %PrepareFunctionForOptimization(f);
+   return id("undefined" == typeof(%DeoptimizeNow()));
+  }
+
   %OptimizeFunctionOnNextCall(f);
   assertTrue(f());
 })();

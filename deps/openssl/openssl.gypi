@@ -1036,9 +1036,7 @@
     #
     'conditions': [
       ['(OS=="win" and MSVS_VERSION>="2012") or '
-       'llvm_version and v(llvm_version) >= v("3.3") or '
-        'gas_version and v(gas_version) >= v("2.23") or '
-        'xcode_version and v(xcode_version) >= v("5.0")', {
+       'llvm_version>="3.3" or xcode_version>="5.0" or gas_version>="2.23"', {
         'openssl_sources_x64_win_masm': [
           '<@(openssl_sources_asm_latest_x64_win_masm)',
           '<@(openssl_sources_common_x64_win_masm)',
@@ -1292,11 +1290,13 @@
       # Set to ubuntu default path for convenience. If necessary,
       # override this at runtime with the SSL_CERT_DIR environment
       # variable.
+      'OPENSSLDIR="/System/Library/OpenSSL/"',
     ],
     'openssl_default_defines_linux_others': [
       # Set to ubuntu default path for convenience. If necessary,
       # override this at runtime with the SSL_CERT_DIR environment
       # variable.
+      'OPENSSLDIR="/etc/ssl"',
     ]
   }
 }

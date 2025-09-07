@@ -120,8 +120,6 @@ function dumpCustomPreviewForEvaluate(result) {
 
 async function dumpCustomPreview(result) {
   const { objectId, customPreview } = result;
-  if (customPreview.header)
-    customPreview.header = JSON.parse(customPreview.header);
   InspectorTest.logMessage(customPreview);
   if (customPreview.bodyGetterId) {
     const body = await Protocol.Runtime.callFunctionOn({

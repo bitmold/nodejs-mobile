@@ -1,5 +1,5 @@
-*%(basename)s:9: TypeError: Cannot read private member #a from an object whose class did not declare it
+*%(basename)s:9: TypeError: Read of private field #a from an object which did not contain the field
     [o.#a](){}
        ^
-TypeError: Cannot read private member #a from an object whose class did not declare it
+TypeError: Read of private field #a from an object which did not contain the field
     at *%(basename)s:9:8

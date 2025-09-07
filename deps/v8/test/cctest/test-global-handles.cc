@@ -25,10 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "include/v8-function.h"
-#include "include/v8-locker.h"
 #include "src/api/api-inl.h"
-#include "src/common/allow-deprecated.h"
 #include "src/execution/isolate.h"
 #include "src/handles/global-handles.h"
 #include "src/heap/factory.h"
@@ -37,52 +34,10 @@
 #include "test/cctest/cctest.h"
 #include "test/cctest/heap/heap-utils.h"
 
-START_ALLOW_USE_DEPRECATED()
-
 namespace v8 {
 namespace internal {
 
 namespace {
-
-struct TracedReferenceWrapper {
-  v8::TracedReference<v8::Object> handle;
-};
-
-// Empty v8::EmbedderHeapTracer that never keeps objects alive on Scavenge. See
-// |IsRootForNonTracingGC|.
-class NonRootingEmbedderHeapTracer final : public v8::EmbedderHeapTracer {
- public:
-  NonRootingEmbedderHeapTracer() = default;
-
-  void RegisterV8References(
-      const std::vector<std::pair<void*, void*>>& embedder_fields) final {}
-  bool AdvanceTracing(double deadline_in_ms) final { return true; }
-  bool IsTracingDone() final { return true; }
-  void TracePrologue(TraceFlags) final {}
-  void TraceEpilogue(TraceSummary*) final {}
-  void EnterFinalPause(EmbedderStackState) final {}
-
-  bool IsRootForNonTracingGC(
-      const v8::TracedReference<v8::Value>& handle) final {
-    return false;
-  }
-
-  void ResetHandleInNonTracingGC(
-      const v8::TracedReference<v8::Value>& handle) final {
-    for (auto* wrapper : wrappers_) {
-      if (wrapper->handle == handle) {
-        wrapper->handle.Reset();
-      }
-    }
-  }
-
-  void Register(TracedReferenceWrapper* wrapper) {
-    wrappers_.push_back(wrapper);
-  }
-
- private:
-  std::vector<TracedReferenceWrapper*> wrappers_;
-};
 
 void InvokeScavenge() { CcTest::CollectGarbage(i::NEW_SPACE); }
 
@@ -92,19 +47,23 @@ void SimpleCallback(const v8::FunctionCallbackInfo<v8::Value>& info) {
   info.GetReturnValue().Set(v8_num(0));
 }
 
-struct FlagAndGlobal {
+struct FlagAndPersistent {
   bool flag;
   v8::Global<v8::Object> handle;
 };
 
-void ResetHandleAndSetFlag(const v8::WeakCallbackInfo<FlagAndGlobal>& data) {
+void ResetHandleAndSetFlag(
+    const v8::WeakCallbackInfo<FlagAndPersistent>& data) {
   data.GetParameter()->handle.Reset();
   data.GetParameter()->flag = true;
 }
 
-template <typename HandleContainer>
+using ConstructFunction = void (*)(v8::Isolate* isolate,
+                                   v8::Local<v8::Context> context,
+                                   FlagAndPersistent* flag_and_persistent);
+
 void ConstructJSObject(v8::Isolate* isolate, v8::Local<v8::Context> context,
-                       HandleContainer* flag_and_persistent) {
+                       FlagAndPersistent* flag_and_persistent) {
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::Object> object(v8::Object::New(isolate));
   CHECK(!object.IsEmpty());
@@ -120,18 +79,8 @@ void ConstructJSObject(v8::Isolate* isolate, v8::Global<v8::Object>* global) {
   CHECK(!global->IsEmpty());
 }
 
-void ConstructJSObject(v8::Isolate* isolate,
-                       v8::TracedReference<v8::Object>* handle) {
-  v8::HandleScope scope(isolate);
-  v8::Local<v8::Object> object(v8::Object::New(isolate));
-  CHECK(!object.IsEmpty());
-  *handle = v8::TracedReference<v8::Object>(isolate, object);
-  CHECK(!handle->IsEmpty());
-}
-
-template <typename HandleContainer>
 void ConstructJSApiObject(v8::Isolate* isolate, v8::Local<v8::Context> context,
-                          HandleContainer* flag_and_persistent) {
+                          FlagAndPersistent* flag_and_persistent) {
   v8::HandleScope handle_scope(isolate);
   v8::Local<v8::FunctionTemplate> fun =
       v8::FunctionTemplate::New(isolate, SimpleCallback);
@@ -146,8 +95,7 @@ void ConstructJSApiObject(v8::Isolate* isolate, v8::Local<v8::Context> context,
 
 enum class SurvivalMode { kSurvives, kDies };
 
-template <typename ConstructFunction, typename ModifierFunction,
-          typename GCFunction>
+template <typename ModifierFunction, typename GCFunction>
 void WeakHandleTest(v8::Isolate* isolate, ConstructFunction construct_function,
                     ModifierFunction modifier_function, GCFunction gc_function,
                     SurvivalMode survives) {
@@ -155,9 +103,9 @@ void WeakHandleTest(v8::Isolate* isolate, ConstructFunction construct_function,
   v8::Local<v8::Context> context = v8::Context::New(isolate);
   v8::Context::Scope context_scope(context);
 
-  FlagAndGlobal fp;
+  FlagAndPersistent fp;
   construct_function(isolate, context, &fp);
-  CHECK(heap::InCorrectGeneration(isolate, fp.handle));
+  CHECK(heap::InYoungGeneration(isolate, fp.handle));
   fp.handle.SetWeak(&fp, &ResetHandleAndSetFlag,
                     v8::WeakCallbackType::kParameter);
   fp.flag = false;
@@ -165,30 +113,6 @@ void WeakHandleTest(v8::Isolate* isolate, ConstructFunction construct_function,
   gc_function();
   CHECK_IMPLIES(survives == SurvivalMode::kSurvives, !fp.flag);
   CHECK_IMPLIES(survives == SurvivalMode::kDies, fp.flag);
-}
-
-template <typename ConstructFunction, typename ModifierFunction>
-void TracedReferenceTestWithScavenge(v8::Isolate* isolate,
-                                     ConstructFunction construct_function,
-                                     ModifierFunction modifier_function,
-                                     SurvivalMode survives) {
-  v8::HandleScope scope(isolate);
-  v8::Local<v8::Context> context = v8::Context::New(isolate);
-  v8::Context::Scope context_scope(context);
-
-  NonRootingEmbedderHeapTracer tracer;
-  heap::TemporaryEmbedderHeapTracerScope tracer_scope(isolate, &tracer);
-
-  auto fp = std::make_unique<TracedReferenceWrapper>();
-  tracer.Register(fp.get());
-  construct_function(isolate, context, fp.get());
-  CHECK(heap::InCorrectGeneration(isolate, fp->handle));
-  modifier_function(fp.get());
-  InvokeScavenge();
-  // Scavenge clear properly resets the original handle, so we can check the
-  // handle directly here.
-  CHECK_IMPLIES(survives == SurvivalMode::kSurvives, !fp->handle.IsEmpty());
-  CHECK_IMPLIES(survives == SurvivalMode::kDies, fp->handle.IsEmpty());
 }
 
 void ResurrectingFinalizer(
@@ -353,37 +277,25 @@ TEST(PhatomHandlesWithoutCallbacks) {
   CHECK_EQ(0u, isolate->NumberOfPhantomHandleResetsSinceLastCall());
 }
 
-TEST(WeakHandleToUnmodifiedJSObjectDiesOnScavenge) {
-  if (FLAG_single_generation) return;
+TEST(WeakHandleToUnmodifiedJSObjectSurvivesScavenge) {
   CcTest::InitializeVM();
   WeakHandleTest(
-      CcTest::isolate(), &ConstructJSObject<FlagAndGlobal>,
-      [](FlagAndGlobal* fp) {}, []() { InvokeScavenge(); },
-      SurvivalMode::kDies);
-}
-
-TEST(TracedReferenceToUnmodifiedJSObjectSurvivesScavenge) {
-  if (FLAG_single_generation) return;
-  ManualGCScope manual_gc;
-  CcTest::InitializeVM();
-  TracedReferenceTestWithScavenge(
-      CcTest::isolate(), &ConstructJSObject<TracedReferenceWrapper>,
-      [](TracedReferenceWrapper* fp) {}, SurvivalMode::kSurvives);
+      CcTest::isolate(), &ConstructJSObject, [](FlagAndPersistent* fp) {},
+      []() { InvokeScavenge(); }, SurvivalMode::kSurvives);
 }
 
 TEST(WeakHandleToUnmodifiedJSObjectDiesOnMarkCompact) {
   CcTest::InitializeVM();
   WeakHandleTest(
-      CcTest::isolate(), &ConstructJSObject<FlagAndGlobal>,
-      [](FlagAndGlobal* fp) {}, []() { InvokeMarkSweep(); },
-      SurvivalMode::kDies);
+      CcTest::isolate(), &ConstructJSObject, [](FlagAndPersistent* fp) {},
+      []() { InvokeMarkSweep(); }, SurvivalMode::kDies);
 }
 
 TEST(WeakHandleToUnmodifiedJSObjectSurvivesMarkCompactWhenInHandle) {
   CcTest::InitializeVM();
   WeakHandleTest(
-      CcTest::isolate(), &ConstructJSObject<FlagAndGlobal>,
-      [](FlagAndGlobal* fp) {
+      CcTest::isolate(), &ConstructJSObject,
+      [](FlagAndPersistent* fp) {
         v8::Local<v8::Object> handle =
             v8::Local<v8::Object>::New(CcTest::isolate(), fp->handle);
         USE(handle);
@@ -392,35 +304,21 @@ TEST(WeakHandleToUnmodifiedJSObjectSurvivesMarkCompactWhenInHandle) {
 }
 
 TEST(WeakHandleToUnmodifiedJSApiObjectDiesOnScavenge) {
-  if (FLAG_single_generation) return;
   CcTest::InitializeVM();
   WeakHandleTest(
-      CcTest::isolate(), &ConstructJSApiObject<FlagAndGlobal>,
-      [](FlagAndGlobal* fp) {}, []() { InvokeScavenge(); },
-      SurvivalMode::kDies);
+      CcTest::isolate(), &ConstructJSApiObject, [](FlagAndPersistent* fp) {},
+      []() { InvokeScavenge(); }, SurvivalMode::kDies);
 }
 
-TEST(TracedReferenceToUnmodifiedJSApiObjectDiesOnScavenge) {
-  if (FLAG_single_generation) return;
-  ManualGCScope manual_gc;
-  CcTest::InitializeVM();
-  TracedReferenceTestWithScavenge(
-      CcTest::isolate(), &ConstructJSApiObject<TracedReferenceWrapper>,
-      [](TracedReferenceWrapper* fp) {}, SurvivalMode::kDies);
-}
-
-TEST(TracedReferenceToJSApiObjectWithIdentityHashSurvivesScavenge) {
-  if (FLAG_single_generation) return;
-
-  ManualGCScope manual_gc;
+TEST(WeakHandleToJSApiObjectWithIdentityHashSurvivesScavenge) {
   CcTest::InitializeVM();
   Isolate* i_isolate = CcTest::i_isolate();
   HandleScope scope(i_isolate);
   Handle<JSWeakMap> weakmap = i_isolate->factory()->NewJSWeakMap();
 
-  TracedReferenceTestWithScavenge(
-      CcTest::isolate(), &ConstructJSApiObject<TracedReferenceWrapper>,
-      [&weakmap, i_isolate](TracedReferenceWrapper* fp) {
+  WeakHandleTest(
+      CcTest::isolate(), &ConstructJSApiObject,
+      [&weakmap, i_isolate](FlagAndPersistent* fp) {
         v8::HandleScope scope(CcTest::isolate());
         Handle<JSReceiver> key =
             Utils::OpenHandle(*fp->handle.Get(CcTest::isolate()));
@@ -428,15 +326,14 @@ TEST(TracedReferenceToJSApiObjectWithIdentityHashSurvivesScavenge) {
         int32_t hash = key->GetOrCreateHash(i_isolate).value();
         JSWeakCollection::Set(weakmap, key, smi, hash);
       },
-      SurvivalMode::kSurvives);
+      []() { InvokeScavenge(); }, SurvivalMode::kSurvives);
 }
 
 TEST(WeakHandleToUnmodifiedJSApiObjectSurvivesScavengeWhenInHandle) {
-  if (FLAG_single_generation) return;
   CcTest::InitializeVM();
   WeakHandleTest(
-      CcTest::isolate(), &ConstructJSApiObject<FlagAndGlobal>,
-      [](FlagAndGlobal* fp) {
+      CcTest::isolate(), &ConstructJSApiObject,
+      [](FlagAndPersistent* fp) {
         v8::Local<v8::Object> handle =
             v8::Local<v8::Object>::New(CcTest::isolate(), fp->handle);
         USE(handle);
@@ -447,16 +344,15 @@ TEST(WeakHandleToUnmodifiedJSApiObjectSurvivesScavengeWhenInHandle) {
 TEST(WeakHandleToUnmodifiedJSApiObjectDiesOnMarkCompact) {
   CcTest::InitializeVM();
   WeakHandleTest(
-      CcTest::isolate(), &ConstructJSApiObject<FlagAndGlobal>,
-      [](FlagAndGlobal* fp) {}, []() { InvokeMarkSweep(); },
-      SurvivalMode::kDies);
+      CcTest::isolate(), &ConstructJSApiObject, [](FlagAndPersistent* fp) {},
+      []() { InvokeMarkSweep(); }, SurvivalMode::kDies);
 }
 
 TEST(WeakHandleToUnmodifiedJSApiObjectSurvivesMarkCompactWhenInHandle) {
   CcTest::InitializeVM();
   WeakHandleTest(
-      CcTest::isolate(), &ConstructJSApiObject<FlagAndGlobal>,
-      [](FlagAndGlobal* fp) {
+      CcTest::isolate(), &ConstructJSApiObject,
+      [](FlagAndPersistent* fp) {
         v8::Local<v8::Object> handle =
             v8::Local<v8::Object>::New(CcTest::isolate(), fp->handle);
         USE(handle);
@@ -464,50 +360,58 @@ TEST(WeakHandleToUnmodifiedJSApiObjectSurvivesMarkCompactWhenInHandle) {
       []() { InvokeMarkSweep(); }, SurvivalMode::kSurvives);
 }
 
-TEST(TracedReferenceToJSApiObjectWithModifiedMapSurvivesScavenge) {
-  if (FLAG_single_generation) return;
+TEST(WeakHandleToActiveUnmodifiedJSApiObjectSurvivesScavenge) {
   CcTest::InitializeVM();
-  v8::Isolate* isolate = CcTest::isolate();
-  LocalContext context;
-
-  TracedReference<v8::Object> handle;
-  {
-    v8::HandleScope scope(isolate);
-    // Create an API object which does not have the same map as constructor.
-    auto function_template = FunctionTemplate::New(isolate);
-    auto instance_t = function_template->InstanceTemplate();
-    instance_t->Set(isolate, "a", v8::Number::New(isolate, 10));
-    auto function =
-        function_template->GetFunction(context.local()).ToLocalChecked();
-    auto i = function->NewInstance(context.local()).ToLocalChecked();
-    handle.Reset(isolate, i);
-  }
-  InvokeScavenge();
-  CHECK(!handle.IsEmpty());
+  WeakHandleTest(
+      CcTest::isolate(), &ConstructJSApiObject,
+      [](FlagAndPersistent* fp) {
+#if __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated"
+#endif
+        fp->handle.MarkActive();
+#if __clang__
+#pragma clang diagnostic pop
+#endif
+      },
+      []() { InvokeScavenge(); }, SurvivalMode::kSurvives);
 }
 
-TEST(TracedReferenceTOJsApiObjectWithElementsSurvivesScavenge) {
-  if (FLAG_single_generation) return;
+TEST(WeakHandleToActiveUnmodifiedJSApiObjectDiesOnMarkCompact) {
   CcTest::InitializeVM();
-  v8::Isolate* isolate = CcTest::isolate();
-  LocalContext context;
+  WeakHandleTest(
+      CcTest::isolate(), &ConstructJSApiObject,
+      [](FlagAndPersistent* fp) {
+#if __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated"
+#endif
+        fp->handle.MarkActive();
+#if __clang__
+#pragma clang diagnostic pop
+#endif
+      },
+      []() { InvokeMarkSweep(); }, SurvivalMode::kDies);
+}
 
-  TracedReference<v8::Object> handle;
-  {
-    v8::HandleScope scope(isolate);
-
-    // Create an API object which has elements.
-    auto function_template = FunctionTemplate::New(isolate);
-    auto instance_t = function_template->InstanceTemplate();
-    instance_t->Set(isolate, "1", v8::Number::New(isolate, 10));
-    instance_t->Set(isolate, "2", v8::Number::New(isolate, 10));
-    auto function =
-        function_template->GetFunction(context.local()).ToLocalChecked();
-    auto i = function->NewInstance(context.local()).ToLocalChecked();
-    handle.Reset(isolate, i);
-  }
-  InvokeScavenge();
-  CHECK(!handle.IsEmpty());
+TEST(WeakHandleToActiveUnmodifiedJSApiObjectSurvivesMarkCompactWhenInHandle) {
+  CcTest::InitializeVM();
+  WeakHandleTest(
+      CcTest::isolate(), &ConstructJSApiObject,
+      [](FlagAndPersistent* fp) {
+#if __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated"
+#endif
+        fp->handle.MarkActive();
+#if __clang__
+#pragma clang diagnostic pop
+#endif
+        v8::Local<v8::Object> handle =
+            v8::Local<v8::Object>::New(CcTest::isolate(), fp->handle);
+        USE(handle);
+      },
+      []() { InvokeMarkSweep(); }, SurvivalMode::kSurvives);
 }
 
 TEST(FinalizerOnUnmodifiedJSApiObjectDoesNotCrash) {
@@ -518,13 +422,14 @@ TEST(FinalizerOnUnmodifiedJSApiObjectDoesNotCrash) {
   v8::Local<v8::Context> context = v8::Context::New(isolate);
   v8::Context::Scope context_scope(context);
 
-  FlagAndGlobal fp;
+  FlagAndPersistent fp;
+  // Could use a regular object and MarkIndependent too.
   ConstructJSApiObject(isolate, context, &fp);
   fp.handle.SetWeak(&fp, &ResetHandleAndSetFlag,
                     v8::WeakCallbackType::kFinalizer);
   fp.flag = false;
   {
-    v8::HandleScope inner_scope(isolate);
+    v8::HandleScope scope(isolate);
     v8::Local<v8::Object> tmp = v8::Local<v8::Object>::New(isolate, fp.handle);
     USE(tmp);
     InvokeScavenge();
@@ -590,22 +495,22 @@ TEST(FinalizerDiesAndKeepsPhantomAliveOnMarkCompact) {
 
 namespace {
 
-void ForceScavenge2(const v8::WeakCallbackInfo<FlagAndGlobal>& data) {
+void ForceScavenge2(const v8::WeakCallbackInfo<FlagAndPersistent>& data) {
   data.GetParameter()->flag = true;
   InvokeScavenge();
 }
 
-void ForceScavenge1(const v8::WeakCallbackInfo<FlagAndGlobal>& data) {
+void ForceScavenge1(const v8::WeakCallbackInfo<FlagAndPersistent>& data) {
   data.GetParameter()->handle.Reset();
   data.SetSecondPassCallback(ForceScavenge2);
 }
 
-void ForceMarkSweep2(const v8::WeakCallbackInfo<FlagAndGlobal>& data) {
+void ForceMarkSweep2(const v8::WeakCallbackInfo<FlagAndPersistent>& data) {
   data.GetParameter()->flag = true;
   InvokeMarkSweep();
 }
 
-void ForceMarkSweep1(const v8::WeakCallbackInfo<FlagAndGlobal>& data) {
+void ForceMarkSweep1(const v8::WeakCallbackInfo<FlagAndPersistent>& data) {
   data.GetParameter()->handle.Reset();
   data.SetSecondPassCallback(ForceMarkSweep2);
 }
@@ -619,20 +524,8 @@ TEST(GCFromWeakCallbacks) {
   v8::Local<v8::Context> context = v8::Context::New(isolate);
   v8::Context::Scope context_scope(context);
 
-  if (FLAG_single_generation) {
-    FlagAndGlobal fp;
-    ConstructJSApiObject(isolate, context, &fp);
-    CHECK(!heap::InYoungGeneration(isolate, fp.handle));
-    fp.flag = false;
-    fp.handle.SetWeak(&fp, &ForceMarkSweep1, v8::WeakCallbackType::kParameter);
-    InvokeMarkSweep();
-    EmptyMessageQueues(isolate);
-    CHECK(fp.flag);
-    return;
-  }
-
   static const int kNumberOfGCTypes = 2;
-  using Callback = v8::WeakCallbackInfo<FlagAndGlobal>::Callback;
+  typedef v8::WeakCallbackInfo<FlagAndPersistent>::Callback Callback;
   Callback gc_forcing_callback[kNumberOfGCTypes] = {&ForceScavenge1,
                                                     &ForceMarkSweep1};
 
@@ -641,7 +534,7 @@ TEST(GCFromWeakCallbacks) {
 
   for (int outer_gc = 0; outer_gc < kNumberOfGCTypes; outer_gc++) {
     for (int inner_gc = 0; inner_gc < kNumberOfGCTypes; inner_gc++) {
-      FlagAndGlobal fp;
+      FlagAndPersistent fp;
       ConstructJSApiObject(isolate, context, &fp);
       CHECK(heap::InYoungGeneration(isolate, fp.handle));
       fp.flag = false;
@@ -656,11 +549,11 @@ TEST(GCFromWeakCallbacks) {
 
 namespace {
 
-void SecondPassCallback(const v8::WeakCallbackInfo<FlagAndGlobal>& data) {
+void SecondPassCallback(const v8::WeakCallbackInfo<FlagAndPersistent>& data) {
   data.GetParameter()->flag = true;
 }
 
-void FirstPassCallback(const v8::WeakCallbackInfo<FlagAndGlobal>& data) {
+void FirstPassCallback(const v8::WeakCallbackInfo<FlagAndPersistent>& data) {
   data.GetParameter()->handle.Reset();
   data.SetSecondPassCallback(SecondPassCallback);
 }
@@ -673,7 +566,7 @@ TEST(SecondPassPhantomCallbacks) {
   v8::HandleScope scope(isolate);
   v8::Local<v8::Context> context = v8::Context::New(isolate);
   v8::Context::Scope context_scope(context);
-  FlagAndGlobal fp;
+  FlagAndPersistent fp;
   ConstructJSApiObject(isolate, context, &fp);
   fp.flag = false;
   fp.handle.SetWeak(&fp, FirstPassCallback, v8::WeakCallbackType::kParameter);
@@ -710,43 +603,5 @@ TEST(MoveWeakGlobal) {
   InvokeMarkSweep();
 }
 
-TEST(TotalSizeRegularNode) {
-  CcTest::InitializeVM();
-  v8::Isolate* isolate = CcTest::isolate();
-  Isolate* i_isolate = CcTest::i_isolate();
-  v8::HandleScope scope(isolate);
-
-  v8::Global<v8::Object>* global = new Global<v8::Object>();
-  CHECK_EQ(i_isolate->global_handles()->TotalSize(), 0);
-  CHECK_EQ(i_isolate->global_handles()->UsedSize(), 0);
-  ConstructJSObject(isolate, global);
-  CHECK_GT(i_isolate->global_handles()->TotalSize(), 0);
-  CHECK_GT(i_isolate->global_handles()->UsedSize(), 0);
-  delete global;
-  CHECK_GT(i_isolate->global_handles()->TotalSize(), 0);
-  CHECK_EQ(i_isolate->global_handles()->UsedSize(), 0);
-}
-
-TEST(TotalSizeTracedNode) {
-  ManualGCScope manual_gc;
-  CcTest::InitializeVM();
-  v8::Isolate* isolate = CcTest::isolate();
-  Isolate* i_isolate = CcTest::i_isolate();
-  v8::HandleScope scope(isolate);
-
-  v8::TracedReference<v8::Object>* handle = new TracedReference<v8::Object>();
-  CHECK_EQ(i_isolate->global_handles()->TotalSize(), 0);
-  CHECK_EQ(i_isolate->global_handles()->UsedSize(), 0);
-  ConstructJSObject(isolate, handle);
-  CHECK_GT(i_isolate->global_handles()->TotalSize(), 0);
-  CHECK_GT(i_isolate->global_handles()->UsedSize(), 0);
-  delete handle;
-  InvokeMarkSweep();
-  CHECK_GT(i_isolate->global_handles()->TotalSize(), 0);
-  CHECK_EQ(i_isolate->global_handles()->UsedSize(), 0);
-}
-
 }  // namespace internal
 }  // namespace v8
-
-END_ALLOW_USE_DEPRECATED()

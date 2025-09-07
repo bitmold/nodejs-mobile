@@ -43,13 +43,13 @@ function testClassConstruction() {
 
 // ReferenceError: FAIL is not defined
 //     at thrower
-//     at <static_initializer>
+//     at <static_fields_initializer>
 //     at testClassConstruction
 //     at testTrace
 testTrace(
   "during class construction",
   testClassConstruction,
-  ["thrower", "<static_initializer>"],
+  ["thrower", "<static_fields_initializer>"],
   ["anonymous"]
 );
 
@@ -75,13 +75,16 @@ function testClassInstantiation() {
 
 // ReferenceError: FAIL is not defined
 //     at thrower
-//     at <instance_members_initializer>
+//     at X.<instance_members_initializer>
 //     at new X
 //     at testClassInstantiation
 //     at testTrace
 testTrace(
-    'during class instantiation', testClassInstantiation,
-    ['thrower', '<instance_members_initializer>', 'new X'], ['anonymous']);
+  "during class instantiation",
+  testClassInstantiation,
+  ["thrower", "X.<instance_members_initializer>", "new X"],
+  ["anonymous"]
+);
 
 function testClassInstantiationWithSuper() {
   class Base {}
@@ -95,14 +98,16 @@ function testClassInstantiationWithSuper() {
 
 // ReferenceError: FAIL is not defined
 //     at thrower
-//     at <instance_members_initializer>
+//     at X.<instance_members_initializer>
 //     at new X
 //     at testClassInstantiation
 //     at testTrace
 testTrace(
-    'during class instantiation with super', testClassInstantiationWithSuper,
-    ['thrower', '<instance_members_initializer>', 'new X'],
-    ['Base', 'anonymous']);
+  "during class instantiation with super",
+  testClassInstantiationWithSuper,
+  ["thrower", "X.<instance_members_initializer>", "new X"],
+  ["Base", "anonymous"]
+);
 
 function testClassInstantiationWithSuper2() {
   class Base {}
@@ -119,14 +124,16 @@ function testClassInstantiationWithSuper2() {
 
 // ReferenceError: FAIL is not defined
 //     at thrower
-//     at <instance_members_initializer>
+//     at X.<instance_members_initializer>
 //     at new X
 //     at testClassInstantiation
 //     at testTrace
 testTrace(
-    'during class instantiation with super2', testClassInstantiationWithSuper2,
-    ['thrower', '<instance_members_initializer>', 'new X'],
-    ['Base', 'anonymous']);
+  "during class instantiation with super2",
+  testClassInstantiationWithSuper2,
+  ["thrower", "X.<instance_members_initializer>", "new X"],
+  ["Base", "anonymous"]
+);
 
 function testClassInstantiationWithSuper3() {
   class Base {
@@ -144,15 +151,17 @@ function testClassInstantiationWithSuper3() {
 
 // ReferenceError: FAIL is not defined
 //     at thrower
-//     at <instance_members_initializer>
+//     at X.<instance_members_initializer>
 //     at new Base
 //     at new X
 //     at testClassInstantiationWithSuper3
 //     at testTrace
 testTrace(
-    'during class instantiation with super3', testClassInstantiationWithSuper3,
-    ['thrower', '<instance_members_initializer>', 'new Base', 'new X'],
-    ['anonymous']);
+  "during class instantiation with super3",
+  testClassInstantiationWithSuper3,
+  ["thrower", "X.<instance_members_initializer>", "new Base", "new X"],
+  ["anonymous"]
+);
 
 function testClassFieldCall() {
   class X {
@@ -183,13 +192,13 @@ function testStaticClassFieldCall() {
 }
 
 // ReferenceError: FAIL is not defined
-//     at X.thrower [as x]
+//     at Function.thrower [as x]
 //     at testStaticClassFieldCall
 //     at testTrace
 testTrace(
   "during static class field call",
   testStaticClassFieldCall,
-  ["X.thrower"],
+  ["Function.thrower"],
   ["anonymous"]
 );
 
@@ -226,12 +235,12 @@ function testStaticClassFieldCallWithFNI() {
 }
 
 // ReferenceError: FAIL is not defined
-//     at X.x
+//     at Function.x
 //     at testStaticClassFieldCallWithFNI
 //     at testTrace
 testTrace(
   "during static class field call with FNI",
   testStaticClassFieldCallWithFNI,
-  ["X.x"],
+  ["Function.x"],
   ["anonymous"]
 );

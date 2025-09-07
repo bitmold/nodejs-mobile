@@ -7,8 +7,7 @@
 // This checks that TransitionAndStoreNumberElement silences NaNs.
 function foo() {
   return [undefined].map(Math.asin);
-};
-%PrepareFunctionForOptimization(foo);
+}
 foo();
 foo();
 %OptimizeFunctionOnNextCall(foo);
@@ -17,8 +16,7 @@ foo();
 // This checks that TransitionAndStoreElement silences NaNs.
 function bar(b) {
   return [undefined].map(x => b ? Math.asin(x) : "string");
-};
-%PrepareFunctionForOptimization(bar);
+}
 bar(true);
 bar(false);
 bar(true);

@@ -4,7 +4,6 @@
 
 #include "src/compiler/js-create-lowering.h"
 #include "src/codegen/code-factory.h"
-#include "src/codegen/tick-counter.h"
 #include "src/compiler/access-builder.h"
 #include "src/compiler/compilation-dependencies.h"
 #include "src/compiler/js-graph.h"
@@ -43,7 +42,8 @@ class JSCreateLoweringTest : public TypedGraphTest {
     SimplifiedOperatorBuilder simplified(zone());
     JSGraph jsgraph(isolate(), graph(), common(), javascript(), &simplified,
                     &machine);
-    GraphReducer graph_reducer(zone(), graph(), tick_counter(), broker());
+    // TODO(titzer): mock the GraphReducer here for better unit testing.
+    GraphReducer graph_reducer(zone(), graph());
     JSCreateLowering reducer(&graph_reducer, &deps_, &jsgraph, broker(),
                              zone());
     return reducer.Reduce(node);
@@ -54,9 +54,9 @@ class JSCreateLoweringTest : public TypedGraphTest {
         graph()->NewNode(common()->StateValues(0, SparseInputMask::Dense()));
     return graph()->NewNode(
         common()->FrameState(
-            BytecodeOffset::None(), OutputFrameStateCombine::Ignore(),
+            BailoutId::None(), OutputFrameStateCombine::Ignore(),
             common()->CreateFrameStateFunctionInfo(
-                FrameStateType::kUnoptimizedFunction, 1, 0, shared)),
+                FrameStateType::kInterpretedFunction, 1, 0, shared)),
         state_values, state_values, state_values, NumberConstant(0),
         UndefinedConstant(), outer_frame_state);
   }
@@ -143,9 +143,9 @@ TEST_F(JSCreateLoweringTest, JSCreateArgumentsInlinedRestArray) {
       javascript()->CreateArguments(CreateArgumentsType::kRestParameter),
       closure, context, frame_state_inner, effect));
   ASSERT_TRUE(r.Changed());
-  EXPECT_THAT(r.replacement(),
-              IsFinishRegion(
-                  IsAllocate(IsNumberConstant(JSArray::kHeaderSize), _, _), _));
+  EXPECT_THAT(
+      r.replacement(),
+      IsFinishRegion(IsAllocate(IsNumberConstant(JSArray::kSize), _, _), _));
 }
 
 // -----------------------------------------------------------------------------
@@ -157,7 +157,7 @@ TEST_F(JSCreateLoweringTest, JSCreateFunctionContextViaInlinedAllocation) {
   Node* const control = graph()->start();
   Reduction const r = Reduce(graph()->NewNode(
       javascript()->CreateFunctionContext(
-          MakeRef(broker(), ScopeInfo::Empty(isolate())), 8, FUNCTION_SCOPE),
+          handle(ScopeInfo::Empty(isolate()), isolate()), 8, FUNCTION_SCOPE),
       context, effect, control));
   ASSERT_TRUE(r.Changed());
   EXPECT_THAT(r.replacement(),
@@ -171,8 +171,7 @@ TEST_F(JSCreateLoweringTest, JSCreateFunctionContextViaInlinedAllocation) {
 // JSCreateWithContext
 
 TEST_F(JSCreateLoweringTest, JSCreateWithContext) {
-  ScopeInfoRef scope_info =
-      MakeRef(broker(), ReadOnlyRoots(isolate()).empty_function_scope_info());
+  Handle<ScopeInfo> scope_info = ScopeInfo::CreateForEmptyFunction(isolate());
   Node* const object = Parameter(Type::Receiver());
   Node* const context = Parameter(Type::Any());
   Node* const effect = graph()->start();
@@ -181,20 +180,18 @@ TEST_F(JSCreateLoweringTest, JSCreateWithContext) {
       Reduce(graph()->NewNode(javascript()->CreateWithContext(scope_info),
                               object, context, effect, control));
   ASSERT_TRUE(r.Changed());
-  EXPECT_THAT(
-      r.replacement(),
-      IsFinishRegion(IsAllocate(IsNumberConstant(Context::SizeFor(
-                                    Context::MIN_CONTEXT_EXTENDED_SLOTS)),
-                                IsBeginRegion(_), control),
-                     _));
+  EXPECT_THAT(r.replacement(),
+              IsFinishRegion(IsAllocate(IsNumberConstant(Context::SizeFor(
+                                            Context::MIN_CONTEXT_SLOTS)),
+                                        IsBeginRegion(_), control),
+                             _));
 }
 
 // -----------------------------------------------------------------------------
 // JSCreateCatchContext
 
 TEST_F(JSCreateLoweringTest, JSCreateCatchContext) {
-  ScopeInfoRef scope_info =
-      MakeRef(broker(), ReadOnlyRoots(isolate()).empty_function_scope_info());
+  Handle<ScopeInfo> scope_info = ScopeInfo::CreateForEmptyFunction(isolate());
   Node* const exception = Parameter(Type::Receiver());
   Node* const context = Parameter(Type::Any());
   Node* const effect = graph()->start();

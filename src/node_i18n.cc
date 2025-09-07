@@ -41,7 +41,6 @@
 
 
 #include "node_i18n.h"
-#include "node_external_reference.h"
 
 #if defined(NODE_HAVE_I18N_SUPPORT)
 
@@ -50,7 +49,6 @@
 #include "node_buffer.h"
 #include "node_errors.h"
 #include "node_internals.h"
-#include "string_bytes.h"
 #include "util-inl.h"
 #include "v8.h"
 
@@ -88,7 +86,7 @@ namespace node {
 
 using v8::Context;
 using v8::FunctionCallbackInfo;
-using v8::FunctionTemplate;
+using v8::HandleScope;
 using v8::Int32;
 using v8::Isolate;
 using v8::Local;
@@ -117,6 +115,174 @@ MaybeLocal<Object> ToBufferEndian(Environment* env, MaybeStackBuffer<T>* buf) {
 
   return ret;
 }
+
+struct Converter {
+  explicit Converter(const char* name, const char* sub = nullptr)
+      : conv(nullptr) {
+    UErrorCode status = U_ZERO_ERROR;
+    conv = ucnv_open(name, &status);
+    CHECK(U_SUCCESS(status));
+    if (sub != nullptr) {
+      ucnv_setSubstChars(conv, sub, strlen(sub), &status);
+    }
+  }
+
+  explicit Converter(UConverter* converter,
+                     const char* sub = nullptr) : conv(converter) {
+    CHECK_NOT_NULL(conv);
+    UErrorCode status = U_ZERO_ERROR;
+    if (sub != nullptr) {
+      ucnv_setSubstChars(conv, sub, strlen(sub), &status);
+    }
+  }
+
+  ~Converter() {
+    ucnv_close(conv);
+  }
+
+  UConverter* conv;
+};
+
+class ConverterObject : public BaseObject, Converter {
+ public:
+  enum ConverterFlags {
+    CONVERTER_FLAGS_FLUSH      = 0x1,
+    CONVERTER_FLAGS_FATAL      = 0x2,
+    CONVERTER_FLAGS_IGNORE_BOM = 0x4
+  };
+
+  ~ConverterObject() override = default;
+
+  static void Has(const FunctionCallbackInfo<Value>& args) {
+    Environment* env = Environment::GetCurrent(args);
+    HandleScope scope(env->isolate());
+
+    CHECK_GE(args.Length(), 1);
+    Utf8Value label(env->isolate(), args[0]);
+
+    UErrorCode status = U_ZERO_ERROR;
+    UConverter* conv = ucnv_open(*label, &status);
+    args.GetReturnValue().Set(!!U_SUCCESS(status));
+    ucnv_close(conv);
+  }
+
+  static void Create(const FunctionCallbackInfo<Value>& args) {
+    Environment* env = Environment::GetCurrent(args);
+    HandleScope scope(env->isolate());
+
+    Local<ObjectTemplate> t = ObjectTemplate::New(env->isolate());
+    t->SetInternalFieldCount(1);
+    Local<Object> obj;
+    if (!t->NewInstance(env->context()).ToLocal(&obj)) return;
+
+    CHECK_GE(args.Length(), 2);
+    Utf8Value label(env->isolate(), args[0]);
+    int flags = args[1]->Uint32Value(env->context()).ToChecked();
+    bool fatal =
+        (flags & CONVERTER_FLAGS_FATAL) == CONVERTER_FLAGS_FATAL;
+    bool ignoreBOM =
+        (flags & CONVERTER_FLAGS_IGNORE_BOM) == CONVERTER_FLAGS_IGNORE_BOM;
+
+    UErrorCode status = U_ZERO_ERROR;
+    UConverter* conv = ucnv_open(*label, &status);
+    if (U_FAILURE(status))
+      return;
+
+    if (fatal) {
+      status = U_ZERO_ERROR;
+      ucnv_setToUCallBack(conv, UCNV_TO_U_CALLBACK_STOP,
+                          nullptr, nullptr, nullptr, &status);
+    }
+
+    new ConverterObject(env, obj, conv, ignoreBOM);
+    args.GetReturnValue().Set(obj);
+  }
+
+  static void Decode(const FunctionCallbackInfo<Value>& args) {
+    Environment* env = Environment::GetCurrent(args);
+
+    CHECK_GE(args.Length(), 3);  // Converter, Buffer, Flags
+
+    ConverterObject* converter;
+    ASSIGN_OR_RETURN_UNWRAP(&converter, args[0].As<Object>());
+    ArrayBufferViewContents<char> input(args[1]);
+    int flags = args[2]->Uint32Value(env->context()).ToChecked();
+
+    UErrorCode status = U_ZERO_ERROR;
+    MaybeStackBuffer<UChar> result;
+    MaybeLocal<Object> ret;
+    size_t limit = ucnv_getMinCharSize(converter->conv) * input.length();
+    if (limit > 0)
+      result.AllocateSufficientStorage(limit);
+
+    UBool flush = (flags & CONVERTER_FLAGS_FLUSH) == CONVERTER_FLAGS_FLUSH;
+    OnScopeLeave cleanup([&]() {
+      if (flush) {
+        // Reset the converter state.
+        converter->bomSeen_ = false;
+        ucnv_reset(converter->conv);
+      }
+    });
+
+    const char* source = input.data();
+    size_t source_length = input.length();
+
+    if (converter->unicode_ && !converter->ignoreBOM_ && !converter->bomSeen_) {
+      int32_t bomOffset = 0;
+      ucnv_detectUnicodeSignature(source, source_length, &bomOffset, &status);
+      source += bomOffset;
+      source_length -= bomOffset;
+      converter->bomSeen_ = true;
+    }
+
+    UChar* target = *result;
+    ucnv_toUnicode(converter->conv,
+                   &target, target + (limit * sizeof(UChar)),
+                   &source, source + source_length,
+                   nullptr, flush, &status);
+
+    if (U_SUCCESS(status)) {
+      if (limit > 0)
+        result.SetLength(target - &result[0]);
+      ret = ToBufferEndian(env, &result);
+      args.GetReturnValue().Set(ret.ToLocalChecked());
+      return;
+    }
+
+    args.GetReturnValue().Set(status);
+  }
+
+  SET_NO_MEMORY_INFO()
+  SET_MEMORY_INFO_NAME(ConverterObject)
+  SET_SELF_SIZE(ConverterObject)
+
+ protected:
+  ConverterObject(Environment* env,
+                  Local<Object> wrap,
+                  UConverter* converter,
+                  bool ignoreBOM,
+                  const char* sub = nullptr) :
+                  BaseObject(env, wrap),
+                  Converter(converter, sub),
+                  ignoreBOM_(ignoreBOM) {
+    MakeWeak();
+
+    switch (ucnv_getType(converter)) {
+      case UCNV_UTF8:
+      case UCNV_UTF16_BigEndian:
+      case UCNV_UTF16_LittleEndian:
+        unicode_ = true;
+        break;
+      default:
+        unicode_ = false;
+    }
+  }
+
+ private:
+  bool unicode_ = false;     // True if this is a Unicode converter
+  bool ignoreBOM_ = false;   // True if the BOM should be ignored on Unicode
+  bool bomSeen_ = false;     // True if the BOM has been seen
+};
 
 // One-Shot Converters
 
@@ -148,17 +314,12 @@ MaybeLocal<Object> Transcode(Environment* env,
   *status = U_ZERO_ERROR;
   MaybeLocal<Object> ret;
   MaybeStackBuffer<char> result;
-  Converter to(toEncoding);
+  Converter to(toEncoding, "?");
   Converter from(fromEncoding);
-
-  size_t sublen = ucnv_getMinCharSize(to.conv());
-  std::string sub(sublen, '?');
-  to.set_subst_chars(sub.c_str());
-
-  const uint32_t limit = source_length * to.max_char_size();
+  const uint32_t limit = source_length * ucnv_getMaxCharSize(to.conv);
   result.AllocateSufficientStorage(limit);
   char* target = *result;
-  ucnv_convertEx(to.conv(), from.conv(), &target, target + limit,
+  ucnv_convertEx(to.conv, from.conv, &target, target + limit,
                  &source, source + source_length, nullptr, nullptr,
                  nullptr, nullptr, true, true, status);
   if (U_SUCCESS(*status)) {
@@ -179,7 +340,7 @@ MaybeLocal<Object> TranscodeToUcs2(Environment* env,
   MaybeStackBuffer<UChar> destbuf(source_length);
   Converter from(fromEncoding);
   const size_t length_in_chars = source_length * sizeof(UChar);
-  ucnv_toUChars(from.conv(), *destbuf, length_in_chars,
+  ucnv_toUChars(from.conv, *destbuf, length_in_chars,
                 source, source_length, status);
   if (U_SUCCESS(*status))
     ret = ToBufferEndian(env, &destbuf);
@@ -195,16 +356,11 @@ MaybeLocal<Object> TranscodeFromUcs2(Environment* env,
   *status = U_ZERO_ERROR;
   MaybeStackBuffer<UChar> sourcebuf;
   MaybeLocal<Object> ret;
-  Converter to(toEncoding);
-
-  size_t sublen = ucnv_getMinCharSize(to.conv());
-  std::string sub(sublen, '?');
-  to.set_subst_chars(sub.c_str());
-
+  Converter to(toEncoding, "?");
   const size_t length_in_chars = source_length / sizeof(UChar);
   CopySourceBuffer(&sourcebuf, source, source_length, length_in_chars);
   MaybeStackBuffer<char> destbuf(length_in_chars);
-  const uint32_t len = ucnv_fromUChars(to.conv(), *destbuf, length_in_chars,
+  const uint32_t len = ucnv_fromUChars(to.conv, *destbuf, length_in_chars,
                                        *sourcebuf, length_in_chars, status);
   if (U_SUCCESS(*status)) {
     destbuf.SetLength(len);
@@ -349,226 +505,11 @@ void ICUErrorName(const FunctionCallbackInfo<Value>& args) {
   UErrorCode status = static_cast<UErrorCode>(args[0].As<Int32>()->Value());
   args.GetReturnValue().Set(
       String::NewFromUtf8(env->isolate(),
-                          u_errorName(status)).ToLocalChecked());
+                          u_errorName(status),
+                          NewStringType::kNormal).ToLocalChecked());
 }
 
 }  // anonymous namespace
-
-Converter::Converter(const char* name, const char* sub) {
-  UErrorCode status = U_ZERO_ERROR;
-  UConverter* conv = ucnv_open(name, &status);
-  CHECK(U_SUCCESS(status));
-  conv_.reset(conv);
-  set_subst_chars(sub);
-}
-
-Converter::Converter(UConverter* converter, const char* sub)
-    : conv_(converter) {
-  set_subst_chars(sub);
-}
-
-void Converter::set_subst_chars(const char* sub) {
-  CHECK(conv_);
-  UErrorCode status = U_ZERO_ERROR;
-  if (sub != nullptr) {
-    ucnv_setSubstChars(conv_.get(), sub, strlen(sub), &status);
-    CHECK(U_SUCCESS(status));
-  }
-}
-
-void Converter::reset() {
-  ucnv_reset(conv_.get());
-}
-
-size_t Converter::min_char_size() const {
-  CHECK(conv_);
-  return ucnv_getMinCharSize(conv_.get());
-}
-
-size_t Converter::max_char_size() const {
-  CHECK(conv_);
-  return ucnv_getMaxCharSize(conv_.get());
-}
-
-void ConverterObject::Has(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-
-  CHECK_GE(args.Length(), 1);
-  Utf8Value label(env->isolate(), args[0]);
-
-  UErrorCode status = U_ZERO_ERROR;
-  ConverterPointer conv(ucnv_open(*label, &status));
-  args.GetReturnValue().Set(!!U_SUCCESS(status));
-}
-
-void ConverterObject::Create(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-
-  Local<ObjectTemplate> t = env->i18n_converter_template();
-  Local<Object> obj;
-  if (!t->NewInstance(env->context()).ToLocal(&obj)) return;
-
-  CHECK_GE(args.Length(), 2);
-  Utf8Value label(env->isolate(), args[0]);
-  int flags = args[1]->Uint32Value(env->context()).ToChecked();
-  bool fatal =
-      (flags & CONVERTER_FLAGS_FATAL) == CONVERTER_FLAGS_FATAL;
-
-  UErrorCode status = U_ZERO_ERROR;
-  UConverter* conv = ucnv_open(*label, &status);
-  if (U_FAILURE(status))
-    return;
-
-  if (fatal) {
-    status = U_ZERO_ERROR;
-    ucnv_setToUCallBack(conv, UCNV_TO_U_CALLBACK_STOP,
-                        nullptr, nullptr, nullptr, &status);
-  }
-
-  auto converter = new ConverterObject(env, obj, conv, flags);
-  size_t sublen = ucnv_getMinCharSize(conv);
-  std::string sub(sublen, '?');
-  converter->set_subst_chars(sub.c_str());
-
-  args.GetReturnValue().Set(obj);
-}
-
-void ConverterObject::Decode(const FunctionCallbackInfo<Value>& args) {
-  Environment* env = Environment::GetCurrent(args);
-
-  CHECK_GE(args.Length(), 4);  // Converter, Buffer, Flags, Encoding
-
-  ConverterObject* converter;
-  ASSIGN_OR_RETURN_UNWRAP(&converter, args[0].As<Object>());
-
-  if (!(args[1]->IsArrayBuffer() || args[1]->IsSharedArrayBuffer() ||
-        args[1]->IsArrayBufferView())) {
-    return node::THROW_ERR_INVALID_ARG_TYPE(
-        env->isolate(),
-        "The \"input\" argument must be an instance of SharedArrayBuffer, "
-        "ArrayBuffer or ArrayBufferView.");
-  }
-
-  ArrayBufferViewContents<char> input(args[1]);
-  int flags = args[2]->Uint32Value(env->context()).ToChecked();
-
-  CHECK(args[3]->IsString());
-  Local<String> from_encoding = args[3].As<String>();
-
-  UErrorCode status = U_ZERO_ERROR;
-  MaybeStackBuffer<UChar> result;
-
-  UBool flush = (flags & CONVERTER_FLAGS_FLUSH) == CONVERTER_FLAGS_FLUSH;
-
-  // When flushing the final chunk, the limit is the maximum
-  // of either the input buffer length or the number of pending
-  // characters times the min char size, multiplied by 2 as unicode may
-  // take up to 2 UChars to encode a character
-  size_t limit = 2 * converter->min_char_size() *
-      (!flush ?
-          input.length() :
-          std::max(
-              input.length(),
-              static_cast<size_t>(
-                  ucnv_toUCountPending(converter->conv(), &status))));
-  status = U_ZERO_ERROR;
-
-  if (limit > 0)
-    result.AllocateSufficientStorage(limit);
-
-  auto cleanup = OnScopeLeave([&]() {
-    if (flush) {
-      // Reset the converter state.
-      converter->set_bom_seen(false);
-      converter->reset();
-    }
-  });
-
-  const char* source = input.data();
-  size_t source_length = input.length();
-
-  UChar* target = *result;
-  ucnv_toUnicode(converter->conv(),
-                 &target,
-                 target + limit,
-                 &source,
-                 source + source_length,
-                 nullptr,
-                 flush,
-                 &status);
-
-  if (U_SUCCESS(status)) {
-    bool omit_initial_bom = false;
-    if (limit > 0) {
-      result.SetLength(target - &result[0]);
-      if (result.length() > 0 &&
-          converter->unicode() &&
-          !converter->ignore_bom() &&
-          !converter->bom_seen()) {
-        // If the very first result in the stream is a BOM, and we are not
-        // explicitly told to ignore it, then we mark it for discarding.
-        if (result[0] == 0xFEFF)
-          omit_initial_bom = true;
-        converter->set_bom_seen(true);
-      }
-    }
-
-    Local<Value> error;
-    UChar* output = result.out();
-    size_t beginning = 0;
-    size_t length = result.length() * sizeof(UChar);
-
-    if (omit_initial_bom) {
-      // Perform `ret = ret.slice(2)`.
-      beginning += 2;
-      length -= 2;
-    }
-
-    char* value = reinterpret_cast<char*>(output) + beginning;
-
-    if (IsBigEndian()) {
-      SwapBytes16(value, length);
-    }
-
-    MaybeLocal<Value> encoded =
-        StringBytes::Encode(env->isolate(), value, length, UCS2, &error);
-
-    Local<Value> ret;
-    if (encoded.ToLocal(&ret)) {
-      args.GetReturnValue().Set(ret);
-      return;
-    }
-  }
-
-  node::THROW_ERR_ENCODING_INVALID_ENCODED_DATA(
-      env->isolate(),
-      "The encoded data was not valid for encoding %s",
-      *node::Utf8Value(env->isolate(), from_encoding));
-}
-
-ConverterObject::ConverterObject(
-    Environment* env,
-    Local<Object> wrap,
-    UConverter* converter,
-    int flags,
-    const char* sub)
-    : BaseObject(env, wrap),
-      Converter(converter, sub),
-      flags_(flags) {
-  MakeWeak();
-
-  switch (ucnv_getType(converter)) {
-    case UCNV_UTF8:
-    case UCNV_UTF16_BigEndian:
-    case UCNV_UTF16_LittleEndian:
-      flags_ |= CONVERTER_FLAGS_UNICODE;
-      break;
-    default: {
-      // Fall through
-    }
-  }
-}
-
 
 bool InitializeICUDirectory(const std::string& path) {
   UErrorCode status = U_ZERO_ERROR;
@@ -584,16 +525,6 @@ bool InitializeICUDirectory(const std::string& path) {
     u_init(&status);
   }
   return status == U_ZERO_ERROR;
-}
-
-void SetDefaultTimeZone(const char* tzid) {
-  size_t tzidlen = strlen(tzid) + 1;
-  UErrorCode status = U_ZERO_ERROR;
-  MaybeStackBuffer<UChar, 256> id(tzidlen);
-  u_charsToUChars(tzid, id.out(), tzidlen);
-  // This is threadsafe:
-  ucal_setDefaultTimeZone(id.out(), &status);
-  CHECK(U_SUCCESS(status));
 }
 
 int32_t ToUnicode(MaybeStackBuffer<char>* buf,
@@ -642,13 +573,13 @@ int32_t ToUnicode(MaybeStackBuffer<char>* buf,
 int32_t ToASCII(MaybeStackBuffer<char>* buf,
                 const char* input,
                 size_t length,
-                idna_mode mode) {
+                enum idna_mode mode) {
   UErrorCode status = U_ZERO_ERROR;
   uint32_t options =                  // CheckHyphens = false; handled later
     UIDNA_CHECK_BIDI |                // CheckBidi = true
     UIDNA_CHECK_CONTEXTJ |            // CheckJoiners = true
     UIDNA_NONTRANSITIONAL_TO_ASCII;   // Nontransitional_Processing
-  if (mode == idna_mode::kStrict) {
+  if (mode == IDNA_STRICT) {
     options |= UIDNA_USE_STD3_RULES;  // UseSTD3ASCIIRules = beStrict
                                       // VerifyDnsLength = beStrict;
                                       //   handled later
@@ -696,14 +627,14 @@ int32_t ToASCII(MaybeStackBuffer<char>* buf,
   info.errors &= ~UIDNA_ERROR_LEADING_HYPHEN;
   info.errors &= ~UIDNA_ERROR_TRAILING_HYPHEN;
 
-  if (mode != idna_mode::kStrict) {
+  if (mode != IDNA_STRICT) {
     // VerifyDnsLength = beStrict
     info.errors &= ~UIDNA_ERROR_EMPTY_LABEL;
     info.errors &= ~UIDNA_ERROR_LABEL_TOO_LONG;
     info.errors &= ~UIDNA_ERROR_DOMAIN_NAME_TOO_LONG;
   }
 
-  if (U_FAILURE(status) || (mode != idna_mode::kLenient && info.errors != 0)) {
+  if (U_FAILURE(status) || (mode != IDNA_LENIENT && info.errors != 0)) {
     len = -1;
     buf->SetLength(0);
   } else {
@@ -741,7 +672,7 @@ static void ToASCII(const FunctionCallbackInfo<Value>& args) {
   Utf8Value val(env->isolate(), args[0]);
   // optional arg
   bool lenient = args[1]->BooleanValue(env->isolate());
-  idna_mode mode = lenient ? idna_mode::kLenient : idna_mode::kDefault;
+  enum idna_mode mode = lenient ? IDNA_LENIENT : IDNA_DEFAULT;
 
   MaybeStackBuffer<char> buf;
   int32_t len = ToASCII(&buf, *val, val.length(), mode);
@@ -780,6 +711,16 @@ static void ToASCII(const FunctionCallbackInfo<Value>& args) {
 // Refs: https://github.com/KDE/konsole/blob/8c6a5d13c0/src/konsole_wcwidth.cpp#L101-L223
 static int GetColumnWidth(UChar32 codepoint,
                           bool ambiguous_as_full_width = false) {
+  const auto zero_width_mask = U_GC_CC_MASK |  // C0/C1 control code
+                               U_GC_CF_MASK |  // Format control character
+                               U_GC_ME_MASK |  // Enclosing mark
+                               U_GC_MN_MASK;   // Nonspacing mark
+  if (codepoint != 0x00AD &&  // SOFT HYPHEN is Cf but not zero-width
+      ((U_MASK(u_charType(codepoint)) & zero_width_mask) ||
+       u_hasBinaryProperty(codepoint, UCHAR_EMOJI_MODIFIER))) {
+    return 0;
+  }
+
   // UCHAR_EAST_ASIAN_WIDTH is the Unicode property that identifies a
   // codepoint as being full width, wide, ambiguous, neutral, narrow,
   // or halfwidth.
@@ -794,24 +735,15 @@ static int GetColumnWidth(UChar32 codepoint,
         return 2;
       }
       // If ambiguous_as_full_width is false:
-      [[fallthrough]];
+      // Fall through
     case U_EA_NEUTRAL:
       if (u_hasBinaryProperty(codepoint, UCHAR_EMOJI_PRESENTATION)) {
         return 2;
       }
-      [[fallthrough]];
+      // Fall through
     case U_EA_HALFWIDTH:
     case U_EA_NARROW:
     default:
-      const auto zero_width_mask = U_GC_CC_MASK |  // C0/C1 control code
-                                  U_GC_CF_MASK |  // Format control character
-                                  U_GC_ME_MASK |  // Enclosing mark
-                                  U_GC_MN_MASK;   // Nonspacing mark
-      if (codepoint != 0x00AD &&  // SOFT HYPHEN is Cf but not zero-width
-          ((U_MASK(u_charType(codepoint)) & zero_width_mask) ||
-          u_hasBinaryProperty(codepoint, UCHAR_EMOJI_MODIFIER))) {
-        return 0;
-      }
       return 1;
   }
 }
@@ -819,10 +751,18 @@ static int GetColumnWidth(UChar32 codepoint,
 // Returns the column width for the given String.
 static void GetStringWidth(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
-  CHECK(args[0]->IsString());
+  if (args.Length() < 1)
+    return;
 
   bool ambiguous_as_full_width = args[1]->IsTrue();
-  bool expand_emoji_sequence = !args[2]->IsBoolean() || args[2]->IsTrue();
+  bool expand_emoji_sequence = args[2]->IsTrue();
+
+  if (args[0]->IsNumber()) {
+    uint32_t val;
+    if (!args[0]->Uint32Value(env->context()).To(&val)) return;
+    args.GetReturnValue().Set(GetColumnWidth(val, ambiguous_as_full_width));
+    return;
+  }
 
   TwoByteValue value(env->isolate(), args[0]);
   // reinterpret_cast is required by windows to compile
@@ -847,7 +787,6 @@ static void GetStringWidth(const FunctionCallbackInfo<Value>& args) {
     // in advance if a particular sequence is going to be supported.
     // The expand_emoji_sequence option allows the caller to skip this
     // check and count each code within an emoji sequence separately.
-    // https://www.unicode.org/reports/tr51/tr51-16.html#Emoji_ZWJ_Sequences
     if (!expand_emoji_sequence &&
         n > 0 && p == 0x200d &&  // 0x200d == ZWJ (zero width joiner)
         (u_hasBinaryProperty(c, UCHAR_EMOJI_PRESENTATION) ||
@@ -864,46 +803,23 @@ void Initialize(Local<Object> target,
                 Local<Context> context,
                 void* priv) {
   Environment* env = Environment::GetCurrent(context);
-  SetMethod(context, target, "toUnicode", ToUnicode);
-  SetMethod(context, target, "toASCII", ToASCII);
-  SetMethod(context, target, "getStringWidth", GetStringWidth);
+  env->SetMethod(target, "toUnicode", ToUnicode);
+  env->SetMethod(target, "toASCII", ToASCII);
+  env->SetMethod(target, "getStringWidth", GetStringWidth);
 
   // One-shot converters
-  SetMethod(context, target, "icuErrName", ICUErrorName);
-  SetMethod(context, target, "transcode", Transcode);
+  env->SetMethod(target, "icuErrName", ICUErrorName);
+  env->SetMethod(target, "transcode", Transcode);
 
   // ConverterObject
-  {
-    Local<FunctionTemplate> t = NewFunctionTemplate(env->isolate(), nullptr);
-    t->Inherit(BaseObject::GetConstructorTemplate(env));
-    t->InstanceTemplate()->SetInternalFieldCount(
-        ConverterObject::kInternalFieldCount);
-    Local<String> converter_string =
-        FIXED_ONE_BYTE_STRING(env->isolate(), "Converter");
-    t->SetClassName(converter_string);
-    env->set_i18n_converter_template(t->InstanceTemplate());
-  }
-
-  SetMethod(context, target, "getConverter", ConverterObject::Create);
-  SetMethod(context, target, "decode", ConverterObject::Decode);
-  SetMethod(context, target, "hasConverter", ConverterObject::Has);
-}
-
-void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
-  registry->Register(ToUnicode);
-  registry->Register(ToASCII);
-  registry->Register(GetStringWidth);
-  registry->Register(ICUErrorName);
-  registry->Register(Transcode);
-  registry->Register(ConverterObject::Create);
-  registry->Register(ConverterObject::Decode);
-  registry->Register(ConverterObject::Has);
+  env->SetMethod(target, "getConverter", ConverterObject::Create);
+  env->SetMethod(target, "decode", ConverterObject::Decode);
+  env->SetMethod(target, "hasConverter", ConverterObject::Has);
 }
 
 }  // namespace i18n
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(icu, node::i18n::Initialize)
-NODE_BINDING_EXTERNAL_REFERENCE(icu, node::i18n::RegisterExternalReferences)
+NODE_MODULE_CONTEXT_AWARE_INTERNAL(icu, node::i18n::Initialize)
 
 #endif  // NODE_HAVE_I18N_SUPPORT

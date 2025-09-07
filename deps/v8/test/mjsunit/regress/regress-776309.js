@@ -14,7 +14,6 @@ function f(b) {
   %_DeoptimizeNow();
   return o.t;
 }
-%PrepareFunctionForOptimization(f);
 
 // Finish slack tracking for C.
 for (var i = 0; i < 1000; i++) new C();

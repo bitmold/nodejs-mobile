@@ -77,6 +77,7 @@ function TestInvalidCalls(m) {
   assertThrows(function () { m.set(null, 0) }, TypeError);
   assertThrows(function () { m.set(0, 0) }, TypeError);
   assertThrows(function () { m.set('a-key', 0) }, TypeError);
+  assertThrows(function () { m.set(Symbol(), 0) }, TypeError);
 }
 TestInvalidCalls(new WeakMap);
 

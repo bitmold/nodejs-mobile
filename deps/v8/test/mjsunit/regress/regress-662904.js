@@ -13,7 +13,6 @@ function foo(a) {
   return sum;
 }
 
-%PrepareFunctionForOptimization(foo);
 assertEquals("0a", foo());
 assertEquals("0a", foo());
 %OptimizeFunctionOnNextCall(foo);

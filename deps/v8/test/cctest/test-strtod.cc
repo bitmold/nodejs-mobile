@@ -27,16 +27,17 @@
 
 #include <stdlib.h>
 
-#include "src/base/numbers/bignum.h"
-#include "src/base/numbers/diy-fp.h"
-#include "src/base/numbers/double.h"
-#include "src/base/numbers/strtod.h"
-#include "src/base/utils/random-number-generator.h"
 #include "src/init/v8.h"
+
+#include "src/base/utils/random-number-generator.h"
+#include "src/numbers/bignum.h"
+#include "src/numbers/diy-fp.h"
+#include "src/numbers/double.h"
+#include "src/numbers/strtod.h"
 #include "test/cctest/cctest.h"
 
 namespace v8 {
-namespace base {
+namespace internal {
 namespace test_strtod {
 
 static double StrtodChar(const char* str, int exponent) {
@@ -387,7 +388,9 @@ static int CompareBignumToDiyFp(const Bignum& bignum_digits,
   return Bignum::Compare(bignum, other);
 }
 
-static bool CheckDouble(Vector<const char> buffer, int exponent,
+
+static bool CheckDouble(Vector<const char> buffer,
+                        int exponent,
                         double to_check) {
   DiyFp lower_boundary;
   DiyFp upper_boundary;
@@ -418,6 +421,7 @@ static bool CheckDouble(Vector<const char> buffer, int exponent,
   }
 }
 
+
 // Copied from v8.cc and adapted to make the function deterministic.
 static uint32_t DeterministicRandom() {
   // Random number generator using George Marsaglia's MWC algorithm.
@@ -441,7 +445,7 @@ static const int kShortStrtodRandomCount = 2;
 static const int kLargeStrtodRandomCount = 2;
 
 TEST(RandomStrtod) {
-  base::RandomNumberGenerator rng;
+  v8::base::RandomNumberGenerator rng;
   char buffer[kBufferSize];
   for (int length = 1; length < 15; length++) {
     for (int i = 0; i < kShortStrtodRandomCount; ++i) {
@@ -472,5 +476,5 @@ TEST(RandomStrtod) {
 }
 
 }  // namespace test_strtod
-}  // namespace base
+}  // namespace internal
 }  // namespace v8

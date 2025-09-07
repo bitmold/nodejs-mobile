@@ -19,7 +19,6 @@ class B extends A {
     }
   }
 }
-%PrepareFunctionForOptimization(B);
 
 var thrower = new Proxy(A, {
   get(target, property, receiver) {

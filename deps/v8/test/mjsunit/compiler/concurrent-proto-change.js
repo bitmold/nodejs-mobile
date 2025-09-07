@@ -25,7 +25,14 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --no-always-opt --concurrent-recompilation
+// Flags: --allow-natives-syntax --no-always-opt
+// Flags: --concurrent-recompilation --block-concurrent-recompilation
+// Flags: --no-always-opt
+
+if (!%IsConcurrentRecompilationSupported()) {
+  print("Concurrent recompilation is disabled. Skipping this test.");
+  quit();
+}
 
 function f(foo) { return foo.bar(); }
 
@@ -37,17 +44,18 @@ o.__proto__ = { __proto__: { bar: function() { return 1; } } };
 assertEquals(1, f(o));
 assertEquals(1, f(o));
 
-%DisableOptimizationFinalization();
+// Mark for concurrent optimization.
 %OptimizeFunctionOnNextCall(f, "concurrent");
 // Kick off recompilation.
 assertEquals(1, f(o));
 // Change the prototype chain after compile graph has been created.
-%WaitForBackgroundOptimization();
 o.__proto__.__proto__ = { bar: function() { return 2; } };
-assertUnoptimized(f);
-%FinalizeOptimization();
-// Optimization failed due to map dependency.
-assertUnoptimized(f);
+// At this point, concurrent recompilation thread has not yet done its job.
+assertUnoptimized(f, "no sync");
+// Let the background thread proceed.
+%UnblockConcurrentRecompilation();
+// Optimization eventually bails out due to map dependency.
+assertUnoptimized(f, "sync");
 assertEquals(2, f(o));
-// Clear type info for stress runs.
+//Clear type info for stress runs.
 %ClearFunctionFeedback(f);

@@ -46,10 +46,7 @@
 
   function outer() {
     inner(1,2,3);
-    for (var i = 0; i < 3; i++) {
-      %OptimizeOsr();
-      %PrepareFunctionForOptimization(outer);
-    }
+    for (var i = 0; i < 3; i++) %OptimizeOsr();
   }
   %PrepareFunctionForOptimization(outer);
 

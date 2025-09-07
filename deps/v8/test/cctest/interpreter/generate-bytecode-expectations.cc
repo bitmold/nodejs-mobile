@@ -2,27 +2,21 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include <algorithm>
 #include <cstring>
 #include <fstream>
 #include <memory>
-#include <sstream>
 #include <vector>
 
+#include "test/cctest/interpreter/bytecode-expectations-printer.h"
+
 #include "include/libplatform/libplatform.h"
-#include "include/v8-array-buffer.h"
-#include "include/v8-context.h"
-#include "include/v8-initialization.h"
-#include "include/v8-local-handle.h"
-#include "include/v8-message.h"
+#include "include/v8.h"
+
 #include "src/base/logging.h"
 #include "src/interpreter/interpreter.h"
-#include "test/cctest/interpreter/bytecode-expectations-printer.h"
 
 #ifdef V8_OS_POSIX
 #include <dirent.h>
-#elif V8_OS_WIN
-#include <windows.h>
 #endif
 
 using v8::internal::interpreter::BytecodeExpectationsPrinter;
@@ -43,17 +37,18 @@ class ProgramOptions final {
         read_raw_js_snippet_(false),
         read_from_stdin_(false),
         rebaseline_(false),
-        check_baseline_(false),
         wrap_(true),
         module_(false),
         top_level_(false),
         print_callee_(false),
+        oneshot_opt_(false),
         async_iteration_(false),
+        private_methods_(false),
         verbose_(false) {}
 
   bool Validate() const;
-  void UpdateFromHeader(std::istream* stream);
-  void PrintHeader(std::ostream* stream) const;
+  void UpdateFromHeader(std::istream& stream);   // NOLINT
+  void PrintHeader(std::ostream& stream) const;  // NOLINT
 
   bool parsing_failed() const { return parsing_failed_; }
   bool print_help() const { return print_help_; }
@@ -63,15 +58,15 @@ class ProgramOptions final {
     return output_filename_.empty() && !rebaseline_;
   }
   bool rebaseline() const { return rebaseline_; }
-  bool check_baseline() const { return check_baseline_; }
-  bool baseline() const { return rebaseline_ || check_baseline_; }
   bool wrap() const { return wrap_; }
   bool module() const { return module_; }
   bool top_level() const { return top_level_; }
   bool print_callee() const { return print_callee_; }
+  bool oneshot_opt() const { return oneshot_opt_; }
   bool async_iteration() const { return async_iteration_; }
+  bool private_methods() const { return private_methods_; }
   bool verbose() const { return verbose_; }
-  bool suppress_runtime_errors() const { return baseline() && !verbose_; }
+  bool suppress_runtime_errors() const { return rebaseline_ && !verbose_; }
   std::vector<std::string> input_filenames() const { return input_filenames_; }
   std::string output_filename() const { return output_filename_; }
   std::string test_function_name() const { return test_function_name_; }
@@ -82,24 +77,23 @@ class ProgramOptions final {
   bool read_raw_js_snippet_;
   bool read_from_stdin_;
   bool rebaseline_;
-  bool check_baseline_;
   bool wrap_;
   bool module_;
   bool top_level_;
   bool print_callee_;
+  bool oneshot_opt_;
   bool async_iteration_;
+  bool private_methods_;
   bool verbose_;
   std::vector<std::string> input_filenames_;
   std::string output_filename_;
   std::string test_function_name_;
 };
 
-class V8_NODISCARD V8InitializationScope final {
+class V8InitializationScope final {
  public:
   explicit V8InitializationScope(const char* exec_path);
   ~V8InitializationScope();
-  V8InitializationScope(const V8InitializationScope&) = delete;
-  V8InitializationScope& operator=(const V8InitializationScope&) = delete;
 
   v8::Platform* platform() const { return platform_.get(); }
   v8::Isolate* isolate() const { return isolate_; }
@@ -108,6 +102,8 @@ class V8_NODISCARD V8InitializationScope final {
   std::unique_ptr<v8::Platform> platform_;
   std::unique_ptr<v8::ArrayBuffer::Allocator> allocator_;
   v8::Isolate* isolate_;
+
+  DISALLOW_COPY_AND_ASSIGN(V8InitializationScope);
 };
 
 bool ParseBoolean(const char* string) {
@@ -178,8 +174,6 @@ ProgramOptions ProgramOptions::FromCommandLine(int argc, char** argv) {
       options.read_from_stdin_ = true;
     } else if (strcmp(argv[i], "--rebaseline") == 0) {
       options.rebaseline_ = true;
-    } else if (strcmp(argv[i], "--check-baseline") == 0) {
-      options.check_baseline_ = true;
     } else if (strcmp(argv[i], "--no-wrap") == 0) {
       options.wrap_ = false;
     } else if (strcmp(argv[i], "--module") == 0) {
@@ -188,8 +182,12 @@ ProgramOptions ProgramOptions::FromCommandLine(int argc, char** argv) {
       options.top_level_ = true;
     } else if (strcmp(argv[i], "--print-callee") == 0) {
       options.print_callee_ = true;
+    } else if (strcmp(argv[i], "--disable-oneshot-opt") == 0) {
+      options.oneshot_opt_ = false;
     } else if (strcmp(argv[i], "--async-iteration") == 0) {
       options.async_iteration_ = true;
+    } else if (strcmp(argv[i], "--private-methods") == 0) {
+      options.private_methods_ = true;
     } else if (strcmp(argv[i], "--verbose") == 0) {
       options.verbose_ = true;
     } else if (strncmp(argv[i], "--output=", 9) == 0) {
@@ -205,13 +203,7 @@ ProgramOptions ProgramOptions::FromCommandLine(int argc, char** argv) {
     }
   }
 
-  if (options.rebaseline() && options.check_baseline()) {
-    REPORT_ERROR("Can't check baseline and rebaseline at the same time.");
-    std::exit(1);
-  }
-
-  if ((options.check_baseline_ || options.rebaseline_) &&
-      options.input_filenames_.empty()) {
+  if (options.rebaseline_ && options.input_filenames_.empty()) {
 #if defined(V8_OS_POSIX) || defined(V8_OS_WIN)
     if (options.verbose_) {
       std::cout << "Looking for golden files in " << kGoldenFilesPath << '\n';
@@ -244,29 +236,24 @@ bool ProgramOptions::Validate() const {
     return false;
   }
 
-  if (baseline() && read_raw_js_snippet_) {
-    REPORT_ERROR(
-        "Cannot use --rebaseline or --check-baseline on a raw JS snippet.");
+  if (rebaseline_ && read_raw_js_snippet_) {
+    REPORT_ERROR("Cannot use --rebaseline on a raw JS snippet.");
     return false;
   }
 
-  if (baseline() && !output_filename_.empty()) {
-    REPORT_ERROR(
-        "Output file cannot be specified together with --rebaseline or "
-        "--check-baseline.");
+  if (rebaseline_ && !output_filename_.empty()) {
+    REPORT_ERROR("Output file cannot be specified together with --rebaseline.");
     return false;
   }
 
-  if (baseline() && read_from_stdin_) {
-    REPORT_ERROR(
-        "Cannot --rebaseline or --check-baseline when input is --stdin.");
+  if (rebaseline_ && read_from_stdin_) {
+    REPORT_ERROR("Cannot --rebaseline when input is --stdin.");
     return false;
   }
 
-  if (input_filenames_.size() > 1 && !baseline() && !read_raw_js_snippet()) {
+  if (input_filenames_.size() > 1 && !rebaseline_ && !read_raw_js_snippet()) {
     REPORT_ERROR(
-        "Multiple input files, but no --rebaseline, --check-baseline or "
-        "--raw-js specified.");
+        "Multiple input files, but no --rebaseline or --raw-js specified.");
     return false;
   }
 
@@ -285,16 +272,17 @@ bool ProgramOptions::Validate() const {
   return true;
 }
 
-void ProgramOptions::UpdateFromHeader(std::istream* stream) {
+void ProgramOptions::UpdateFromHeader(std::istream& stream) {
   std::string line;
   const char* kPrintCallee = "print callee: ";
+  const char* kOneshotOpt = "oneshot opt: ";
 
   // Skip to the beginning of the options header
-  while (std::getline(*stream, line)) {
+  while (std::getline(stream, line)) {
     if (line == "---") break;
   }
 
-  while (std::getline(*stream, line)) {
+  while (std::getline(stream, line)) {
     if (line.compare(0, 8, "module: ") == 0) {
       module_ = ParseBoolean(line.c_str() + 8);
     } else if (line.compare(0, 6, "wrap: ") == 0) {
@@ -305,8 +293,12 @@ void ProgramOptions::UpdateFromHeader(std::istream* stream) {
       top_level_ = ParseBoolean(line.c_str() + 11);
     } else if (line.compare(0, strlen(kPrintCallee), kPrintCallee) == 0) {
       print_callee_ = ParseBoolean(line.c_str() + strlen(kPrintCallee));
+    } else if (line.compare(0, strlen(kOneshotOpt), kOneshotOpt) == 0) {
+      oneshot_opt_ = ParseBoolean(line.c_str() + strlen(kOneshotOpt));
     } else if (line.compare(0, 17, "async iteration: ") == 0) {
       async_iteration_ = ParseBoolean(line.c_str() + 17);
+    } else if (line.compare(0, 16, "private methods: ") == 0) {
+      private_methods_ = ParseBoolean(line.c_str() + 16);
     } else if (line == "---") {
       break;
     } else if (line.empty()) {
@@ -317,27 +309,28 @@ void ProgramOptions::UpdateFromHeader(std::istream* stream) {
   }
 }
 
-void ProgramOptions::PrintHeader(std::ostream* stream) const {
-  *stream << "---"
-          << "\nwrap: " << BooleanToString(wrap_);
+void ProgramOptions::PrintHeader(std::ostream& stream) const {  // NOLINT
+  stream << "---"
+         << "\nwrap: " << BooleanToString(wrap_);
 
   if (!test_function_name_.empty()) {
-    *stream << "\ntest function name: " << test_function_name_;
+    stream << "\ntest function name: " << test_function_name_;
   }
 
-  if (module_) *stream << "\nmodule: yes";
-  if (top_level_) *stream << "\ntop level: yes";
-  if (print_callee_) *stream << "\nprint callee: yes";
-  if (async_iteration_) *stream << "\nasync iteration: yes";
+  if (module_) stream << "\nmodule: yes";
+  if (top_level_) stream << "\ntop level: yes";
+  if (print_callee_) stream << "\nprint callee: yes";
+  if (oneshot_opt_) stream << "\noneshot opt: yes";
+  if (async_iteration_) stream << "\nasync iteration: yes";
+  if (private_methods_) stream << "\nprivate methods: yes";
 
-  *stream << "\n\n";
+  stream << "\n\n";
 }
 
 V8InitializationScope::V8InitializationScope(const char* exec_path)
     : platform_(v8::platform::NewDefaultPlatform()) {
   i::FLAG_always_opt = false;
   i::FLAG_allow_natives_syntax = true;
-  i::FLAG_enable_lazy_source_positions = false;
 
   v8::V8::InitializeICUDefaultLocation(exec_path);
   v8::V8::InitializeExternalStartupData(exec_path);
@@ -354,20 +347,20 @@ V8InitializationScope::V8InitializationScope(const char* exec_path)
 V8InitializationScope::~V8InitializationScope() {
   isolate_->Dispose();
   v8::V8::Dispose();
-  v8::V8::DisposePlatform();
+  v8::V8::ShutdownPlatform();
 }
 
-std::string ReadRawJSSnippet(std::istream* stream) {
+std::string ReadRawJSSnippet(std::istream& stream) {  // NOLINT
   std::stringstream body_buffer;
-  CHECK(body_buffer << stream->rdbuf());
+  CHECK(body_buffer << stream.rdbuf());
   return body_buffer.str();
 }
 
-bool ReadNextSnippet(std::istream* stream, std::string* string_out) {
+bool ReadNextSnippet(std::istream& stream, std::string* string_out) {  // NOLINT
   std::string line;
   bool found_begin_snippet = false;
   string_out->clear();
-  while (std::getline(*stream, line)) {
+  while (std::getline(stream, line)) {
     if (line == "snippet: \"") {
       found_begin_snippet = true;
       continue;
@@ -407,7 +400,8 @@ std::string UnescapeString(const std::string& escaped_string) {
 }
 
 void ExtractSnippets(std::vector<std::string>* snippet_list,
-                     std::istream* body_stream, bool read_raw_js_snippet) {
+                     std::istream& body_stream,  // NOLINT
+                     bool read_raw_js_snippet) {
   if (read_raw_js_snippet) {
     snippet_list->push_back(ReadRawJSSnippet(body_stream));
   } else {
@@ -418,7 +412,7 @@ void ExtractSnippets(std::vector<std::string>* snippet_list,
   }
 }
 
-void GenerateExpectationsFile(std::ostream* stream,
+void GenerateExpectationsFile(std::ostream& stream,  // NOLINT
                               const std::vector<std::string>& snippet_list,
                               const V8InitializationScope& platform,
                               const ProgramOptions& options) {
@@ -432,15 +426,20 @@ void GenerateExpectationsFile(std::ostream* stream,
   printer.set_module(options.module());
   printer.set_top_level(options.top_level());
   printer.set_print_callee(options.print_callee());
+  printer.set_oneshot_opt(options.oneshot_opt());
   if (!options.test_function_name().empty()) {
     printer.set_test_function_name(options.test_function_name());
   }
 
-  *stream << "#\n# Autogenerated by generate-bytecode-expectations.\n#\n\n";
+  if (options.private_methods()) i::FLAG_harmony_private_methods = true;
+
+  stream << "#\n# Autogenerated by generate-bytecode-expectations.\n#\n\n";
   options.PrintHeader(stream);
   for (const std::string& snippet : snippet_list) {
     printer.PrintExpectation(stream, snippet);
   }
+
+  i::FLAG_harmony_private_methods = false;
 }
 
 bool WriteExpectationsFile(const std::vector<std::string>& snippet_list,
@@ -449,7 +448,7 @@ bool WriteExpectationsFile(const std::vector<std::string>& snippet_list,
                            const std::string& output_filename) {
   std::ofstream output_file_handle;
   if (!options.write_to_stdout()) {
-    output_file_handle.open(output_filename.c_str(), std::ios::binary);
+    output_file_handle.open(output_filename.c_str());
     if (!output_file_handle.is_open()) {
       REPORT_ERROR("Could not open " << output_filename << " for writing.");
       return false;
@@ -458,24 +457,14 @@ bool WriteExpectationsFile(const std::vector<std::string>& snippet_list,
   std::ostream& output_stream =
       options.write_to_stdout() ? std::cout : output_file_handle;
 
-  GenerateExpectationsFile(&output_stream, snippet_list, platform, options);
+  GenerateExpectationsFile(output_stream, snippet_list, platform, options);
 
   return true;
 }
 
-std::string WriteExpectationsToString(
-    const std::vector<std::string>& snippet_list,
-    const V8InitializationScope& platform, const ProgramOptions& options) {
-  std::stringstream output_string;
-
-  GenerateExpectationsFile(&output_string, snippet_list, platform, options);
-
-  return output_string.str();
-}
-
 void PrintMessage(v8::Local<v8::Message> message, v8::Local<v8::Value>) {
   std::cerr << "INFO: "
-            << *v8::String::Utf8Value(message->GetIsolate(), message->Get())
+            << *v8::String::Utf8Value(v8::Isolate::GetCurrent(), message->Get())
             << '\n';
 }
 
@@ -486,19 +475,20 @@ void PrintUsage(const char* exec_path) {
       << "\nUsage: " << exec_path
       << " [OPTIONS]... [INPUT FILES]...\n\n"
          "Options:\n"
-         "  --help        Print this help message.\n"
-         "  --verbose     Emit messages about the progress of the tool.\n"
-         "  --raw-js      Read raw JavaScript, instead of the output format.\n"
-         "  --stdin       Read from standard input instead of file.\n"
+         "  --help    Print this help message.\n"
+         "  --verbose Emit messages about the progress of the tool.\n"
+         "  --raw-js  Read raw JavaScript, instead of the output format.\n"
+         "  --stdin   Read from standard input instead of file.\n"
          "  --rebaseline  Rebaseline input snippet file.\n"
-         "  --check-baseline   Checks the current baseline is valid.\n"
          "  --no-wrap     Do not wrap the snippet in a function.\n"
+         "  --disable-oneshot-opt     Disable Oneshot Optimization.\n"
          "  --print-callee     Print bytecode of callee, function should "
          "return arguments.callee.\n"
          "  --module      Compile as JavaScript module.\n"
          "  --test-function-name=foo  "
          "Specify the name of the test function.\n"
          "  --top-level   Process top level code, not the top-level function.\n"
+         "  --private-methods  Enable harmony_private_methods flag.\n"
          "  --output=file.name\n"
          "      Specify the output file. If not specified, output goes to "
          "stdout.\n"
@@ -506,9 +496,9 @@ void PrintUsage(const char* exec_path) {
          "      Specify the type of the entries in the constant pool "
          "(default: mixed).\n"
          "\n"
-         "When using --rebaseline or --check-baseline, flags --no-wrap,\n"
-         "--test-function-name and --pool-type will be overridden by the\n"
-         "options specified in the input file header.\n\n"
+         "When using --rebaseline, flags --no-wrap, --test-function-name \n"
+         "and --pool-type will be overridden by the options specified in \n"
+         "the input file header.\n\n"
          "Each raw JavaScript file is interpreted as a single snippet.\n\n"
          "This tool is intended as a help in writing tests.\n"
          "Please, DO NOT blindly copy and paste the output "
@@ -516,62 +506,6 @@ void PrintUsage(const char* exec_path) {
 }
 
 }  // namespace
-
-bool CheckBaselineExpectations(const std::string& input_filename,
-                               const std::vector<std::string>& snippet_list,
-                               const V8InitializationScope& platform,
-                               const ProgramOptions& options) {
-  std::string actual =
-      WriteExpectationsToString(snippet_list, platform, options);
-
-  std::ifstream input_stream(input_filename);
-  if (!input_stream.is_open()) {
-    REPORT_ERROR("Could not open " << input_filename << " for reading.");
-    std::exit(2);
-  }
-
-  bool check_failed = false;
-  std::string expected((std::istreambuf_iterator<char>(input_stream)),
-                       std::istreambuf_iterator<char>());
-  if (expected != actual) {
-    REPORT_ERROR("Mismatch: " << input_filename);
-    check_failed = true;
-    if (expected.size() != actual.size()) {
-      REPORT_ERROR("  Expected size (" << expected.size()
-                                       << ") != actual size (" << actual.size()
-                                       << ")");
-    }
-
-    int line = 1;
-    for (size_t i = 0; i < std::min(expected.size(), actual.size()); ++i) {
-      if (expected[i] != actual[i]) {
-        // Find the start of the line that has the mismatch carefully
-        // handling the case where it's the first line that mismatches.
-        size_t start = expected[i] != '\n' ? expected.rfind("\n", i)
-                                           : actual.rfind("\n", i);
-        if (start == std::string::npos) {
-          start = 0;
-        } else {
-          ++start;
-        }
-
-        // If there is no new line, then these two lines will consume the
-        // remaining characters in the string, because npos - start will
-        // always be longer than the string itself.
-        std::string expected_line =
-            expected.substr(start, expected.find("\n", i) - start);
-        std::string actual_line =
-            actual.substr(start, actual.find("\n", i) - start);
-        REPORT_ERROR("  First mismatch on line " << line << ")");
-        REPORT_ERROR("    Expected : '" << expected_line << "'");
-        REPORT_ERROR("    Actual   : '" << actual_line << "'");
-        break;
-      }
-      if (expected[i] == '\n') line++;
-    }
-  }
-  return check_failed;
-}
 
 int main(int argc, char** argv) {
   ProgramOptions options = ProgramOptions::FromCommandLine(argc, argv);
@@ -590,10 +524,9 @@ int main(int argc, char** argv) {
   if (options.read_from_stdin()) {
     // Rebaseline will never get here, so we will always take the
     // GenerateExpectationsFile at the end of this function.
-    DCHECK(!options.rebaseline() && !options.check_baseline());
-    ExtractSnippets(&snippet_list, &std::cin, options.read_raw_js_snippet());
+    DCHECK(!options.rebaseline());
+    ExtractSnippets(&snippet_list, std::cin, options.read_raw_js_snippet());
   } else {
-    bool check_failed = false;
     for (const std::string& input_filename : options.input_filenames()) {
       if (options.verbose()) {
         std::cerr << "Processing " << input_filename << '\n';
@@ -606,35 +539,25 @@ int main(int argc, char** argv) {
       }
 
       ProgramOptions updated_options = options;
-      if (options.baseline()) {
-        updated_options.UpdateFromHeader(&input_stream);
+      if (options.rebaseline()) {
+        updated_options.UpdateFromHeader(input_stream);
         CHECK(updated_options.Validate());
       }
 
-      ExtractSnippets(&snippet_list, &input_stream,
+      ExtractSnippets(&snippet_list, input_stream,
                       options.read_raw_js_snippet());
-      input_stream.close();
 
       if (options.rebaseline()) {
         if (!WriteExpectationsFile(snippet_list, platform, updated_options,
                                    input_filename)) {
           return 3;
         }
-      } else if (options.check_baseline()) {
-        check_failed |= CheckBaselineExpectations(input_filename, snippet_list,
-                                                  platform, updated_options);
-      }
-
-      if (options.baseline()) {
         snippet_list.clear();
       }
     }
-    if (check_failed) {
-      return 4;
-    }
   }
 
-  if (!options.baseline()) {
+  if (!options.rebaseline()) {
     if (!WriteExpectationsFile(snippet_list, platform, options,
                                options.output_filename())) {
       return 3;

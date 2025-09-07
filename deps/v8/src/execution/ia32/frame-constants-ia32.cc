@@ -4,12 +4,12 @@
 
 #if V8_TARGET_ARCH_IA32
 
-#include "src/execution/ia32/frame-constants-ia32.h"
-
 #include "src/codegen/assembler.h"
 #include "src/codegen/ia32/assembler-ia32-inl.h"
+#include "src/codegen/ia32/assembler-ia32.h"
 #include "src/execution/frame-constants.h"
-#include "src/execution/frames.h"
+
+#include "src/execution/ia32/frame-constants-ia32.h"
 
 namespace v8 {
 namespace internal {
@@ -18,7 +18,7 @@ Register JavaScriptFrame::fp_register() { return ebp; }
 Register JavaScriptFrame::context_register() { return esi; }
 Register JavaScriptFrame::constant_pool_pointer_register() { UNREACHABLE(); }
 
-int UnoptimizedFrameConstants::RegisterStackSlotCount(int register_count) {
+int InterpreterFrameConstants::RegisterStackSlotCount(int register_count) {
   return register_count;
 }
 

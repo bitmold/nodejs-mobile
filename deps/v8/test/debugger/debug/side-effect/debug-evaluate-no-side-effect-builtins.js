@@ -7,7 +7,6 @@
 Debug = debug.Debug
 
 var exception = null;
-var object = {"foo": "bar"};
 var object_with_symbol_key = {[Symbol("a")]: 1};
 var object_with_callbacks = { toString: () => "string", valueOf: () => 3};
 var symbol_for_a = Symbol.for("a");
@@ -15,8 +14,6 @@ var typed_array = new Uint8Array([1, 2, 3]);
 var array_buffer = new ArrayBuffer(3);
 var data_view = new DataView(new ArrayBuffer(8), 0, 8);
 var array = [1,2,3];
-var pure_function = function(x) { return x * x; };
-var unpure_function = function(x) { array.push(x); };
 
 function listener(event, exec_state, event_data, data) {
   if (event != Debug.DebugEvent.Break) return;
@@ -48,8 +45,6 @@ function listener(event, exec_state, event_data, data) {
     success(false, `Object.isFrozen({})`);
     success(false, `Object.isSealed({})`);
     success([1, 2], `Object.values({a:1, b:2})`);
-    success(["a", 1, "b", 2], `Object.entries({a:1, b:2}).flat()`);
-    success(["a", "b"], `Object.keys({a:1, b:2})`);
 
     fail(`Object.assign({}, {})`);
     fail(`Object.defineProperties({}, [{p:{value:3}}])`);
@@ -77,7 +72,7 @@ function listener(event, exec_state, event_data, data) {
     fail(`Array.of(1, 2, 3)`);
     var function_param = [
       "flatMap", "forEach", "every", "some", "reduce", "reduceRight", "find",
-      "filter", "map", "findIndex", "findLast", "findLastIndex"
+      "filter", "map", "findIndex"
     ];
     var fails = ["pop", "push", "reverse", "shift", "unshift", "splice",
       "sort", "copyWithin", "fill"];
@@ -124,10 +119,10 @@ function listener(event, exec_state, event_data, data) {
     success(true, `!!typed_array.buffer`);
     success(0, `typed_array.byteOffset`);
     success(3, `typed_array.byteLength`);
-    success({0: 1, 1: 2}, `Uint8Array.of(1, 2)`);
+    fail(`Uint8Array.of(1, 2)`);
     function_param = [
       "forEach", "every", "some", "reduce", "reduceRight", "find", "filter",
-      "map", "findIndex", "findLast", "findLastIndex",
+      "map", "findIndex"
     ];
     fails = ["reverse", "sort", "copyWithin", "fill", "set"];
     var typed_proto_proto = Object.getPrototypeOf(Object.getPrototypeOf(new Uint8Array()));
@@ -149,13 +144,12 @@ function listener(event, exec_state, event_data, data) {
 
     // Test Math functions.
     for (f of Object.getOwnPropertyNames(Math)) {
-      if (f !== "random" && typeof Math[f] === "function") {
+      if (typeof Math[f] === "function") {
         var result = exec_state.frame(0).evaluate(
                          `Math.${f}(0.5, -0.5);`, true).value();
-        assertEquals(Math[f](0.5, -0.5), result);
+        if (f != "random") assertEquals(Math[f](0.5, -0.5), result);
       }
     }
-    fail("Math.random();");
 
     // Test Number functions.
     success(new Number(0), `new Number()`);
@@ -190,7 +184,7 @@ function listener(event, exec_state, event_data, data) {
         if (f == "match") continue;
         if (f == "matchAll") continue;
         if (f == "search") continue;
-        if (f == "split" || f == "replace" || f == "replaceAll") {
+        if (f == "split" || f == "replace") {
           fail(`'abcd'.${f}(2)`);
           continue;
         }
@@ -222,22 +216,6 @@ function listener(event, exec_state, event_data, data) {
     success("a", `Symbol.keyFor(symbol_for_a)`);
     success("Symbol(a)", `symbol_for_a.valueOf().toString()`);
     success("Symbol(a)", `symbol_for_a[Symbol.toPrimitive]().toString()`);
-
-    // Test Reflect functions.
-    success(4, `Reflect.apply(pure_function, undefined, [2])`);
-    fail(`Reflect.apply(unpure_function, undefined, [2])`);
-    success("foo", `Reflect.construct(String, ["foo"]).toString()`);
-    fail(`Reflect.construct(unpure_function, ["foo"])`);
-    success("bar", `Reflect.getOwnPropertyDescriptor(object, "foo").value`);
-    success(true, `Reflect.getPrototypeOf(object) === Object.prototype`);
-    success(true, `Reflect.has(object, "foo")`);
-    success(true, `Reflect.isExtensible(object)`);
-    success("foo", `Reflect.ownKeys(object)[0]`);
-    fail(`Reflect.defineProperty(object, "baz", {})`);
-    fail(`Reflect.deleteProperty(object, "foo")`);
-    fail(`Reflect.preventExtensions(object)`);
-    fail(`Reflect.set(object, "great", "expectations")`);
-    fail(`Reflect.setPrototypeOf(object, Array.prototype)`);
   } catch (e) {
     exception = e;
     print(e, e.stack);

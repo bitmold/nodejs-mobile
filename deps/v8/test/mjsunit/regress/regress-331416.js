@@ -29,9 +29,8 @@
 
 function load(a, i) {
   return a[i];
-};
-%PrepareFunctionForOptimization(load);
-load([1, 2, 3], 'length');
+}
+load([1, 2, 3], "length");
 load(3);
 load([1, 2, 3], 3);
 load(0, 0);
@@ -41,9 +40,8 @@ assertEquals(undefined, load(0, 0));
 
 function store(a, i, x) {
   a[i] = x;
-};
-%PrepareFunctionForOptimization(store);
-store([1, 2, 3], 'length', 3);
+}
+store([1, 2, 3], "length", 3);
 store(3);
 store([1, 2, 3], 3, 3);
 store(0, 0, 1);

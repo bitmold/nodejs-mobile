@@ -9,9 +9,8 @@
 
 #include "src/codegen/code-desc.h"
 
-#if !defined(V8_TARGET_ARCH_X64) && !defined(V8_TARGET_ARCH_ARM) &&     \
-    !defined(V8_TARGET_ARCH_ARM64) && !defined(V8_TARGET_ARCH_S390X) && \
-    !defined(V8_TARGET_ARCH_PPC64)
+#if !defined(V8_TARGET_ARCH_X64) && !defined(V8_TARGET_ARCH_ARM) && \
+    !defined(V8_TARGET_ARCH_ARM64)
 
 // Placeholders for unsupported architectures.
 
@@ -27,12 +26,14 @@ void EhFrameWriter::WriteInitialStateInCie() { UNIMPLEMENTED(); }
 
 int EhFrameWriter::RegisterToDwarfCode(Register) {
   UNIMPLEMENTED();
+  return -1;
 }
 
 #ifdef ENABLE_DISASSEMBLER
 
 const char* EhFrameDisassembler::DwarfRegisterCodeToString(int) {
   UNIMPLEMENTED();
+  return nullptr;
 }
 
 #endif
@@ -53,7 +54,7 @@ STATIC_CONST_MEMBER_DEFINITION const int EhFrameConstants::kEhFrameHdrSize;
 STATIC_CONST_MEMBER_DEFINITION const uint32_t EhFrameWriter::kInt32Placeholder;
 
 // static
-void EhFrameWriter::WriteEmptyEhFrame(std::ostream& stream) {
+void EhFrameWriter::WriteEmptyEhFrame(std::ostream& stream) {  // NOLINT
   stream.put(EhFrameConstants::kEhFrameHdrVersion);
 
   // .eh_frame pointer encoding specifier.
@@ -302,48 +303,36 @@ void EhFrameWriter::SetBaseAddressRegisterAndOffset(Register base_register,
   base_register_ = base_register;
 }
 
-void EhFrameWriter::RecordRegisterSavedToStack(int dwarf_register_code,
-                                               int offset) {
+void EhFrameWriter::RecordRegisterSavedToStack(int register_code, int offset) {
   DCHECK_EQ(writer_state_, InternalState::kInitialized);
   DCHECK_EQ(offset % EhFrameConstants::kDataAlignmentFactor, 0);
   int factored_offset = offset / EhFrameConstants::kDataAlignmentFactor;
   if (factored_offset >= 0) {
-    DCHECK_LE(dwarf_register_code, EhFrameConstants::kSavedRegisterMask);
+    DCHECK_LE(register_code, EhFrameConstants::kSavedRegisterMask);
     WriteByte((EhFrameConstants::kSavedRegisterTag
                << EhFrameConstants::kSavedRegisterMaskSize) |
-              (dwarf_register_code & EhFrameConstants::kSavedRegisterMask));
+              (register_code & EhFrameConstants::kSavedRegisterMask));
     WriteULeb128(factored_offset);
   } else {
     WriteOpcode(EhFrameConstants::DwarfOpcodes::kOffsetExtendedSf);
-    WriteULeb128(dwarf_register_code);
+    WriteULeb128(register_code);
     WriteSLeb128(factored_offset);
   }
 }
 
 void EhFrameWriter::RecordRegisterNotModified(Register name) {
-  RecordRegisterNotModified(RegisterToDwarfCode(name));
-}
-
-void EhFrameWriter::RecordRegisterNotModified(int dwarf_register_code) {
   DCHECK_EQ(writer_state_, InternalState::kInitialized);
   WriteOpcode(EhFrameConstants::DwarfOpcodes::kSameValue);
-  WriteULeb128(dwarf_register_code);
+  WriteULeb128(RegisterToDwarfCode(name));
 }
 
 void EhFrameWriter::RecordRegisterFollowsInitialRule(Register name) {
-  RecordRegisterFollowsInitialRule(RegisterToDwarfCode(name));
-}
-
-void EhFrameWriter::RecordRegisterFollowsInitialRule(int dwarf_register_code) {
   DCHECK_EQ(writer_state_, InternalState::kInitialized);
-  if (dwarf_register_code <= EhFrameConstants::kFollowInitialRuleMask) {
-    WriteByte((EhFrameConstants::kFollowInitialRuleTag
-               << EhFrameConstants::kFollowInitialRuleMaskSize) |
-              (dwarf_register_code & EhFrameConstants::kFollowInitialRuleMask));
-  } else {
-    WriteOpcode(EhFrameConstants::DwarfOpcodes::kRestoreExtended);
-    WriteULeb128(dwarf_register_code);
-  }
+  int code = RegisterToDwarfCode(name);
+  DCHECK_LE(code, EhFrameConstants::kFollowInitialRuleMask);
+  WriteByte((EhFrameConstants::kFollowInitialRuleTag
+             << EhFrameConstants::kFollowInitialRuleMaskSize) |
+            (code & EhFrameConstants::kFollowInitialRuleMask));
 }
 
 void EhFrameWriter::Finish(int code_size) {
@@ -464,7 +453,7 @@ int32_t EhFrameIterator::DecodeSLeb128(const byte* encoded, int* encoded_size) {
 
 namespace {
 
-class V8_NODISCARD StreamModifiersScope final {
+class StreamModifiersScope final {
  public:
   explicit StreamModifiersScope(std::ostream* stream)
       : stream_(stream), flags_(stream->flags()) {}
@@ -478,7 +467,7 @@ class V8_NODISCARD StreamModifiersScope final {
 }  // namespace
 
 // static
-void EhFrameDisassembler::DumpDwarfDirectives(std::ostream& stream,
+void EhFrameDisassembler::DumpDwarfDirectives(std::ostream& stream,  // NOLINT
                                               const byte* start,
                                               const byte* end) {
   StreamModifiersScope modifiers_scope(&stream);
@@ -585,15 +574,15 @@ void EhFrameDisassembler::DumpDwarfDirectives(std::ostream& stream,
         break;
       default:
         UNREACHABLE();
+        return;
     }
   }
 }
 
-void EhFrameDisassembler::DisassembleToStream(std::ostream& stream) {
+void EhFrameDisassembler::DisassembleToStream(std::ostream& stream) {  // NOLINT
   // The encoded CIE size does not include the size field itself.
   const int cie_size =
-      base::ReadUnalignedValue<uint32_t>(reinterpret_cast<Address>(start_)) +
-      kInt32Size;
+      ReadUnalignedUInt32(reinterpret_cast<Address>(start_)) + kInt32Size;
   const int fde_offset = cie_size;
 
   const byte* cie_directives_start =
@@ -608,13 +597,12 @@ void EhFrameDisassembler::DisassembleToStream(std::ostream& stream) {
       reinterpret_cast<Address>(start_) + fde_offset +
       EhFrameConstants::kProcedureAddressOffsetInFde;
   int32_t procedure_offset =
-      base::ReadUnalignedValue<int32_t>(procedure_offset_address);
+      ReadUnalignedValue<int32_t>(procedure_offset_address);
 
   Address procedure_size_address = reinterpret_cast<Address>(start_) +
                                    fde_offset +
                                    EhFrameConstants::kProcedureSizeOffsetInFde;
-  uint32_t procedure_size =
-      base::ReadUnalignedValue<uint32_t>(procedure_size_address);
+  uint32_t procedure_size = ReadUnalignedUInt32(procedure_size_address);
 
   const byte* fde_start = start_ + fde_offset;
   stream << reinterpret_cast<const void*>(fde_start) << "  .eh_frame: FDE\n"

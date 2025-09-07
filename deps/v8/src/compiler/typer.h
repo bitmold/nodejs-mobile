@@ -11,9 +11,6 @@
 
 namespace v8 {
 namespace internal {
-
-class TickCounter;
-
 namespace compiler {
 
 // Forward declarations.
@@ -28,11 +25,8 @@ class V8_EXPORT_PRIVATE Typer {
   };
   using Flags = base::Flags<Flag>;
 
-  Typer(JSHeapBroker* broker, Flags flags, Graph* graph,
-        TickCounter* tick_counter);
+  Typer(JSHeapBroker* broker, Flags flags, Graph* graph);
   ~Typer();
-  Typer(const Typer&) = delete;
-  Typer& operator=(const Typer&) = delete;
 
   void Run();
   // TODO(bmeurer,jarin): Remove this once we have a notion of "roots" on Graph.
@@ -55,10 +49,11 @@ class V8_EXPORT_PRIVATE Typer {
   TypeCache const* cache_;
   JSHeapBroker* broker_;
   OperationTyper operation_typer_;
-  TickCounter* const tick_counter_;
 
   Type singleton_false_;
   Type singleton_true_;
+
+  DISALLOW_COPY_AND_ASSIGN(Typer);
 };
 
 DEFINE_OPERATORS_FOR_FLAGS(Typer::Flags)

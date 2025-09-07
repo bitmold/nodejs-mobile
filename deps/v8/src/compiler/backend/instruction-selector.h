@@ -12,21 +12,13 @@
 #include "src/compiler/backend/instruction-scheduler.h"
 #include "src/compiler/backend/instruction.h"
 #include "src/compiler/common-operator.h"
-#include "src/compiler/feedback-source.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node.h"
 #include "src/zone/zone-containers.h"
 
-#if V8_ENABLE_WEBASSEMBLY
-#include "src/wasm/simd-shuffle.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
-
 namespace v8 {
 namespace internal {
-
-class TickCounter;
-
 namespace compiler {
 
 // Forward declarations.
@@ -54,22 +46,29 @@ class FlagsContinuation final {
     return FlagsContinuation(kFlags_branch, condition, true_block, false_block);
   }
 
+  static FlagsContinuation ForBranchAndPoison(FlagsCondition condition,
+                                              BasicBlock* true_block,
+                                              BasicBlock* false_block) {
+    return FlagsContinuation(kFlags_branch_and_poison, condition, true_block,
+                             false_block);
+  }
+
   // Creates a new flags continuation for an eager deoptimization exit.
   static FlagsContinuation ForDeoptimize(FlagsCondition condition,
+                                         DeoptimizeKind kind,
                                          DeoptimizeReason reason,
-                                         NodeId node_id,
-                                         FeedbackSource const& feedback,
-                                         FrameState frame_state) {
-    return FlagsContinuation(kFlags_deoptimize, condition, reason, node_id,
+                                         VectorSlotPair const& feedback,
+                                         Node* frame_state) {
+    return FlagsContinuation(kFlags_deoptimize, condition, kind, reason,
                              feedback, frame_state);
   }
-  static FlagsContinuation ForDeoptimizeForTesting(
-      FlagsCondition condition, DeoptimizeReason reason, NodeId node_id,
-      FeedbackSource const& feedback, Node* frame_state) {
-    // test-instruction-scheduler.cc passes a dummy Node* as frame_state.
-    // Contents don't matter as long as it's not nullptr.
-    return FlagsContinuation(kFlags_deoptimize, condition, reason, node_id,
-                             feedback, frame_state);
+
+  // Creates a new flags continuation for an eager deoptimization exit.
+  static FlagsContinuation ForDeoptimizeAndPoison(
+      FlagsCondition condition, DeoptimizeKind kind, DeoptimizeReason reason,
+      VectorSlotPair const& feedback, Node* frame_state) {
+    return FlagsContinuation(kFlags_deoptimize_and_poison, condition, kind,
+                             reason, feedback, frame_state);
   }
 
   // Creates a new flags continuation for a boolean value.
@@ -83,30 +82,32 @@ class FlagsContinuation final {
     return FlagsContinuation(condition, trap_id, result);
   }
 
-  static FlagsContinuation ForSelect(FlagsCondition condition, Node* result,
-                                     Node* true_value, Node* false_value) {
-    return FlagsContinuation(condition, result, true_value, false_value);
-  }
-
   bool IsNone() const { return mode_ == kFlags_none; }
-  bool IsBranch() const { return mode_ == kFlags_branch; }
-  bool IsDeoptimize() const { return mode_ == kFlags_deoptimize; }
+  bool IsBranch() const {
+    return mode_ == kFlags_branch || mode_ == kFlags_branch_and_poison;
+  }
+  bool IsDeoptimize() const {
+    return mode_ == kFlags_deoptimize || mode_ == kFlags_deoptimize_and_poison;
+  }
+  bool IsPoisoned() const {
+    return mode_ == kFlags_branch_and_poison ||
+           mode_ == kFlags_deoptimize_and_poison;
+  }
   bool IsSet() const { return mode_ == kFlags_set; }
   bool IsTrap() const { return mode_ == kFlags_trap; }
-  bool IsSelect() const { return mode_ == kFlags_select; }
   FlagsCondition condition() const {
     DCHECK(!IsNone());
     return condition_;
+  }
+  DeoptimizeKind kind() const {
+    DCHECK(IsDeoptimize());
+    return kind_;
   }
   DeoptimizeReason reason() const {
     DCHECK(IsDeoptimize());
     return reason_;
   }
-  NodeId node_id() const {
-    DCHECK(IsDeoptimize());
-    return node_id_;
-  }
-  FeedbackSource const& feedback() const {
+  VectorSlotPair const& feedback() const {
     DCHECK(IsDeoptimize());
     return feedback_;
   }
@@ -115,7 +116,7 @@ class FlagsContinuation final {
     return frame_state_or_result_;
   }
   Node* result() const {
-    DCHECK(IsSet() || IsSelect());
+    DCHECK(IsSet());
     return frame_state_or_result_;
   }
   TrapId trap_id() const {
@@ -129,14 +130,6 @@ class FlagsContinuation final {
   BasicBlock* false_block() const {
     DCHECK(IsBranch());
     return false_block_;
-  }
-  Node* true_value() const {
-    DCHECK(IsSelect());
-    return true_value_;
-  }
-  Node* false_value() const {
-    DCHECK(IsSelect());
-    return false_value_;
   }
 
   void Negate() {
@@ -193,21 +186,21 @@ class FlagsContinuation final {
         condition_(condition),
         true_block_(true_block),
         false_block_(false_block) {
-    DCHECK(mode == kFlags_branch);
+    DCHECK(mode == kFlags_branch || mode == kFlags_branch_and_poison);
     DCHECK_NOT_NULL(true_block);
     DCHECK_NOT_NULL(false_block);
   }
 
   FlagsContinuation(FlagsMode mode, FlagsCondition condition,
-                    DeoptimizeReason reason, NodeId node_id,
-                    FeedbackSource const& feedback, Node* frame_state)
+                    DeoptimizeKind kind, DeoptimizeReason reason,
+                    VectorSlotPair const& feedback, Node* frame_state)
       : mode_(mode),
         condition_(condition),
+        kind_(kind),
         reason_(reason),
-        node_id_(node_id),
         feedback_(feedback),
         frame_state_or_result_(frame_state) {
-    DCHECK(mode == kFlags_deoptimize);
+    DCHECK(mode == kFlags_deoptimize || mode == kFlags_deoptimize_and_poison);
     DCHECK_NOT_NULL(frame_state);
   }
 
@@ -226,30 +219,16 @@ class FlagsContinuation final {
     DCHECK_NOT_NULL(result);
   }
 
-  FlagsContinuation(FlagsCondition condition, Node* result, Node* true_value,
-                    Node* false_value)
-      : mode_(kFlags_select),
-        condition_(condition),
-        frame_state_or_result_(result),
-        true_value_(true_value),
-        false_value_(false_value) {
-    DCHECK_NOT_NULL(result);
-    DCHECK_NOT_NULL(true_value);
-    DCHECK_NOT_NULL(false_value);
-  }
-
   FlagsMode const mode_;
   FlagsCondition condition_;
-  DeoptimizeReason reason_;         // Only valid if mode_ == kFlags_deoptimize*
-  NodeId node_id_;                  // Only valid if mode_ == kFlags_deoptimize*
-  FeedbackSource feedback_;         // Only valid if mode_ == kFlags_deoptimize*
-  Node* frame_state_or_result_;     // Only valid if mode_ == kFlags_deoptimize*
-                                    // or mode_ == kFlags_set.
-  BasicBlock* true_block_;          // Only valid if mode_ == kFlags_branch*.
-  BasicBlock* false_block_;         // Only valid if mode_ == kFlags_branch*.
-  TrapId trap_id_;                  // Only valid if mode_ == kFlags_trap.
-  Node* true_value_;                // Only valid if mode_ == kFlags_select.
-  Node* false_value_;               // Only valid if mode_ == kFlags_select.
+  DeoptimizeKind kind_;          // Only valid if mode_ == kFlags_deoptimize*
+  DeoptimizeReason reason_;      // Only valid if mode_ == kFlags_deoptimize*
+  VectorSlotPair feedback_;      // Only valid if mode_ == kFlags_deoptimize*
+  Node* frame_state_or_result_;  // Only valid if mode_ == kFlags_deoptimize*
+                                 // or mode_ == kFlags_set.
+  BasicBlock* true_block_;       // Only valid if mode_ == kFlags_branch*.
+  BasicBlock* false_block_;      // Only valid if mode_ == kFlags_branch*.
+  TrapId trap_id_;               // Only valid if mode_ == kFlags_trap.
 };
 
 // This struct connects nodes of parameters which are going to be pushed on the
@@ -287,9 +266,7 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
       Zone* zone, size_t node_count, Linkage* linkage,
       InstructionSequence* sequence, Schedule* schedule,
       SourcePositionTable* source_positions, Frame* frame,
-      EnableSwitchJumpTable enable_switch_jump_table, TickCounter* tick_counter,
-      JSHeapBroker* broker, size_t* max_unoptimized_frame_height,
-      size_t* max_pushed_argument_count,
+      EnableSwitchJumpTable enable_switch_jump_table,
       SourcePositionMode source_position_mode = kCallSourcePositions,
       Features features = SupportedFeatures(),
       EnableScheduling enable_scheduling = FLAG_turbo_instruction_scheduling
@@ -297,6 +274,8 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
                                                : kDisableScheduling,
       EnableRootsRelativeAddressing enable_roots_relative_addressing =
           kDisableRootsRelativeAddressing,
+      PoisoningMitigationLevel poisoning_level =
+          PoisoningMitigationLevel::kDontPoison,
       EnableTraceTurboJson trace_turbo = kDisableTraceTurboJson);
 
   // Visit code for the entire graph with the included schedule.
@@ -362,12 +341,16 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
                                     size_t input_count,
                                     InstructionOperand* inputs,
                                     FlagsContinuation* cont);
-  Instruction* EmitWithContinuation(
-      InstructionCode opcode, size_t output_count, InstructionOperand* outputs,
-      size_t input_count, InstructionOperand* inputs, size_t temp_count,
-      InstructionOperand* temps, FlagsContinuation* cont);
 
-  void EmitIdentity(Node* node);
+  // ===========================================================================
+  // ===== Architecture-independent deoptimization exit emission methods. ======
+  // ===========================================================================
+  Instruction* EmitDeoptimize(InstructionCode opcode, size_t output_count,
+                              InstructionOperand* outputs, size_t input_count,
+                              InstructionOperand* inputs, DeoptimizeKind kind,
+                              DeoptimizeReason reason,
+                              VectorSlotPair const& feedback,
+                              Node* frame_state);
 
   // ===========================================================================
   // ============== Architecture-independent CPU feature methods. ==============
@@ -400,6 +383,8 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
 
   static MachineOperatorBuilder::AlignmentRequirements AlignmentRequirements();
 
+  bool NeedsPoisoning(IsSafetyCheck safety_check) const;
+
   // ===========================================================================
   // ============ Architecture-independent graph covering methods. =============
   // ===========================================================================
@@ -407,12 +392,12 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   // Used in pattern matching during code generation.
   // Check if {node} can be covered while generating code for the current
   // instruction. A node can be covered if the {user} of the node has the only
-  // edge, the two are in the same basic block, and there are no side-effects
-  // in-between. The last check is crucial for soundness.
-  // For pure nodes, CanCover(a,b) is checked to avoid duplicated execution:
-  // If this is not the case, code for b must still be generated for other
-  // users, and fusing is unlikely to improve performance.
+  // edge and the two are in the same basic block.
   bool CanCover(Node* user, Node* node) const;
+  // CanCover is not transitive.  The counter example are Nodes A,B,C such that
+  // CanCover(A, B) and CanCover(B,C) and B is pure: The the effect level of A
+  // and B might differ. CanCoverTransitively does the additional checks.
+  bool CanCoverTransitively(Node* user, Node* node, Node* node_input) const;
 
   // Used in pattern matching during code generation.
   // This function checks that {node} and {user} are in the same basic block,
@@ -453,17 +438,12 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   // Gets the effect level of {node}.
   int GetEffectLevel(Node* node) const;
 
-  // Gets the effect level of {node}, appropriately adjusted based on
-  // continuation flags if the node is a branch.
-  int GetEffectLevel(Node* node, FlagsContinuation* cont) const;
-
   int GetVirtualRegister(const Node* node);
   const std::map<NodeId, int> GetVirtualRegistersForTesting() const;
 
   // Check if we can generate loads and stores of ExternalConstants relative
   // to the roots register.
-  bool CanAddressRelativeToRootsRegister(
-      const ExternalReference& reference) const;
+  bool CanAddressRelativeToRootsRegister() const;
   // Check if we can use the roots register to access GC roots.
   bool CanUseRootsRegister() const;
 
@@ -471,6 +451,36 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
 
   const ZoneVector<std::pair<int, int>>& instr_origins() const {
     return instr_origins_;
+  }
+
+  // Expose these SIMD helper functions for testing.
+  static void CanonicalizeShuffleForTesting(bool inputs_equal, uint8_t* shuffle,
+                                            bool* needs_swap,
+                                            bool* is_swizzle) {
+    CanonicalizeShuffle(inputs_equal, shuffle, needs_swap, is_swizzle);
+  }
+
+  static bool TryMatchIdentityForTesting(const uint8_t* shuffle) {
+    return TryMatchIdentity(shuffle);
+  }
+  template <int LANES>
+  static bool TryMatchDupForTesting(const uint8_t* shuffle, int* index) {
+    return TryMatchDup<LANES>(shuffle, index);
+  }
+  static bool TryMatch32x4ShuffleForTesting(const uint8_t* shuffle,
+                                            uint8_t* shuffle32x4) {
+    return TryMatch32x4Shuffle(shuffle, shuffle32x4);
+  }
+  static bool TryMatch16x8ShuffleForTesting(const uint8_t* shuffle,
+                                            uint8_t* shuffle16x8) {
+    return TryMatch16x8Shuffle(shuffle, shuffle16x8);
+  }
+  static bool TryMatchConcatForTesting(const uint8_t* shuffle,
+                                       uint8_t* offset) {
+    return TryMatchConcat(shuffle, offset);
+  }
+  static bool TryMatchBlendForTesting(const uint8_t* shuffle) {
+    return TryMatchBlend(shuffle);
   }
 
  private:
@@ -482,14 +492,15 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   }
 
   void AppendDeoptimizeArguments(InstructionOperandVector* args,
-                                 DeoptimizeReason reason, NodeId node_id,
-                                 FeedbackSource const& feedback,
-                                 FrameState frame_state);
+                                 DeoptimizeKind kind, DeoptimizeReason reason,
+                                 VectorSlotPair const& feedback,
+                                 Node* frame_state);
 
-  void EmitTableSwitch(const SwitchInfo& sw,
-                       InstructionOperand const& index_operand);
+  void EmitTableSwitch(const SwitchInfo& sw, InstructionOperand& index_operand);
+  void EmitLookupSwitch(const SwitchInfo& sw,
+                        InstructionOperand& value_operand);
   void EmitBinarySearchSwitch(const SwitchInfo& sw,
-                              InstructionOperand const& value_operand);
+                              InstructionOperand& value_operand);
 
   void TryRename(InstructionOperand* op);
   int GetRename(int virtual_register);
@@ -525,7 +536,7 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   void MarkAsSimd128(Node* node) {
     MarkAsRepresentation(MachineRepresentation::kSimd128, node);
   }
-  void MarkAsTagged(Node* node) {
+  void MarkAsReference(Node* node) {
     MarkAsRepresentation(MachineRepresentation::kTagged, node);
   }
   void MarkAsCompressed(Node* node) {
@@ -541,7 +552,8 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
     kCallCodeImmediate = 1u << 0,
     kCallAddressImmediate = 1u << 1,
     kCallTail = 1u << 2,
-    kCallFixedTargetRegister = 1u << 3
+    kCallFixedTargetRegister = 1u << 3,
+    kAllowCallThroughSlot = 1u << 4
   };
   using CallBufferFlags = base::Flags<CallBufferFlag>;
 
@@ -551,23 +563,17 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   // {call_code_immediate} to generate immediate operands to calls of code.
   // {call_address_immediate} to generate immediate operands to address calls.
   void InitializeCallBuffer(Node* call, CallBuffer* buffer,
-                            CallBufferFlags flags, int stack_slot_delta = 0);
+                            CallBufferFlags flags, bool is_tail_call,
+                            int stack_slot_delta = 0);
   bool IsTailCallAddressImmediate();
+  int GetTempsCountForTailCallFromJSFunction();
 
-  void UpdateMaxPushedArgumentCount(size_t count);
-
-  FrameStateDescriptor* GetFrameStateDescriptor(FrameState node);
+  FrameStateDescriptor* GetFrameStateDescriptor(Node* node);
   size_t AddInputsToFrameStateDescriptor(FrameStateDescriptor* descriptor,
-                                         FrameState state, OperandGenerator* g,
+                                         Node* state, OperandGenerator* g,
                                          StateObjectDeduplicator* deduplicator,
                                          InstructionOperandVector* inputs,
                                          FrameStateInputKind kind, Zone* zone);
-  size_t AddInputsToFrameStateDescriptor(StateValueList* values,
-                                         InstructionOperandVector* inputs,
-                                         OperandGenerator* g,
-                                         StateObjectDeduplicator* deduplicator,
-                                         Node* node, FrameStateInputKind kind,
-                                         Zone* zone);
   size_t AddOperandToStateValueDescriptor(StateValueList* values,
                                           InstructionOperandVector* inputs,
                                           OperandGenerator* g,
@@ -598,9 +604,6 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   MACHINE_SIMD_OP_LIST(DECLARE_GENERATOR)
 #undef DECLARE_GENERATOR
 
-  // Visit the load node with a value and opcode to replace with.
-  void VisitLoad(Node* node, Node* value, InstructionCode opcode);
-  void VisitLoadTransform(Node* node, Node* value, InstructionCode opcode);
   void VisitFinishRegion(Node* node);
   void VisitParameter(Node* node);
   void VisitIfException(Node* node);
@@ -609,18 +612,18 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   void VisitProjection(Node* node);
   void VisitConstant(Node* node);
   void VisitCall(Node* call, BasicBlock* handler = nullptr);
+  void VisitCallWithCallerSavedRegisters(Node* call,
+                                         BasicBlock* handler = nullptr);
   void VisitDeoptimizeIf(Node* node);
   void VisitDeoptimizeUnless(Node* node);
-  void VisitDynamicCheckMapsWithDeoptUnless(Node* node);
   void VisitTrapIf(Node* node, TrapId trap_id);
   void VisitTrapUnless(Node* node, TrapId trap_id);
   void VisitTailCall(Node* call);
   void VisitGoto(BasicBlock* target);
   void VisitBranch(Node* input, BasicBlock* tbranch, BasicBlock* fbranch);
   void VisitSwitch(Node* node, const SwitchInfo& sw);
-  void VisitDeoptimize(DeoptimizeReason reason, NodeId node_id,
-                       FeedbackSource const& feedback, FrameState frame_state);
-  void VisitSelect(Node* node);
+  void VisitDeoptimize(DeoptimizeKind kind, DeoptimizeReason reason,
+                       VectorSlotPair const& feedback, Node* value);
   void VisitReturn(Node* ret);
   void VisitThrow(Node* node);
   void VisitRetain(Node* node);
@@ -628,25 +631,30 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   void VisitStaticAssert(Node* node);
   void VisitDeadValue(Node* node);
 
-  void VisitStackPointerGreaterThan(Node* node, FlagsContinuation* cont);
-
   void VisitWordCompareZero(Node* user, Node* value, FlagsContinuation* cont);
+
+  void EmitWordPoisonOnSpeculation(Node* node);
 
   void EmitPrepareArguments(ZoneVector<compiler::PushParameter>* arguments,
                             const CallDescriptor* call_descriptor, Node* node);
   void EmitPrepareResults(ZoneVector<compiler::PushParameter>* results,
                           const CallDescriptor* call_descriptor, Node* node);
 
+  void EmitIdentity(Node* node);
   bool CanProduceSignalingNaN(Node* node);
-
-  void AddOutputToSelectContinuation(OperandGenerator* g, int first_input_index,
-                                     Node* node);
 
   // ===========================================================================
   // ============= Vector instruction (SIMD) helper fns. =======================
   // ===========================================================================
 
-#if V8_ENABLE_WEBASSEMBLY
+  // Converts a shuffle into canonical form, meaning that the first lane index
+  // is in the range [0 .. 15]. Set |inputs_equal| true if this is an explicit
+  // swizzle. Returns canonicalized |shuffle|, |needs_swap|, and |is_swizzle|.
+  // If |needs_swap| is true, inputs must be swapped. If |is_swizzle| is true,
+  // the second input can be ignored.
+  static void CanonicalizeShuffle(bool inputs_equal, uint8_t* shuffle,
+                                  bool* needs_swap, bool* is_swizzle);
+
   // Canonicalize shuffles to make pattern matching simpler. Returns the shuffle
   // indices, and a boolean indicating if the shuffle is a swizzle (one input).
   void CanonicalizeShuffle(Node* node, uint8_t* shuffle, bool* is_swizzle);
@@ -654,7 +662,60 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   // Swaps the two first input operands of the node, to help match shuffles
   // to specific architectural instructions.
   void SwapShuffleInputs(Node* node);
-#endif  // V8_ENABLE_WEBASSEMBLY
+
+  // Tries to match an 8x16 byte shuffle to the identity shuffle, which is
+  // [0 1 ... 15]. This should be called after canonicalizing the shuffle, so
+  // the second identity shuffle, [16 17 .. 31] is converted to the first one.
+  static bool TryMatchIdentity(const uint8_t* shuffle);
+
+  // Tries to match a byte shuffle to a scalar splat operation. Returns the
+  // index of the lane if successful.
+  template <int LANES>
+  static bool TryMatchDup(const uint8_t* shuffle, int* index) {
+    const int kBytesPerLane = kSimd128Size / LANES;
+    // Get the first lane's worth of bytes and check that indices start at a
+    // lane boundary and are consecutive.
+    uint8_t lane0[kBytesPerLane];
+    lane0[0] = shuffle[0];
+    if (lane0[0] % kBytesPerLane != 0) return false;
+    for (int i = 1; i < kBytesPerLane; ++i) {
+      lane0[i] = shuffle[i];
+      if (lane0[i] != lane0[0] + i) return false;
+    }
+    // Now check that the other lanes are identical to lane0.
+    for (int i = 1; i < LANES; ++i) {
+      for (int j = 0; j < kBytesPerLane; ++j) {
+        if (lane0[j] != shuffle[i * kBytesPerLane + j]) return false;
+      }
+    }
+    *index = lane0[0] / kBytesPerLane;
+    return true;
+  }
+
+  // Tries to match an 8x16 byte shuffle to an equivalent 32x4 shuffle. If
+  // successful, it writes the 32x4 shuffle word indices. E.g.
+  // [0 1 2 3 8 9 10 11 4 5 6 7 12 13 14 15] == [0 2 1 3]
+  static bool TryMatch32x4Shuffle(const uint8_t* shuffle, uint8_t* shuffle32x4);
+
+  // Tries to match an 8x16 byte shuffle to an equivalent 16x8 shuffle. If
+  // successful, it writes the 16x8 shuffle word indices. E.g.
+  // [0 1 8 9 2 3 10 11 4 5 12 13 6 7 14 15] == [0 4 1 5 2 6 3 7]
+  static bool TryMatch16x8Shuffle(const uint8_t* shuffle, uint8_t* shuffle16x8);
+
+  // Tries to match a byte shuffle to a concatenate operation, formed by taking
+  // 16 bytes from the 32 byte concatenation of the inputs.  If successful, it
+  // writes the byte offset. E.g. [4 5 6 7 .. 16 17 18 19] concatenates both
+  // source vectors with offset 4. The shuffle should be canonicalized.
+  static bool TryMatchConcat(const uint8_t* shuffle, uint8_t* offset);
+
+  // Tries to match a byte shuffle to a blend operation, which is a shuffle
+  // where no lanes change position. E.g. [0 9 2 11 .. 14 31] interleaves the
+  // even lanes of the first source with the odd lanes of the second.  The
+  // shuffle should be canonicalized.
+  static bool TryMatchBlend(const uint8_t* shuffle);
+
+  // Packs 4 bytes of shuffle into a 32 bit immediate.
+  static int32_t Pack4Lanes(const uint8_t* shuffle);
 
   // ===========================================================================
 
@@ -683,42 +744,6 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   void VisitWord64AtomicNarrowBinop(Node* node, ArchOpcode uint8_op,
                                     ArchOpcode uint16_op, ArchOpcode uint32_op);
 
-#if V8_TARGET_ARCH_64_BIT
-  bool ZeroExtendsWord32ToWord64(Node* node, int recursion_depth = 0);
-  bool ZeroExtendsWord32ToWord64NoPhis(Node* node);
-
-  enum Upper32BitsState : uint8_t {
-    kNotYetChecked,
-    kUpperBitsGuaranteedZero,
-    kNoGuarantee,
-  };
-#endif  // V8_TARGET_ARCH_64_BIT
-
-  struct FrameStateInput {
-    FrameStateInput(Node* node_, FrameStateInputKind kind_)
-        : node(node_), kind(kind_) {}
-
-    Node* node;
-    FrameStateInputKind kind;
-
-    struct Hash {
-      size_t operator()(FrameStateInput const& source) const {
-        return base::hash_combine(source.node,
-                                  static_cast<size_t>(source.kind));
-      }
-    };
-
-    struct Equal {
-      bool operator()(FrameStateInput const& lhs,
-                      FrameStateInput const& rhs) const {
-        return lhs.node == rhs.node && lhs.kind == rhs.kind;
-      }
-    };
-  };
-
-  struct CachedStateValues;
-  class CachedStateValuesBuilder;
-
   // ===========================================================================
 
   Zone* const zone_;
@@ -732,41 +757,21 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   ZoneVector<Instruction*> instructions_;
   InstructionOperandVector continuation_inputs_;
   InstructionOperandVector continuation_outputs_;
-  InstructionOperandVector continuation_temps_;
   BoolVector defined_;
   BoolVector used_;
   IntVector effect_level_;
-  int current_effect_level_;
   IntVector virtual_registers_;
   IntVector virtual_register_rename_;
   InstructionScheduler* scheduler_;
   EnableScheduling enable_scheduling_;
   EnableRootsRelativeAddressing enable_roots_relative_addressing_;
   EnableSwitchJumpTable enable_switch_jump_table_;
-  ZoneUnorderedMap<FrameStateInput, CachedStateValues*, FrameStateInput::Hash,
-                   FrameStateInput::Equal>
-      state_values_cache_;
 
+  PoisoningMitigationLevel poisoning_level_;
   Frame* frame_;
   bool instruction_selection_failed_;
   ZoneVector<std::pair<int, int>> instr_origins_;
   EnableTraceTurboJson trace_turbo_;
-  TickCounter* const tick_counter_;
-  // The broker is only used for unparking the LocalHeap for diagnostic printing
-  // for failed StaticAsserts.
-  JSHeapBroker* const broker_;
-
-  // Store the maximal unoptimized frame height and an maximal number of pushed
-  // arguments (for calls). Later used to apply an offset to stack checks.
-  size_t* max_unoptimized_frame_height_;
-  size_t* max_pushed_argument_count_;
-
-#if V8_TARGET_ARCH_64_BIT
-  // Holds lazily-computed results for whether phi nodes guarantee their upper
-  // 32 bits to be zero. Indexed by node ID; nobody reads or writes the values
-  // for non-phi nodes.
-  ZoneVector<Upper32BitsState> phi_states_;
-#endif
 };
 
 }  // namespace compiler

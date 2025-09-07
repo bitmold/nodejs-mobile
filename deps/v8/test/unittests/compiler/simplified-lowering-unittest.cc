@@ -4,7 +4,6 @@
 
 #include "src/compiler/simplified-lowering.h"
 
-#include "src/codegen/tick-counter.h"
 #include "src/compiler/compiler-source-position-table.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/simplified-operator.h"
@@ -43,15 +42,13 @@ class SimplifiedLoweringTest : public GraphTest {
     {
       // Simplified lowering needs to run w/o the typer decorator so make sure
       // the object is not live at the same time.
-      Typer typer(broker(), Typer::kNoFlags, graph(), tick_counter());
+      Typer typer(broker(), Typer::kNoFlags, graph());
       typer.Run();
     }
 
-    Linkage* linkage = zone()->New<Linkage>(Linkage::GetJSCallDescriptor(
-        zone(), false, num_parameters_ + 1, CallDescriptor::kCanUseRoots));
     SimplifiedLowering lowering(jsgraph(), broker(), zone(), source_positions(),
-                                node_origins(), tick_counter(), linkage,
-                                nullptr);
+                                node_origins(),
+                                PoisoningMitigationLevel::kDontPoison);
     lowering.LowerAllNodes();
   }
 

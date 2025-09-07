@@ -12,8 +12,6 @@
 
 namespace node {
 namespace inspector {
-class InspectorSession;
-class InspectorSessionDelegate;
 class MainThreadHandle;
 class WorkerManager;
 
@@ -53,16 +51,16 @@ struct WorkerInfo {
 
 class ParentInspectorHandle {
  public:
-  ParentInspectorHandle(uint64_t id,
-                        const std::string& url,
+  ParentInspectorHandle(int id, const std::string& url,
                         std::shared_ptr<MainThreadHandle> parent_thread,
-                        bool wait_for_connect,
-                        const std::string& name);
+                        bool wait_for_connect);
   ~ParentInspectorHandle();
   std::unique_ptr<ParentInspectorHandle> NewParentInspectorHandle(
-      uint64_t thread_id, const std::string& url, const std::string& name) {
-    return std::make_unique<ParentInspectorHandle>(
-        thread_id, url, parent_thread_, wait_, name);
+      int thread_id, const std::string& url) {
+    return std::make_unique<ParentInspectorHandle>(thread_id,
+                                                   url,
+                                                   parent_thread_,
+                                                   wait_);
   }
   void WorkerStarted(std::shared_ptr<MainThreadHandle> worker_thread,
                      bool waiting);
@@ -70,16 +68,12 @@ class ParentInspectorHandle {
     return wait_;
   }
   const std::string& url() const { return url_; }
-  std::unique_ptr<inspector::InspectorSession> Connect(
-      std::unique_ptr<inspector::InspectorSessionDelegate> delegate,
-      bool prevent_shutdown);
 
  private:
-  uint64_t id_;
+  int id_;
   std::string url_;
   std::shared_ptr<MainThreadHandle> parent_thread_;
   bool wait_;
-  std::string name_;
 };
 
 class WorkerManager : public std::enable_shared_from_this<WorkerManager> {
@@ -88,9 +82,9 @@ class WorkerManager : public std::enable_shared_from_this<WorkerManager> {
                          : thread_(thread) {}
 
   std::unique_ptr<ParentInspectorHandle> NewParentHandle(
-      uint64_t thread_id, const std::string& url, const std::string& name);
-  void WorkerStarted(uint64_t session_id, const WorkerInfo& info, bool waiting);
-  void WorkerFinished(uint64_t session_id);
+      int thread_id, const std::string& url);
+  void WorkerStarted(int session_id, const WorkerInfo& info, bool waiting);
+  void WorkerFinished(int session_id);
   std::unique_ptr<WorkerManagerEventHandle> SetAutoAttach(
       std::unique_ptr<WorkerDelegate> attach_delegate);
   void SetWaitOnStartForDelegate(int id, bool wait);
@@ -101,7 +95,7 @@ class WorkerManager : public std::enable_shared_from_this<WorkerManager> {
 
  private:
   std::shared_ptr<MainThreadHandle> thread_;
-  std::unordered_map<uint64_t, WorkerInfo> children_;
+  std::unordered_map<int, WorkerInfo> children_;
   std::unordered_map<int, std::unique_ptr<WorkerDelegate>> delegates_;
   // If any one needs it, workers stop for all
   std::unordered_set<int> delegates_waiting_on_start_;

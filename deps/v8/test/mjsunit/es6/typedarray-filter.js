@@ -19,22 +19,10 @@ function TestTypedArrayFilter(constructor) {
   assertEquals(1, constructor.prototype.filter.length);
 
   // Throw type error if source array is detached while executing a callback
-  let ta1 = new constructor(4);
-  let seen = [];
-  let result = ta1.filter((val, idx) => {
-    if (idx === 0) {
-      %ArrayBufferDetach(ta1.buffer);
-    }
-    seen.push(val);
-    return idx < 3;
-  });
-  assertArrayEquals(seen, [0, undefined, undefined, undefined]);
-  // https://tc39.es/ecma262/#sec-setvalueinbuffer
-  // undefined values should be converted to numerics.
-  const expectedResult = [Float32Array, Float64Array].includes(constructor) ?
-    [0, NaN, NaN] :
-    [0, 0, 0];
-  assertArrayEquals(result, expectedResult);
+  let ta1 = new constructor(10);
+  assertThrows(() =>
+    ta1.filter(() => %ArrayBufferDetach(ta1.buffer))
+  , TypeError);
 
   // A new typed array should be created after finishing callbacks
   var speciesCreated = 0;

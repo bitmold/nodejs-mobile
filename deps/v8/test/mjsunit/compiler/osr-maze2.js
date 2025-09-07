@@ -51,7 +51,7 @@ function gen(i) {
   body = body.replace(new RegExp("bar"), "bar" + i);
   for (var j = 1; j < 10; j++) {
     var r = new RegExp("LOOP" + j + "\\(\\);");
-    if (i == j) body = body.replace(r, "%OptimizeOsr(); %PrepareFunctionForOptimization(bar" + i +");");
+    if (i == j) body = body.replace(r, "%OptimizeOsr();");
     else body = body.replace(r, "");
   }
   return eval("(" + body + ")");

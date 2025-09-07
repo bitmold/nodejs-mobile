@@ -21,13 +21,13 @@ namespace internal {
   V(kExpectedOptimizationSentinel,                                            \
     "Expected optimized code cell or optimization sentinel")                  \
   V(kExpectedUndefinedOrCell, "Expected undefined or cell in register")       \
-  V(kExpectedFeedbackVector, "Expected feedback vector")                      \
-  V(kExpectedBaselineData, "Expected baseline data")                          \
   V(kFunctionDataShouldBeBytecodeArrayOnInterpreterEntry,                     \
     "The function_data field should be a BytecodeArray on interpreter entry") \
   V(kInputStringTooLong, "Input string too long")                             \
   V(kInvalidBytecode, "Invalid bytecode")                                     \
   V(kInvalidBytecodeAdvance, "Cannot advance current bytecode, ")             \
+  V(kInvalidElementsKindForInternalPackedArray,                               \
+    "Invalid ElementsKind for InternalPackedArray")                           \
   V(kInvalidHandleScopeLevel, "Invalid HandleScope level")                    \
   V(kInvalidJumpTableIndex, "Invalid jump table index")                       \
   V(kInvalidParametersAndRegistersInGenerator,                                \
@@ -44,14 +44,11 @@ namespace internal {
   V(kOperandIsASmiAndNotAFunction, "Operand is a smi and not a function")     \
   V(kOperandIsASmiAndNotAGeneratorObject,                                     \
     "Operand is a smi and not a generator object")                            \
-  V(kOperandIsCleared, "Operand is cleared")                                  \
   V(kOperandIsNotABoundFunction, "Operand is not a bound function")           \
   V(kOperandIsNotAConstructor, "Operand is not a constructor")                \
   V(kOperandIsNotAFixedArray, "Operand is not a fixed array")                 \
   V(kOperandIsNotAFunction, "Operand is not a function")                      \
-  V(kOperandIsNotACallableFunction, "Operand is not a callable function")     \
   V(kOperandIsNotAGeneratorObject, "Operand is not a generator object")       \
-  V(kOperandIsNotACodeT, "Operand is not a CodeT")                            \
   V(kOperandIsNotASmi, "Operand is not a smi")                                \
   V(kPromiseAlreadySettled, "Promise already settled")                        \
   V(kReceivedInvalidReturnAddress, "Received invalid return address")         \
@@ -62,7 +59,6 @@ namespace internal {
   V(kStackAccessBelowStackPointer, "Stack access below stack pointer")        \
   V(kStackFrameTypesMustMatch, "Stack frame types must match")                \
   V(kUnalignedCellInWriteBarrier, "Unaligned cell in write barrier")          \
-  V(kUnexpectedAdditionalPopValue, "Unexpected additional pop value")         \
   V(kUnexpectedElementsKindInArrayConstructor,                                \
     "Unexpected ElementsKind in array constructor")                           \
   V(kUnexpectedFPCRMode, "Unexpected FPCR mode.")                             \
@@ -70,6 +66,8 @@ namespace internal {
     "Unexpected runtime function id for the InvokeIntrinsic bytecode")        \
   V(kUnexpectedInitialMapForArrayFunction,                                    \
     "Unexpected initial map for Array function")                              \
+  V(kUnexpectedInitialMapForInternalArrayFunction,                            \
+    "Unexpected initial map for InternalArray function")                      \
   V(kUnexpectedLevelAfterReturnFromApiCall,                                   \
     "Unexpected level after return from api call")                            \
   V(kUnexpectedNegativeValue, "Unexpected negative value")                    \
@@ -88,6 +86,8 @@ namespace internal {
     "Wrong number of arguments for intrinsic")                                \
   V(kWrongFunctionCodeStart, "Wrong value in code start register passed")     \
   V(kWrongFunctionContext, "Wrong context passed to function")                \
+  V(kWrongNumberOfArgumentsForInternalPackedArray,                            \
+    "Wrong number of arguments for InternalPackedArray")                      \
   V(kUnexpectedThreadInWasmSet, "thread_in_wasm flag was already set")        \
   V(kUnexpectedThreadInWasmUnset, "thread_in_wasm flag was not set")
 

@@ -26,39 +26,25 @@ class ZoneAllocator {
     using other = ZoneAllocator<O>;
   };
 
-#ifdef V8_OS_WIN
-  // The exported class ParallelMove derives from ZoneVector, which derives
-  // from std::vector.  On Windows, the semantics of dllexport mean that
-  // a class's superclasses that are not explicitly exported themselves get
-  // implicitly exported together with the subclass, and exporting a class
-  // exports all its functions -- including the std::vector() constructors
-  // that don't take an explicit allocator argument, which in turn reference
-  // the vector allocator's default constructor. So this constructor needs
-  // to exist for linking purposes, even if it's never called.
-  // Other fixes would be to disallow subclasses of ZoneVector (etc) to be
-  // exported, or using composition instead of inheritance for either
-  // ZoneVector and friends or for ParallelMove.
+#ifdef V8_CC_MSVC
+  // MSVS unfortunately requires the default constructor to be defined.
   ZoneAllocator() : ZoneAllocator(nullptr) { UNREACHABLE(); }
 #endif
-  explicit ZoneAllocator(Zone* zone) : zone_(zone) {
-    // If we are going to allocate compressed pointers in the zone it must
-    // support compression.
-    DCHECK_IMPLIES(is_compressed_pointer<T>::value,
-                   zone_->supports_compression());
-  }
+  explicit ZoneAllocator(Zone* zone) : zone_(zone) {}
   template <typename U>
   ZoneAllocator(const ZoneAllocator<U>& other) V8_NOEXCEPT
-      : ZoneAllocator<T>(other.zone_) {
-    // If we are going to allocate compressed pointers in the zone it must
-    // support compression.
-    DCHECK_IMPLIES(is_compressed_pointer<T>::value,
-                   zone_->supports_compression());
-  }
+      : ZoneAllocator<T>(other.zone_) {}
   template <typename U>
   friend class ZoneAllocator;
 
-  T* allocate(size_t length) { return zone_->NewArray<T>(length); }
-  void deallocate(T* p, size_t length) { zone_->DeleteArray<T>(p, length); }
+  T* address(T& x) const { return &x; }
+  const T* address(const T& x) const { return &x; }
+
+  T* allocate(size_t n, const void* hint = nullptr) {
+    return static_cast<T*>(zone_->NewArray<T>(static_cast<int>(n)));
+  }
+  void deallocate(T* p, size_t) { /* noop for Zones */
+  }
 
   size_t max_size() const {
     return std::numeric_limits<int>::max() / sizeof(T);
@@ -98,6 +84,13 @@ class RecyclingZoneAllocator : public ZoneAllocator<T> {
     using other = RecyclingZoneAllocator<O>;
   };
 
+#ifdef V8_CC_MSVC
+  // MSVS unfortunately requires the default constructor to be defined.
+  RecyclingZoneAllocator()
+      : ZoneAllocator(nullptr, nullptr), free_list_(nullptr) {
+    UNREACHABLE();
+  }
+#endif
   explicit RecyclingZoneAllocator(Zone* zone)
       : ZoneAllocator<T>(zone), free_list_(nullptr) {}
   template <typename U>
@@ -107,15 +100,16 @@ class RecyclingZoneAllocator : public ZoneAllocator<T> {
   template <typename U>
   friend class RecyclingZoneAllocator;
 
-  T* allocate(size_t n) {
+  T* allocate(size_t n, const void* hint = nullptr) {
     // Only check top block in free list, since this will be equal to or larger
     // than the other blocks in the free list.
     if (free_list_ && free_list_->size >= n) {
       T* return_val = reinterpret_cast<T*>(free_list_);
       free_list_ = free_list_->next;
       return return_val;
+    } else {
+      return ZoneAllocator<T>::allocate(n, hint);
     }
-    return ZoneAllocator<T>::allocate(n);
   }
 
   void deallocate(T* p, size_t n) {

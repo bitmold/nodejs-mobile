@@ -4,6 +4,7 @@
 
 #include "test/unittests/compiler/graph-unittest.h"
 
+#include "src/compiler/js-heap-copy-reducer.h"
 #include "src/compiler/node-properties.h"
 #include "src/heap/factory.h"
 #include "src/objects/objects-inl.h"  // TODO(everyone): Make typer.h IWYU compliant.
@@ -14,8 +15,7 @@ namespace internal {
 namespace compiler {
 
 GraphTest::GraphTest(int num_parameters)
-    : TestWithNativeContextAndZone(kCompressGraphZone),
-      canonical_(isolate()),
+    : canonical_(isolate()),
       common_(zone()),
       graph_(zone()),
       broker_(isolate(), zone()),
@@ -23,7 +23,7 @@ GraphTest::GraphTest(int num_parameters)
       node_origins_(&graph_) {
   graph()->SetStart(graph()->NewNode(common()->Start(num_parameters)));
   graph()->SetEnd(graph()->NewNode(common()->End(1), graph()->start()));
-  broker()->SetTargetNativeContextRef(isolate()->native_context());
+  broker()->SetNativeContextRef();
 }
 
 GraphTest::~GraphTest() = default;
@@ -66,7 +66,7 @@ Node* GraphTest::NumberConstant(volatile double value) {
 
 Node* GraphTest::HeapConstant(const Handle<HeapObject>& value) {
   Node* node = graph()->NewNode(common()->HeapConstant(value));
-  Type type = Type::Constant(broker(), value, zone());
+  Type type = Type::NewConstant(broker(), value, zone());
   NodeProperties::SetType(node, type);
   return node;
 }
@@ -90,13 +90,9 @@ Node* GraphTest::UndefinedConstant() {
 Node* GraphTest::EmptyFrameState() {
   Node* state_values =
       graph()->NewNode(common()->StateValues(0, SparseInputMask::Dense()));
-  FrameStateFunctionInfo const* function_info =
-      common()->CreateFrameStateFunctionInfo(
-          FrameStateType::kUnoptimizedFunction, 0, 0,
-          Handle<SharedFunctionInfo>());
   return graph()->NewNode(
-      common()->FrameState(BytecodeOffset::None(),
-                           OutputFrameStateCombine::Ignore(), function_info),
+      common()->FrameState(BailoutId::None(), OutputFrameStateCombine::Ignore(),
+                           nullptr),
       state_values, state_values, state_values, NumberConstant(0),
       UndefinedConstant(), graph()->start());
 }
@@ -120,8 +116,7 @@ Matcher<Node*> GraphTest::IsUndefinedConstant() {
 }
 
 TypedGraphTest::TypedGraphTest(int num_parameters)
-    : GraphTest(num_parameters),
-      typer_(broker(), Typer::kNoFlags, graph(), tick_counter()) {}
+    : GraphTest(num_parameters), typer_(broker(), Typer::kNoFlags, graph()) {}
 
 TypedGraphTest::~TypedGraphTest() = default;
 

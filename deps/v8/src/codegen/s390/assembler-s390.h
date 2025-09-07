@@ -40,7 +40,6 @@
 #ifndef V8_CODEGEN_S390_ASSEMBLER_S390_H_
 #define V8_CODEGEN_S390_ASSEMBLER_S390_H_
 #include <stdio.h>
-#include <memory>
 #if V8_HOST_ARCH_S390
 // elf.h include is required for auxv check for STFLE facility used
 // for hardware detection, which is sensible only on s390 hosts.
@@ -49,6 +48,7 @@
 
 #include <fcntl.h>
 #include <unistd.h>
+#include <vector>
 
 #include "src/codegen/assembler.h"
 #include "src/codegen/external-reference.h"
@@ -92,7 +92,7 @@ class V8_EXPORT_PRIVATE Operand {
  public:
   // immediate
   V8_INLINE explicit Operand(intptr_t immediate,
-                             RelocInfo::Mode rmode = RelocInfo::NO_INFO)
+                             RelocInfo::Mode rmode = RelocInfo::NONE)
       : rmode_(rmode) {
     value_.immediate = immediate;
   }
@@ -102,7 +102,7 @@ class V8_EXPORT_PRIVATE Operand {
     value_.immediate = static_cast<intptr_t>(f.address());
   }
   explicit Operand(Handle<HeapObject> handle);
-  V8_INLINE explicit Operand(Smi value) : rmode_(RelocInfo::NO_INFO) {
+  V8_INLINE explicit Operand(Smi value) : rmode_(RelocInfo::NONE) {
     value_.immediate = static_cast<intptr_t>(value.ptr());
   }
 
@@ -265,30 +265,27 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   // Otherwise, returns the current pc_offset().
   int link(Label* L);
 
+  // Determines if Label is bound and near enough so that a single
+  // branch instruction can be used to reach it.
+  bool is_near(Label* L, Condition cond);
+
   // Returns the branch offset to the given label from the current code position
   // Links the label to the current position if it is still unbound
   int branch_offset(Label* L) { return link(L) - pc_offset(); }
 
+  // Puts a labels target address at the given position.
+  // The high 8 bits are set to zero.
+  void label_at_put(Label* L, int at_offset);
   void load_label_offset(Register r1, Label* L);
 
   // Read/Modify the code target address in the branch/call instruction at pc.
   // The isolate argument is unused (and may be nullptr) when skipping flushing.
   V8_INLINE static Address target_address_at(Address pc, Address constant_pool);
-
-  // Read/Modify the code target address in the branch/call instruction at pc.
-  inline static Tagged_t target_compressed_address_at(Address pc,
-                                                      Address constant_pool);
   V8_INLINE static void set_target_address_at(
       Address pc, Address constant_pool, Address target,
       ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
 
-  inline static void set_target_compressed_address_at(
-      Address pc, Address constant_pool, Tagged_t target,
-      ICacheFlushMode icache_flush_mode = FLUSH_ICACHE_IF_NEEDED);
-
   inline Handle<Object> code_target_object_handle_at(Address pc);
-  inline Handle<HeapObject> compressed_embedded_object_handle_at(
-      Address pc, Address constant_pool);
   // This sets the branch destination.
   // This is for calls and branches within generated code.
   inline static void deserialization_set_special_target_at(
@@ -310,14 +307,13 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   // in the code, so the serializer should not step forwards in memory after
   // a target is resolved and written.
   static constexpr int kSpecialTargetSize = 0;
+
 // Number of bytes for instructions used to store pointer sized constant.
 #if V8_TARGET_ARCH_S390X
   static constexpr int kBytesForPtrConstant = 12;  // IIHF + IILF
 #else
   static constexpr int kBytesForPtrConstant = 6;  // IILF
 #endif
-
-  RegList* GetScratchRegisterList() { return &scratch_register_list_; }
 
   // ---------------------------------------------------------------------------
   // Code generation
@@ -401,7 +397,6 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   S390_RRE_OPCODE_LIST(DECLARE_S390_RRE_INSTRUCTIONS)
   // Special format
   void lzdr(DoubleRegister r1) { rre_format(LZDR, r1.code(), 0); }
-  void lzer(DoubleRegister r1) { rre_format(LZER, r1.code(), 0); }
 #undef DECLARE_S390_RRE_INSTRUCTIONS
 
 #define DECLARE_S390_RX_INSTRUCTIONS(name, op_name, op_value)            \
@@ -532,6 +527,7 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
 
 #define DECLARE_S390_RS_SHIFT_FORMAT(name, opcode)                             \
   void name(Register r1, Register r2, const Operand& opnd = Operand::Zero()) { \
+    DCHECK(r2 != r0);                                                          \
     rs_format(opcode, r1.code(), r0.code(), r2.code(), opnd.immediate());      \
   }                                                                            \
   void name(Register r1, const Operand& opnd) {                                \
@@ -675,6 +671,15 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   }
   S390_RRF_E_OPCODE_LIST(DECLARE_S390_RRF_E_INSTRUCTIONS)
 #undef DECLARE_S390_RRF_E_INSTRUCTIONS
+
+  enum FIDBRA_FLAGS {
+    FIDBRA_CURRENT_ROUNDING_MODE = 0,
+    FIDBRA_ROUND_TO_NEAREST_AWAY_FROM_0 = 1,
+    // ...
+    FIDBRA_ROUND_TOWARD_0 = 5,
+    FIDBRA_ROUND_TOWARD_POS_INF = 6,
+    FIDBRA_ROUND_TOWARD_NEG_INF = 7
+  };
 
   inline void rsi_format(Opcode op, int f1, int f2, int f3) {
     DCHECK(is_uint8(op));
@@ -946,20 +951,17 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   }
 
   // Conditional Branch Instruction - Generates either BRC / BRCL
-  void branchOnCond(Condition c, int branch_offset, bool is_bound = false,
-                    bool force_long_branch = false);
+  void branchOnCond(Condition c, int branch_offset, bool is_bound = false);
 
   // Helpers for conditional branch to Label
-  void b(Condition cond, Label* l, Label::Distance dist = Label::kFar,
-         bool force_long_branch = false) {
+  void b(Condition cond, Label* l, Label::Distance dist = Label::kFar) {
     branchOnCond(cond, branch_offset(l),
-                 l->is_bound() || (dist == Label::kNear), force_long_branch);
+                 l->is_bound() || (dist == Label::kNear));
   }
 
   void bc_short(Condition cond, Label* l, Label::Distance dist = Label::kFar) {
     b(cond, l, Label::kNear);
   }
-  void bc_long(Condition cond, Label* l) { b(cond, l, Label::kFar, true); }
   // Helpers for conditional branch to Label
   void beq(Label* l, Label::Distance dist = Label::kFar) { b(eq, l, dist); }
   void bne(Label* l, Label::Distance dist = Label::kFar) { b(ne, l, dist); }
@@ -1054,7 +1056,6 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   void DataAlign(int m);
   // Aligns code to something that's optimal for a jump target for the platform.
   void CodeTargetAlign();
-  void LoopHeaderAlign() { CodeTargetAlign(); }
 
   void breakpoint(bool do_print) {
     if (do_print) {
@@ -1141,19 +1142,6 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
     emit6bytes(code);                                                      \
   }
   S390_VRR_E_OPCODE_LIST(DECLARE_VRR_E_INSTRUCTIONS)
-#undef DECLARE_VRR_E_INSTRUCTIONS
-
-#define DECLARE_VRR_F_INSTRUCTIONS(name, opcode_name, opcode_value)        \
-  void name(DoubleRegister v1, Register r1, Register r2) {                 \
-    uint64_t code = (static_cast<uint64_t>(opcode_value & 0xFF00)) * B32 | \
-                    (static_cast<uint64_t>(v1.code())) * B36 |             \
-                    (static_cast<uint64_t>(r1.code())) * B32 |             \
-                    (static_cast<uint64_t>(r2.code())) * B28 |             \
-                    (static_cast<uint64_t>(0)) * B8 |                      \
-                    (static_cast<uint64_t>(opcode_value & 0x00FF));        \
-    emit6bytes(code);                                                      \
-  }
-  S390_VRR_F_OPCODE_LIST(DECLARE_VRR_F_INSTRUCTIONS)
 #undef DECLARE_VRR_E_INSTRUCTIONS
 
 #define DECLARE_VRX_INSTRUCTIONS(name, opcode_name, opcode_value)       \
@@ -1271,11 +1259,10 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
 
   // Load Address Instructions
   void larl(Register r, Label* l);
-  void lgrl(Register r, Label* l);
 
   // Exception-generating instructions and debugging support
-  void stop(Condition cond = al, int32_t code = kDefaultStopCode,
-            CRegister cr = cr7);
+  void stop(const char* msg, Condition cond = al,
+            int32_t code = kDefaultStopCode, CRegister cr = cr7);
 
   void bkpt(uint32_t imm16);  // v5 and above
 
@@ -1305,15 +1292,15 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
 
   // Record a deoptimization reason that can be used by a log or cpu profiler.
   // Use --trace-deopt to enable.
-  void RecordDeoptReason(DeoptimizeReason reason, uint32_t node_id,
-                         SourcePosition position, int id);
+  void RecordDeoptReason(DeoptimizeReason reason, SourcePosition position,
+                         int id);
 
   // Writes a single byte or word of data in the code stream.  Used
   // for inline tables, e.g., jump-tables.
   void db(uint8_t data);
-  void dd(uint32_t data, RelocInfo::Mode rmode = RelocInfo::NO_INFO);
-  void dq(uint64_t data, RelocInfo::Mode rmode = RelocInfo::NO_INFO);
-  void dp(uintptr_t data, RelocInfo::Mode rmode = RelocInfo::NO_INFO);
+  void dd(uint32_t data);
+  void dq(uint64_t data);
+  void dp(uintptr_t data);
 
   // Read/patch instructions
   SixByteInstr instr_at(int pos) {
@@ -1359,15 +1346,6 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
  public:
   byte* buffer_pos() const { return buffer_start_; }
 
-
-  // Code generation
-  // The relocation writer's position is at least kGap bytes below the end of
-  // the generated instructions. This is so that multi-instruction sequences do
-  // not have to check for overflow. The same is true for writes of large
-  // relocation info entries.
-  static constexpr int kGap = 32;
-  STATIC_ASSERT(AssemblerBase::kMinimalBufferSize >= 2 * kGap);
-
  protected:
   int buffer_space() const { return reloc_info_writer.pos() - pc_; }
 
@@ -1385,14 +1363,18 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   // Avoid overflows for displacements etc.
   static const int kMaximalBufferSize = 512 * MB;
 
+  // Code generation
+  // The relocation writer's position is at least kGap bytes below the end of
+  // the generated instructions. This is so that multi-instruction sequences do
+  // not have to check for overflow. The same is true for writes of large
+  // relocation info entries.
+  static constexpr int kGap = 32;
+
   // Relocation info generation
   // Each relocation is encoded as a variable size value
   static constexpr int kMaxRelocSize = RelocInfoWriter::kMaxSize;
   RelocInfoWriter reloc_info_writer;
   std::vector<DeferredRelocInfo> relocations_;
-
-  // Scratch registers available for use by the Assembler.
-  RegList scratch_register_list_;
 
   // The bound position, before this we cannot do instruction elimination.
   int last_bound_pos_;
@@ -1473,32 +1455,11 @@ class V8_EXPORT_PRIVATE Assembler : public AssemblerBase {
   friend class RegExpMacroAssemblerS390;
   friend class RelocInfo;
   friend class EnsureSpace;
-  friend class UseScratchRegisterScope;
 };
 
 class EnsureSpace {
  public:
   explicit EnsureSpace(Assembler* assembler) { assembler->CheckBuffer(); }
-};
-
-class V8_EXPORT_PRIVATE V8_NODISCARD UseScratchRegisterScope {
- public:
-  explicit UseScratchRegisterScope(Assembler* assembler);
-  ~UseScratchRegisterScope();
-
-  Register Acquire();
-
-  // Check if we have registers available to acquire.
-  bool CanAcquire() const {
-    return !assembler_->GetScratchRegisterList()->is_empty();
-  }
-
- private:
-  friend class Assembler;
-  friend class TurboAssembler;
-
-  Assembler* assembler_;
-  RegList old_available_;
 };
 
 }  // namespace internal

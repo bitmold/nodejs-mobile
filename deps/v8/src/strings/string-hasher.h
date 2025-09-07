@@ -8,21 +8,16 @@
 #include "src/common/globals.h"
 
 namespace v8 {
-
-namespace base {
-template <typename T>
-class Vector;
-}  // namespace base
-
 namespace internal {
 
-// Helper class for incrementally calculating string hashes in a form suitable
-// for storing into Name::raw_hash_field.
+template <typename T>
+class Vector;
+
 class V8_EXPORT_PRIVATE StringHasher final {
  public:
   StringHasher() = delete;
-  template <typename char_t>
-  static inline uint32_t HashSequentialString(const char_t* chars, int length,
+  template <typename schar>
+  static inline uint32_t HashSequentialString(const schar* chars, int length,
                                               uint64_t seed);
 
   // Calculated hash value for a string consisting of 1 to

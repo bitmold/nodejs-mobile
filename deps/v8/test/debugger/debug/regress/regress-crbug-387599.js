@@ -7,15 +7,11 @@ Debug = debug.Debug;
 Debug.setListener(function() {});
 
 function f() {
-  for (var i = 0; i < 100; i++) {
-    %OptimizeOsr();
-    %PrepareFunctionForOptimization(f);
-  }
+  for (var i = 0; i < 100; i++) %OptimizeOsr();
 }
 %PrepareFunctionForOptimization(f);
 
 Debug.setBreakPoint(f, 0, 0);
 f();
-%PrepareFunctionForOptimization(f);
 f();
 Debug.setListener(null);

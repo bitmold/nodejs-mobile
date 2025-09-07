@@ -5,8 +5,6 @@
 
 #include "aliased_buffer.h"
 
-struct nghttp2_rcbuf;
-
 namespace node {
 namespace http2 {
 
@@ -54,8 +52,14 @@ namespace http2 {
     IDX_OPTIONS_MAX_OUTSTANDING_PINGS,
     IDX_OPTIONS_MAX_OUTSTANDING_SETTINGS,
     IDX_OPTIONS_MAX_SESSION_MEMORY,
-    IDX_OPTIONS_MAX_SETTINGS,
     IDX_OPTIONS_FLAGS
+  };
+
+  enum Http2PaddingBufferFields {
+    PADDING_BUF_FRAME_LENGTH,
+    PADDING_BUF_MAX_PAYLOAD_LENGTH,
+    PADDING_BUF_RETURN_VALUE,
+    PADDING_BUF_FIELD_COUNT
   };
 
   enum Http2StreamStatisticsIndex {
@@ -81,51 +85,57 @@ namespace http2 {
     IDX_SESSION_STATS_COUNT
   };
 
-class Http2State : public BaseObject {
+class Http2State {
  public:
-  Http2State(Realm* realm, v8::Local<v8::Object> obj)
-      : BaseObject(realm, obj),
-        root_buffer(realm->isolate(), sizeof(http2_state_internal)),
-        session_state_buffer(
-            realm->isolate(),
-            offsetof(http2_state_internal, session_state_buffer),
-            IDX_SESSION_STATE_COUNT,
-            root_buffer),
-        stream_state_buffer(realm->isolate(),
-                            offsetof(http2_state_internal, stream_state_buffer),
-                            IDX_STREAM_STATE_COUNT,
-                            root_buffer),
-        stream_stats_buffer(realm->isolate(),
-                            offsetof(http2_state_internal, stream_stats_buffer),
-                            IDX_STREAM_STATS_COUNT,
-                            root_buffer),
-        session_stats_buffer(
-            realm->isolate(),
-            offsetof(http2_state_internal, session_stats_buffer),
-            IDX_SESSION_STATS_COUNT,
-            root_buffer),
-        options_buffer(realm->isolate(),
-                       offsetof(http2_state_internal, options_buffer),
-                       IDX_OPTIONS_FLAGS + 1,
-                       root_buffer),
-        settings_buffer(realm->isolate(),
-                        offsetof(http2_state_internal, settings_buffer),
-                        IDX_SETTINGS_COUNT + 1,
-                        root_buffer) {}
+  explicit Http2State(v8::Isolate* isolate) :
+    root_buffer(
+      isolate,
+      sizeof(http2_state_internal)),
+    session_state_buffer(
+      isolate,
+      offsetof(http2_state_internal, session_state_buffer),
+      IDX_SESSION_STATE_COUNT,
+      root_buffer),
+    stream_state_buffer(
+      isolate,
+      offsetof(http2_state_internal, stream_state_buffer),
+      IDX_STREAM_STATE_COUNT,
+      root_buffer),
+    stream_stats_buffer(
+      isolate,
+      offsetof(http2_state_internal, stream_stats_buffer),
+      IDX_STREAM_STATS_COUNT,
+      root_buffer),
+    session_stats_buffer(
+      isolate,
+      offsetof(http2_state_internal, session_stats_buffer),
+      IDX_SESSION_STATS_COUNT,
+      root_buffer),
+    padding_buffer(
+      isolate,
+      offsetof(http2_state_internal, padding_buffer),
+      PADDING_BUF_FIELD_COUNT,
+      root_buffer),
+    options_buffer(
+      isolate,
+      offsetof(http2_state_internal, options_buffer),
+      IDX_OPTIONS_FLAGS + 1,
+      root_buffer),
+    settings_buffer(
+      isolate,
+      offsetof(http2_state_internal, settings_buffer),
+      IDX_SETTINGS_COUNT + 1,
+      root_buffer) {
+  }
 
   AliasedUint8Array root_buffer;
   AliasedFloat64Array session_state_buffer;
   AliasedFloat64Array stream_state_buffer;
   AliasedFloat64Array stream_stats_buffer;
   AliasedFloat64Array session_stats_buffer;
+  AliasedUint32Array padding_buffer;
   AliasedUint32Array options_buffer;
   AliasedUint32Array settings_buffer;
-
-  void MemoryInfo(MemoryTracker* tracker) const override;
-  SET_SELF_SIZE(Http2State)
-  SET_MEMORY_INFO_NAME(Http2State)
-
-  SET_BINDING_ID(http2_binding_data)
 
  private:
   struct http2_state_internal {
@@ -134,6 +144,7 @@ class Http2State : public BaseObject {
     double stream_state_buffer[IDX_STREAM_STATE_COUNT];
     double stream_stats_buffer[IDX_STREAM_STATS_COUNT];
     double session_stats_buffer[IDX_SESSION_STATS_COUNT];
+    uint32_t padding_buffer[PADDING_BUF_FIELD_COUNT];
     uint32_t options_buffer[IDX_OPTIONS_FLAGS + 1];
     uint32_t settings_buffer[IDX_SETTINGS_COUNT + 1];
   };

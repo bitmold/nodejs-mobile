@@ -9,7 +9,6 @@ var test_id = 0;
 function testCeil(expect, input) {
   var test = new Function('n',
                           '"' + (test_id++) + '";return Math.ceil(n)');
-  %PrepareFunctionForOptimization(test);
   assertEquals(expect, test(input));
   assertEquals(expect, test(input));
   assertEquals(expect, test(input));

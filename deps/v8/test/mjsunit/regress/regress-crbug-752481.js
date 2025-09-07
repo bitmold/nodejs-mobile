@@ -7,7 +7,6 @@
 const A = class A {}
 
 function test(foo) {
-  %PrepareFunctionForOptimization(foo);
   assertThrows(foo);
   assertThrows(foo);
   %OptimizeFunctionOnNextCall(foo);

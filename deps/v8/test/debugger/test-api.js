@@ -37,8 +37,8 @@ class DebugWrapper {
 
     // The different types of steps.
     this.StepAction = { StepOut: 0,
-                        StepOver: 1,
-                        StepInto: 2,
+                        StepNext: 1,
+                        StepIn: 2,
                       };
 
     // A copy of the scope types from runtime-debug.cc.
@@ -307,8 +307,8 @@ class DebugWrapper {
   execStatePrepareStep(action) {
     switch(action) {
       case this.StepAction.StepOut: this.stepOut(); break;
-      case this.StepAction.StepOver: this.stepOver(); break;
-      case this.StepAction.StepInto: this.stepInto(); break;
+      case this.StepAction.StepNext: this.stepOver(); break;
+      case this.StepAction.StepIn: this.stepInto(); break;
       default: %AbortJS("Unsupported StepAction"); break;
     }
   }
@@ -463,12 +463,7 @@ class DebugWrapper {
         "Runtime.getProperties", { objectId : objectId, ownProperties: true });
     this.sendMessage(msg);
     const reply = this.takeReplyChecked(msgid);
-    for (const internalProperty of reply.result.internalProperties) {
-      if (internalProperty.name === '[[PrimitiveValue]]') {
-        return Object(internalProperty.value.value);
-      }
-    }
-    throw new Error('Remote object is not a value wrapper');
+    return Object(reply.result.internalProperties[0].value.value);
   }
 
   reconstructRemoteObject(obj) {
@@ -546,9 +541,6 @@ class DebugWrapper {
       case "boolean": {
         break;
       }
-      case "function": {
-        value = obj.description;
-      }
       default: {
         break;
       }
@@ -598,7 +590,7 @@ class DebugWrapper {
     const column = frame.location.columnNumber;
     const loc = %ScriptLocationFromLine2(scriptid, line, column, 0);
     const func = { name : () => frame.functionName };
-    const index = +frame.callFrameId.split(".")[2];
+    const index = JSON.parse(frame.callFrameId).ordinal;
 
     function allScopes() {
       const scopes = [];
@@ -637,12 +629,6 @@ class DebugWrapper {
 
     const result = reply.result.result;
     return this.reconstructRemoteObject(result);
-  }
-
-  evaluateGlobalREPL(expr) {
-    return %RuntimeEvaluateREPL(expr).then(value => {
-      return value[".repl_result"];
-    });
   }
 
   eventDataException(params) {
@@ -720,7 +706,6 @@ class DebugWrapper {
       case "EventListener":
       case "assert":
       case "debugCommand":
-      case "CSPViolation":
         assertUnreachable();
       default:
         assertUnreachable();

@@ -41,7 +41,6 @@ function strictToBeInlined(n) {
 function nonstrictCallStrict(n) {
   strictToBeInlined(n);
 }
-%PrepareFunctionForOptimization(nonstrictCallStrict);
 
 (function testInlineStrictInNonStrict() {
   for (var i = 0; i <= MAX; i ++) {
@@ -68,12 +67,11 @@ function strictCallNonStrict(n) {
   "use strict";
   nonstrictToBeInlined(n);
 }
-%PrepareFunctionForOptimization(strictCallNonStrict);
 
 (function testInlineNonStrictInStrict() {
   for (var i = 0; i <= MAX; i ++) {
     try {
-      if (i == MAX - 1) %OptimizeFunctionOnNextCall(strictCallNonStrict);
+      if (i == MAX - 1) %OptimizeFunctionOnNextCall(nonstrictCallStrict);
       strictCallNonStrict(i);
     } catch (e) {
       fail("no exception", "exception");
@@ -89,7 +87,6 @@ function strictAssignToUndefined(n) {
   global = "strict";
   if (n == MAX) { undefined_variable_strict_2 = "value"; }
 }
-%PrepareFunctionForOptimization(nonstrictCallStrict);
 
 (function testOptimizeStrictAssignToUndefined() {
   for (var i = 0; i <= MAX; i ++) {

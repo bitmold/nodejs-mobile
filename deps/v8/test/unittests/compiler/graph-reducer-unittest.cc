@@ -2,13 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "test/unittests/compiler/graph-reducer-unittest.h"
-#include "src/codegen/tick-counter.h"
 #include "src/compiler/common-operator.h"
 #include "src/compiler/graph.h"
-#include "src/compiler/node-properties.h"
 #include "src/compiler/node.h"
+#include "src/compiler/node-properties.h"
 #include "src/compiler/operator.h"
+#include "test/unittests/compiler/graph-reducer-unittest.h"
 #include "test/unittests/test-utils.h"
 
 using testing::_;
@@ -55,8 +54,8 @@ static TestOperator kOpC1(kOpcodeC1, Operator::kNoWrite, "opc1", 1, 1);
 static TestOperator kOpC2(kOpcodeC2, Operator::kNoWrite, "opc2", 2, 1);
 
 struct MockReducer : public Reducer {
-  MOCK_METHOD(const char*, reducer_name, (), (const, override));
-  MOCK_METHOD(Reduction, Reduce, (Node*), (override));
+  MOCK_CONST_METHOD0(reducer_name, const char*());
+  MOCK_METHOD1(Reduce, Reduction(Node*));
 };
 
 
@@ -234,15 +233,13 @@ class AB2Sorter final : public Reducer {
 
 class AdvancedReducerTest : public TestWithZone {
  public:
-  AdvancedReducerTest() : TestWithZone(kCompressGraphZone), graph_(zone()) {}
+  AdvancedReducerTest() : graph_(zone()) {}
 
  protected:
   Graph* graph() { return &graph_; }
-  TickCounter* tick_counter() { return &tick_counter_; }
 
  private:
   Graph graph_;
-  TickCounter tick_counter_;
 };
 
 
@@ -314,7 +311,7 @@ TEST_F(AdvancedReducerTest, ReplaceWithValue_ValueUse) {
   Node* zero = graph()->NewNode(common.Int32Constant(0));
   Node* use_value = graph()->NewNode(common.Return(), zero, node, start, start);
   Node* replacement = graph()->NewNode(&kMockOperator);
-  GraphReducer graph_reducer(zone(), graph(), nullptr, nullptr);
+  GraphReducer graph_reducer(zone(), graph(), nullptr);
   ReplaceWithValueReducer r(&graph_reducer);
   r.ReplaceWithValue(node, replacement);
   EXPECT_EQ(replacement, use_value->InputAt(1));
@@ -331,7 +328,7 @@ TEST_F(AdvancedReducerTest, ReplaceWithValue_EffectUse) {
   Node* use_control = graph()->NewNode(common.Merge(1), start);
   Node* use_effect = graph()->NewNode(common.EffectPhi(1), node, use_control);
   Node* replacement = graph()->NewNode(&kMockOperator);
-  GraphReducer graph_reducer(zone(), graph(), nullptr, nullptr);
+  GraphReducer graph_reducer(zone(), graph(), nullptr);
   ReplaceWithValueReducer r(&graph_reducer);
   r.ReplaceWithValue(node, replacement);
   EXPECT_EQ(start, use_effect->InputAt(0));
@@ -350,7 +347,7 @@ TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse1) {
   Node* success = graph()->NewNode(common.IfSuccess(), node);
   Node* use_control = graph()->NewNode(common.Merge(1), success);
   Node* replacement = graph()->NewNode(&kMockOperator);
-  GraphReducer graph_reducer(zone(), graph(), nullptr, nullptr);
+  GraphReducer graph_reducer(zone(), graph(), nullptr);
   ReplaceWithValueReducer r(&graph_reducer);
   r.ReplaceWithValue(node, replacement);
   EXPECT_EQ(start, use_control->InputAt(0));
@@ -371,7 +368,7 @@ TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse2) {
   Node* exception = graph()->NewNode(common.IfException(), effect, node);
   Node* use_control = graph()->NewNode(common.Merge(1), success);
   Node* replacement = graph()->NewNode(&kMockOperator);
-  GraphReducer graph_reducer(zone(), graph(), tick_counter(), nullptr, dead);
+  GraphReducer graph_reducer(zone(), graph(), dead);
   ReplaceWithValueReducer r(&graph_reducer);
   r.ReplaceWithValue(node, replacement);
   EXPECT_EQ(start, use_control->InputAt(0));
@@ -395,7 +392,7 @@ TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse3) {
   Node* exception = graph()->NewNode(common.IfException(), effect, node);
   Node* use_control = graph()->NewNode(common.Merge(1), success);
   Node* replacement = graph()->NewNode(&kMockOperator);
-  GraphReducer graph_reducer(zone(), graph(), tick_counter(), nullptr, dead);
+  GraphReducer graph_reducer(zone(), graph(), dead);
   ReplaceWithValueReducer r(&graph_reducer);
   r.ReplaceWithValue(node, replacement);
   EXPECT_EQ(start, use_control->InputAt(0));
@@ -411,34 +408,34 @@ TEST_F(AdvancedReducerTest, ReplaceWithValue_ControlUse3) {
 
 class GraphReducerTest : public TestWithZone {
  public:
-  GraphReducerTest() : TestWithZone(kCompressGraphZone), graph_(zone()) {}
+  GraphReducerTest() : graph_(zone()) {}
 
-  static void SetUpTestSuite() {
-    TestWithZone::SetUpTestSuite();
+  static void SetUpTestCase() {
+    TestWithZone::SetUpTestCase();
     DefaultValue<Reduction>::Set(Reducer::NoChange());
   }
 
-  static void TearDownTestSuite() {
+  static void TearDownTestCase() {
     DefaultValue<Reduction>::Clear();
-    TestWithZone::TearDownTestSuite();
+    TestWithZone::TearDownTestCase();
   }
 
  protected:
   void ReduceNode(Node* node, Reducer* r) {
-    GraphReducer reducer(zone(), graph(), tick_counter(), nullptr);
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r);
     reducer.ReduceNode(node);
   }
 
   void ReduceNode(Node* node, Reducer* r1, Reducer* r2) {
-    GraphReducer reducer(zone(), graph(), tick_counter(), nullptr);
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.AddReducer(r2);
     reducer.ReduceNode(node);
   }
 
   void ReduceNode(Node* node, Reducer* r1, Reducer* r2, Reducer* r3) {
-    GraphReducer reducer(zone(), graph(), tick_counter(), nullptr);
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.AddReducer(r2);
     reducer.AddReducer(r3);
@@ -446,20 +443,20 @@ class GraphReducerTest : public TestWithZone {
   }
 
   void ReduceGraph(Reducer* r1) {
-    GraphReducer reducer(zone(), graph(), tick_counter(), nullptr);
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.ReduceGraph();
   }
 
   void ReduceGraph(Reducer* r1, Reducer* r2) {
-    GraphReducer reducer(zone(), graph(), tick_counter(), nullptr);
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.AddReducer(r2);
     reducer.ReduceGraph();
   }
 
   void ReduceGraph(Reducer* r1, Reducer* r2, Reducer* r3) {
-    GraphReducer reducer(zone(), graph(), tick_counter(), nullptr);
+    GraphReducer reducer(zone(), graph());
     reducer.AddReducer(r1);
     reducer.AddReducer(r2);
     reducer.AddReducer(r3);
@@ -467,11 +464,9 @@ class GraphReducerTest : public TestWithZone {
   }
 
   Graph* graph() { return &graph_; }
-  TickCounter* tick_counter() { return &tick_counter_; }
 
  private:
   Graph graph_;
-  TickCounter tick_counter_;
 };
 
 
@@ -712,7 +707,7 @@ TEST_F(GraphReducerTest, Forwarding3) {
 
     A1Forwarder r;
 
-    for (size_t j = 0; j < 3; j++) {
+    for (size_t i = 0; i < 3; i++) {
       size_t before = graph()->NodeCount();
       ReduceGraph(&r);
       EXPECT_EQ(before, graph()->NodeCount());

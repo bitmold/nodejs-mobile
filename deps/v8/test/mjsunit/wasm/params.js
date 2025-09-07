@@ -4,7 +4,7 @@
 
 // Flags: --expose-wasm
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 function runSelect2(select, which, a, b) {
   assertEquals(which == 0 ? a : b, select(a, b));
@@ -17,7 +17,7 @@ function testSelect2(type) {
     var builder = new WasmModuleBuilder();
 
     builder.addFunction("select", makeSig_r_xx(type, type))
-      .addBody([kExprLocalGet, which])
+      .addBody([kExprGetLocal, which])
       .exportFunc()
 
     var select = builder.instantiate().exports.select;
@@ -79,7 +79,7 @@ function testSelect10(t) {
 
     var builder = new WasmModuleBuilder();
     builder.addFunction("select", makeSig([t,t,t,t,t,t,t,t,t,t], [t]))
-      .addBody([kExprLocalGet, which])
+      .addBody([kExprGetLocal, which])
       .exportFunc();
 
     var select = builder.instantiate().exports.select;

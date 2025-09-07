@@ -17,10 +17,6 @@ const char* RootsTable::root_names_[RootsTable::kEntriesCount] = {
 #undef ROOT_NAME
 };
 
-MapWord ReadOnlyRoots::one_pointer_filler_map_word() {
-  return MapWord::FromMap(one_pointer_filler_map());
-}
-
 void ReadOnlyRoots::Iterate(RootVisitor* visitor) {
   visitor->VisitRootPointers(Root::kReadOnlyRootList, nullptr,
                              FullObjectSlot(read_only_roots_),
@@ -29,14 +25,23 @@ void ReadOnlyRoots::Iterate(RootVisitor* visitor) {
 }
 
 #ifdef DEBUG
-#define ROOT_TYPE_CHECK(Type, name, CamelName)   \
-  bool ReadOnlyRoots::CheckType_##name() const { \
-    return unchecked_##name().Is##Type();        \
-  }
 
-READ_ONLY_ROOT_LIST(ROOT_TYPE_CHECK)
-#undef ROOT_TYPE_CHECK
-#endif
+bool ReadOnlyRoots::CheckType(RootIndex index) const {
+  Object root(at(index));
+  switch (index) {
+#define CHECKTYPE(Type, name, CamelName) \
+  case RootIndex::k##CamelName:          \
+    return root.Is##Type();
+    READ_ONLY_ROOT_LIST(CHECKTYPE)
+#undef CHECKTYPE
+
+    default:
+      UNREACHABLE();
+      return false;
+  }
+}
+
+#endif  // DEBUG
 
 }  // namespace internal
 }  // namespace v8

@@ -27,17 +27,19 @@
 
 #include <stdlib.h>
 
-#include "src/base/numbers/double.h"
-#include "src/base/numbers/dtoa.h"
-#include "src/base/platform/platform.h"
 #include "src/init/v8.h"
+
+#include "src/numbers/dtoa.h"
+
+#include "src/base/platform/platform.h"
+#include "src/numbers/double.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/gay-fixed.h"
 #include "test/cctest/gay-precision.h"
 #include "test/cctest/gay-shortest.h"
 
 namespace v8 {
-namespace base {
+namespace internal {
 namespace test_dtoa {
 
 // Removes trailing '0' digits (modifies {representation}). Can create an empty
@@ -53,7 +55,7 @@ static const int kBufferSize = 100;
 
 TEST(DtoaVariousDoubles) {
   char buffer_container[kBufferSize];
-  base::Vector<char> buffer(buffer_container, kBufferSize);
+  Vector<char> buffer(buffer_container, kBufferSize);
   int length;
   int point;
   int sign;
@@ -210,7 +212,7 @@ TEST(DtoaVariousDoubles) {
   CHECK_EQ(0, strcmp("35844466", buffer.begin()));
   CHECK_EQ(299, point);
 
-  uint64_t smallest_normal64 = 0x0010'0000'0000'0000;
+  uint64_t smallest_normal64 = V8_2PART_UINT64_C(0x00100000, 00000000);
   double v = Double(smallest_normal64).value();
   DoubleToAscii(v, DTOA_SHORTEST, 0, buffer, &sign, &length, &point);
   CHECK_EQ(0, strcmp("22250738585072014", buffer.begin()));
@@ -222,7 +224,7 @@ TEST(DtoaVariousDoubles) {
   CHECK_EQ(0, strcmp("22250738585072013831", buffer.begin()));
   CHECK_EQ(-307, point);
 
-  uint64_t largest_denormal64 = 0x000F'FFFF'FFFF'FFFF;
+  uint64_t largest_denormal64 = V8_2PART_UINT64_C(0x000FFFFF, FFFFFFFF);
   v = Double(largest_denormal64).value();
   DoubleToAscii(v, DTOA_SHORTEST, 0, buffer, &sign, &length, &point);
   CHECK_EQ(0, strcmp("2225073858507201", buffer.begin()));
@@ -261,12 +263,12 @@ TEST(DtoaVariousDoubles) {
 
 TEST(DtoaGayShortest) {
   char buffer_container[kBufferSize];
-  base::Vector<char> buffer(buffer_container, kBufferSize);
+  Vector<char> buffer(buffer_container, kBufferSize);
   int sign;
   int length;
   int point;
 
-  base::Vector<const PrecomputedShortest> precomputed =
+  Vector<const PrecomputedShortest> precomputed =
       PrecomputedShortestRepresentations();
   for (int i = 0; i < precomputed.length(); ++i) {
     const PrecomputedShortest current_test = precomputed[i];
@@ -281,12 +283,12 @@ TEST(DtoaGayShortest) {
 
 TEST(DtoaGayFixed) {
   char buffer_container[kBufferSize];
-  base::Vector<char> buffer(buffer_container, kBufferSize);
+  Vector<char> buffer(buffer_container, kBufferSize);
   int sign;
   int length;
   int point;
 
-  base::Vector<const PrecomputedFixed> precomputed =
+  Vector<const PrecomputedFixed> precomputed =
       PrecomputedFixedRepresentations();
   for (int i = 0; i < precomputed.length(); ++i) {
     const PrecomputedFixed current_test = precomputed[i];
@@ -304,12 +306,12 @@ TEST(DtoaGayFixed) {
 
 TEST(DtoaGayPrecision) {
   char buffer_container[kBufferSize];
-  base::Vector<char> buffer(buffer_container, kBufferSize);
+  Vector<char> buffer(buffer_container, kBufferSize);
   int sign;
   int length;
   int point;
 
-  base::Vector<const PrecomputedPrecision> precomputed =
+  Vector<const PrecomputedPrecision> precomputed =
       PrecomputedPrecisionRepresentations();
   for (int i = 0; i < precomputed.length(); ++i) {
     const PrecomputedPrecision current_test = precomputed[i];
@@ -326,5 +328,5 @@ TEST(DtoaGayPrecision) {
 }
 
 }  // namespace test_dtoa
-}  // namespace base
+}  // namespace internal
 }  // namespace v8

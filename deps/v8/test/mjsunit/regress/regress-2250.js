@@ -53,7 +53,6 @@ function test() {
     ;
 }
 
-%PrepareFunctionForOptimization(test);
 eq({}, {});
 eq({}, {});
 eq(1, 1);
@@ -61,7 +60,6 @@ eq(1, 1);
 test();
 %OptimizeFunctionOnNextCall(test);
 test();
-%PrepareFunctionForOptimization(test);
 %OptimizeFunctionOnNextCall(test);
 // Second compilation should have noticed that LICM wasn't a good idea, and now
 // function should no longer deopt when called.

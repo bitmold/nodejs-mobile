@@ -39,9 +39,7 @@ function f(restIsArray, rest) {
   var arrIsArguments = (arr[1] !== rest);
   assertEquals(restIsArray, arrIsArguments);
 }
-%PrepareFunctionForOptimization(f);
 
-%PrepareFunctionForOptimization(f);
 f(false, 'b', 'c');
 f(false, 'b', 'c');
 f(false, 'b', 'c');

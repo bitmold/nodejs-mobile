@@ -6,10 +6,8 @@
 
 for (var i = 0; i < 1024; ++i) Object.prototype["i" + i] = i;
 
-function foo() {
-  [].push(1);
-};
-%PrepareFunctionForOptimization(foo);
+function foo() { [].push(1); }
+
 foo();
 foo();
 %OptimizeFunctionOnNextCall(foo);

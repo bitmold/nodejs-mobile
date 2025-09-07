@@ -6,28 +6,40 @@
 
 namespace proxy {
 
-extern macro ProxiesCodeStubAssembler::AllocateProxy(implicit context: Context)(
-    JSReceiver, JSReceiver): JSProxy;
+  extern macro ProxiesCodeStubAssembler::AllocateProxy(
+      JSReceiver, JSReceiver, Context): JSProxy;
+  macro AllocateProxy(implicit context: Context)(
+      target: JSReceiver, handler: JSReceiver): JSProxy {
+    return AllocateProxy(target, handler, context);
+  }
 
-extern transitioning macro ProxiesCodeStubAssembler::CheckGetSetTrapResult(
-    implicit context: Context)(
-    JSReceiver, JSProxy, Name, Object, constexpr int31): void;
+  macro IsRevokedProxy(implicit context: Context)(o: JSReceiver): bool {
+    const proxy: JSProxy = Cast<JSProxy>(o) otherwise return false;
+    const handler: JSReceiver =
+        Cast<JSReceiver>(proxy.handler) otherwise return true;
+    return false;
+  }
 
-extern transitioning macro ProxiesCodeStubAssembler::CheckDeleteTrapResult(
-    implicit context: Context)(JSReceiver, JSProxy, Name): void;
+  extern transitioning macro ProxiesCodeStubAssembler::CheckGetSetTrapResult(
+      implicit context:
+          Context)(Object, JSProxy, Name, Object, constexpr int31): Object;
 
-extern transitioning macro ProxiesCodeStubAssembler::CheckHasTrapResult(
-    implicit context: Context)(JSReceiver, JSProxy, Name): void;
+  extern transitioning macro ProxiesCodeStubAssembler::CheckHasTrapResult(
+      implicit context: Context)(Object, JSProxy, Name): Object;
 
-const kProxyGet: constexpr int31
-    generates 'JSProxy::AccessKind::kGet';
-const kProxySet: constexpr int31
-    generates 'JSProxy::AccessKind::kSet';
+  const kProxyNonObject: constexpr MessageTemplate
+  generates 'MessageTemplate::kProxyNonObject';
+  const kProxyHandlerOrTargetRevoked: constexpr MessageTemplate
+  generates 'MessageTemplate::kProxyHandlerOrTargetRevoked';
+  const kProxyRevoked: constexpr MessageTemplate
+  generates 'MessageTemplate::kProxyRevoked';
+  const kProxyTrapReturnedFalsishFor: constexpr MessageTemplate
+  generates 'MessageTemplate::kProxyTrapReturnedFalsishFor';
+  const kProxyPrivate: constexpr MessageTemplate
+  generates 'MessageTemplate::kProxyPrivate';
 
-type ProxyRevokeFunctionContext extends FunctionContext;
-extern enum ProxyRevokeFunctionContextSlot extends intptr
-constexpr 'ProxiesCodeStubAssembler::ProxyRevokeFunctionContextSlot' {
-  kProxySlot: Slot<ProxyRevokeFunctionContext, JSProxy|Null>,
-  kProxyContextLength
-}
+  const kProxyGet: constexpr int31
+  generates 'JSProxy::AccessKind::kGet';
+  const kProxySet: constexpr int31
+  generates 'JSProxy::AccessKind::kSet';
 }

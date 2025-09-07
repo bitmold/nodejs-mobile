@@ -12,7 +12,6 @@
 
 .p2align	5
 _poly1305_init:
-
 	xorq	%rax,%rax
 	movq	%rax,0(%rdi)
 	movq	%rax,8(%rdi)
@@ -48,7 +47,6 @@ _poly1305_init:
 	movl	$1,%eax
 L$no_key:
 	.byte	0xf3,0xc3
-
 
 
 
@@ -163,7 +161,6 @@ L$blocks_epilogue:
 
 .p2align	5
 _poly1305_emit:
-
 L$emit:
 	movq	0(%rdi),%r8
 	movq	8(%rdi),%r9
@@ -186,10 +183,8 @@ L$emit:
 	.byte	0xf3,0xc3
 
 
-
 .p2align	5
 __poly1305_block:
-
 	mulq	%r14
 	movq	%rax,%r9
 	movq	%r11,%rax
@@ -232,10 +227,8 @@ __poly1305_block:
 
 
 
-
 .p2align	5
 __poly1305_init_avx:
-
 	movq	%r11,%r14
 	movq	%r12,%rbx
 	xorq	%rbp,%rbp
@@ -393,7 +386,6 @@ __poly1305_init_avx:
 
 	leaq	-48-64(%rdi),%rdi
 	.byte	0xf3,0xc3
-
 
 
 
@@ -1222,7 +1214,6 @@ L$short_tail_avx:
 
 .p2align	5
 poly1305_emit_avx:
-
 	cmpl	$0,20(%rdi)
 	je	L$emit
 
@@ -1273,7 +1264,6 @@ poly1305_emit_avx:
 	movq	%rcx,8(%rsi)
 
 	.byte	0xf3,0xc3
-
 
 
 .p2align	5
@@ -2458,7 +2448,6 @@ L$tail_avx512:
 
 .p2align	5
 poly1305_init_base2_44:
-
 	xorq	%rax,%rax
 	movq	%rax,0(%rdi)
 	movq	%rax,8(%rdi)
@@ -2494,11 +2483,8 @@ L$init_base2_44:
 	.byte	0xf3,0xc3
 
 
-
 .p2align	5
 poly1305_blocks_vpmadd52:
-
-.byte	243,15,30,250
 	shrq	$4,%rdx
 	jz	L$no_data_vpmadd52
 
@@ -2607,10 +2593,8 @@ L$no_data_vpmadd52:
 	.byte	0xf3,0xc3
 
 
-
 .p2align	5
 poly1305_blocks_vpmadd52_4x:
-
 	shrq	$4,%rdx
 	jz	L$no_data_vpmadd52_4x
 
@@ -3037,10 +3021,8 @@ L$no_data_vpmadd52_4x:
 	.byte	0xf3,0xc3
 
 
-
 .p2align	5
 poly1305_blocks_vpmadd52_8x:
-
 	shrq	$4,%rdx
 	jz	L$no_data_vpmadd52_8x
 
@@ -3383,11 +3365,8 @@ L$no_data_vpmadd52_8x:
 	.byte	0xf3,0xc3
 
 
-
 .p2align	5
 poly1305_emit_base2_44:
-
-.byte	243,15,30,250
 	movq	0(%rdi),%r8
 	movq	8(%rdi),%r9
 	movq	16(%rdi),%r10
@@ -3418,7 +3397,6 @@ poly1305_emit_base2_44:
 	movq	%rcx,8(%rsi)
 
 	.byte	0xf3,0xc3
-
 
 .p2align	6
 L$const:
@@ -3457,7 +3435,6 @@ L$x_mask42:
 
 .p2align	4
 _xor128_encrypt_n_pad:
-
 	subq	%rdx,%rsi
 	subq	%rdx,%rdi
 	movq	%rcx,%r10
@@ -3501,12 +3478,10 @@ L$done_enc:
 	.byte	0xf3,0xc3
 
 
-
 .globl	_xor128_decrypt_n_pad
 
 .p2align	4
 _xor128_decrypt_n_pad:
-
 	subq	%rdx,%rsi
 	subq	%rdx,%rdi
 	movq	%rcx,%r10
@@ -3552,5 +3527,4 @@ L$oop_dec_pad:
 L$done_dec:
 	movq	%rdx,%rax
 	.byte	0xf3,0xc3
-
 

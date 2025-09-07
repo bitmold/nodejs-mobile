@@ -3224,72 +3224,54 @@ TEST_F(InstructionSelectorTest, Float64Neg) {
   ASSERT_EQ(1U, s[0]->OutputCount());
   EXPECT_EQ(s.ToVreg(n), s.ToVreg(s[0]->Output()));
 }
-enum PairwiseAddSide { LEFT, RIGHT };
 
-std::ostream& operator<<(std::ostream& os, const PairwiseAddSide& side) {
-  switch (side) {
-    case LEFT:
-      return os << "LEFT";
-    case RIGHT:
-      return os << "RIGHT";
-  }
-}
+TEST_F(InstructionSelectorTest, StackCheck0) {
+  StreamBuilder m(this, MachineType::Int32(), MachineType::Pointer());
+  Node* const sp = m.LoadStackPointer();
+  Node* const stack_limit = m.Load(MachineType::Int32(), m.Parameter(0));
+  Node* const interrupt = m.UintPtrLessThan(sp, stack_limit);
 
-struct AddWithPairwiseAddSideAndWidth {
-  PairwiseAddSide side;
-  int32_t width;
-  bool isSigned;
-};
+  RawMachineLabel if_true, if_false;
+  m.Branch(interrupt, &if_true, &if_false);
 
-std::ostream& operator<<(std::ostream& os,
-                         const AddWithPairwiseAddSideAndWidth& sw) {
-  return os << "{ side: " << sw.side << ", width: " << sw.width
-            << ", isSigned: " << sw.isSigned << " }";
-}
+  m.Bind(&if_true);
+  m.Return(m.Int32Constant(1));
 
-using InstructionSelectorAddWithPairwiseAddTest =
-    InstructionSelectorTestWithParam<AddWithPairwiseAddSideAndWidth>;
+  m.Bind(&if_false);
+  m.Return(m.Int32Constant(0));
 
-TEST_P(InstructionSelectorAddWithPairwiseAddTest, AddWithPairwiseAdd) {
-  AddWithPairwiseAddSideAndWidth params = GetParam();
-  const MachineType type = MachineType::Simd128();
-  StreamBuilder m(this, type, type, type, type);
-
-  Node* x = m.Parameter(0);
-  Node* y = m.Parameter(1);
-  const Operator* pairwiseAddOp;
-  if (params.width == 32 && params.isSigned) {
-    pairwiseAddOp = m.machine()->I32x4ExtAddPairwiseI16x8S();
-  } else if (params.width == 16 && params.isSigned) {
-    pairwiseAddOp = m.machine()->I16x8ExtAddPairwiseI8x16S();
-  } else if (params.width == 32 && !params.isSigned) {
-    pairwiseAddOp = m.machine()->I32x4ExtAddPairwiseI16x8U();
-  } else {
-    pairwiseAddOp = m.machine()->I16x8ExtAddPairwiseI8x16U();
-  }
-  Node* pairwiseAdd = m.AddNode(pairwiseAddOp, x);
-  const Operator* addOp =
-      params.width == 32 ? m.machine()->I32x4Add() : m.machine()->I16x8Add();
-  Node* add = params.side == LEFT ? m.AddNode(addOp, pairwiseAdd, y)
-                                  : m.AddNode(addOp, y, pairwiseAdd);
-  m.Return(add);
   Stream s = m.Build();
 
-  // Should be fused to Vpadal
-  ASSERT_EQ(1U, s.size());
-  EXPECT_EQ(kArmVpadal, s[0]->arch_opcode());
-  EXPECT_EQ(2U, s[0]->InputCount());
-  EXPECT_EQ(1U, s[0]->OutputCount());
+  ASSERT_EQ(2U, s.size());
+  EXPECT_EQ(kArmLdr, s[0]->arch_opcode());
+  EXPECT_EQ(kArmCmp, s[1]->arch_opcode());
+  EXPECT_EQ(4U, s[1]->InputCount());
+  EXPECT_EQ(0U, s[1]->OutputCount());
 }
 
-const AddWithPairwiseAddSideAndWidth kAddWithPairAddTestCases[] = {
-    {LEFT, 16, true},  {RIGHT, 16, true}, {LEFT, 32, true},
-    {RIGHT, 32, true}, {LEFT, 16, false}, {RIGHT, 16, false},
-    {LEFT, 32, false}, {RIGHT, 32, false}};
+TEST_F(InstructionSelectorTest, StackCheck1) {
+  StreamBuilder m(this, MachineType::Int32(), MachineType::Pointer());
+  Node* const sp = m.LoadStackPointer();
+  Node* const stack_limit = m.Load(MachineType::Int32(), m.Parameter(0));
+  Node* const sp_within_limit = m.UintPtrLessThan(stack_limit, sp);
 
-INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
-                         InstructionSelectorAddWithPairwiseAddTest,
-                         ::testing::ValuesIn(kAddWithPairAddTestCases));
+  RawMachineLabel if_true, if_false;
+  m.Branch(sp_within_limit, &if_true, &if_false);
+
+  m.Bind(&if_true);
+  m.Return(m.Int32Constant(1));
+
+  m.Bind(&if_false);
+  m.Return(m.Int32Constant(0));
+
+  Stream s = m.Build();
+
+  ASSERT_EQ(2U, s.size());
+  EXPECT_EQ(kArmLdr, s[0]->arch_opcode());
+  EXPECT_EQ(kArmCmp, s[1]->arch_opcode());
+  EXPECT_EQ(4U, s[1]->InputCount());
+  EXPECT_EQ(0U, s[1]->OutputCount());
+}
 
 }  // namespace compiler
 }  // namespace internal

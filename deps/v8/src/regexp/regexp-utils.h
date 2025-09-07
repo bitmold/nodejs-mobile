@@ -5,15 +5,12 @@
 #ifndef V8_REGEXP_REGEXP_UTILS_H_
 #define V8_REGEXP_REGEXP_UTILS_H_
 
-#include "src/common/globals.h"
+#include "src/objects/objects.h"
 
 namespace v8 {
 namespace internal {
 
-class JSReceiver;
-class Object;
 class RegExpMatchInfo;
-class String;
 
 // Helper methods for C++ regexp builtins.
 class RegExpUtils : public AllStatic {
@@ -34,12 +31,13 @@ class RegExpUtils : public AllStatic {
       Isolate* isolate, Handle<JSReceiver> regexp, Handle<String> string,
       Handle<Object> exec);
 
+  // ES#sec-isregexp IsRegExp ( argument )
+  // Includes checking of the match property.
+  static Maybe<bool> IsRegExp(Isolate* isolate, Handle<Object> object);
+
   // Checks whether the given object is an unmodified JSRegExp instance.
   // Neither the object's map, nor its prototype's map, nor any relevant
   // method on the prototype may be modified.
-  //
-  // Note: This check is limited may only be used in situations where the only
-  // relevant property is 'exec'.
   static bool IsUnmodifiedRegExp(Isolate* isolate, Handle<Object> obj);
 
   // ES#sec-advancestringindex

@@ -24,7 +24,7 @@ NullTransliterator::NullTransliterator() : Transliterator(UNICODE_STRING_SIMPLE(
 
 NullTransliterator::~NullTransliterator() {}
 
-NullTransliterator* NullTransliterator::clone() const {
+Transliterator* NullTransliterator::clone(void) const {
     return new NullTransliterator();
 }
 

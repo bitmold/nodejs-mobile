@@ -4,11 +4,12 @@
 
 #if V8_TARGET_ARCH_MIPS
 
-#include "src/execution/mips/frame-constants-mips.h"
-
+#include "src/codegen/assembler.h"
 #include "src/codegen/mips/assembler-mips-inl.h"
+#include "src/codegen/mips/assembler-mips.h"
 #include "src/execution/frame-constants.h"
-#include "src/execution/frames.h"
+
+#include "src/execution/mips/frame-constants-mips.h"
 
 namespace v8 {
 namespace internal {
@@ -17,7 +18,7 @@ Register JavaScriptFrame::fp_register() { return v8::internal::fp; }
 Register JavaScriptFrame::context_register() { return cp; }
 Register JavaScriptFrame::constant_pool_pointer_register() { UNREACHABLE(); }
 
-int UnoptimizedFrameConstants::RegisterStackSlotCount(int register_count) {
+int InterpreterFrameConstants::RegisterStackSlotCount(int register_count) {
   return register_count;
 }
 

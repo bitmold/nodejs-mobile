@@ -28,30 +28,6 @@ int AddToSetAndGetHash(Isolate* isolate, Handle<JSObject> obj,
   return Smi::ToInt(obj->GetHash());
 }
 
-int GetPropertyDictionaryHash(Handle<JSObject> obj) {
-  if (V8_ENABLE_SWISS_NAME_DICTIONARY_BOOL) {
-    return obj->property_dictionary_swiss().Hash();
-  } else {
-    return obj->property_dictionary().Hash();
-  }
-}
-
-int GetPropertyDictionaryLength(Handle<JSObject> obj) {
-  if (V8_ENABLE_SWISS_NAME_DICTIONARY_BOOL) {
-    return obj->property_dictionary_swiss().Capacity();
-  } else {
-    return obj->property_dictionary().length();
-  }
-}
-
-void CheckIsDictionaryModeObject(Handle<JSObject> obj) {
-  if (V8_ENABLE_SWISS_NAME_DICTIONARY_BOOL) {
-    CHECK(obj->raw_properties_or_hash().IsSwissNameDictionary());
-  } else {
-    CHECK(obj->raw_properties_or_hash().IsNameDictionary());
-  }
-}
-
 void CheckFastObject(Handle<JSObject> obj, int hash) {
   CHECK(obj->HasFastProperties());
   CHECK(obj->raw_properties_or_hash().IsPropertyArray());
@@ -61,9 +37,9 @@ void CheckFastObject(Handle<JSObject> obj, int hash) {
 
 void CheckDictionaryObject(Handle<JSObject> obj, int hash) {
   CHECK(!obj->HasFastProperties());
-  CheckIsDictionaryModeObject(obj);
+  CHECK(obj->raw_properties_or_hash().IsNameDictionary());
   CHECK_EQ(Smi::FromInt(hash), obj->GetHash());
-  CHECK_EQ(hash, GetPropertyDictionaryHash(obj));
+  CHECK_EQ(hash, obj->property_dictionary().Hash());
 }
 
 TEST(AddHashCodeToFastObjectWithoutProperties) {
@@ -120,10 +96,9 @@ TEST(AddHashCodeToSlowObject) {
   Handle<JSObject> obj =
       isolate->factory()->NewJSObject(isolate->object_function());
   CHECK(obj->HasFastProperties());
-  JSObject::NormalizeProperties(isolate, obj, CLEAR_INOBJECT_PROPERTIES, 0,
+  JSObject::NormalizeProperties(obj, CLEAR_INOBJECT_PROPERTIES, 0,
                                 "cctest/test-hashcode");
-
-  CheckIsDictionaryModeObject(obj);
+  CHECK(obj->raw_properties_or_hash().IsNameDictionary());
 
   int hash = AddToSetAndGetHash(isolate, obj, false);
   CheckDictionaryObject(obj, hash);
@@ -190,7 +165,7 @@ TEST(TransitionFastWithPropertyArrayToSlow) {
   CHECK(obj->raw_properties_or_hash().IsPropertyArray());
   CHECK_EQ(hash, obj->property_array().Hash());
 
-  JSObject::NormalizeProperties(isolate, obj, KEEP_INOBJECT_PROPERTIES, 0,
+  JSObject::NormalizeProperties(obj, KEEP_INOBJECT_PROPERTIES, 0,
                                 "cctest/test-hashcode");
   CheckDictionaryObject(obj, hash);
 }
@@ -204,16 +179,16 @@ TEST(TransitionSlowToSlow) {
   CompileRun(source);
 
   Handle<JSObject> obj = GetGlobal<JSObject>("x");
-  JSObject::NormalizeProperties(isolate, obj, CLEAR_INOBJECT_PROPERTIES, 0,
+  JSObject::NormalizeProperties(obj, CLEAR_INOBJECT_PROPERTIES, 0,
                                 "cctest/test-hashcode");
-  CheckIsDictionaryModeObject(obj);
+  CHECK(obj->raw_properties_or_hash().IsNameDictionary());
 
   int hash = AddToSetAndGetHash(isolate, obj, false);
-  CHECK_EQ(hash, GetPropertyDictionaryHash(obj));
+  CHECK_EQ(hash, obj->property_dictionary().Hash());
 
-  int length = GetPropertyDictionaryLength(obj);
+  int length = obj->property_dictionary().length();
   CompileRun("for(var i = 0; i < 10; i++) { x['f'+i] = i };");
-  CHECK(GetPropertyDictionaryLength(obj) > length);
+  CHECK(obj->property_dictionary().length() > length);
   CheckDictionaryObject(obj, hash);
 }
 
@@ -224,12 +199,12 @@ TEST(TransitionSlowToFastWithoutProperties) {
 
   Handle<JSObject> obj =
       isolate->factory()->NewJSObject(isolate->object_function());
-  JSObject::NormalizeProperties(isolate, obj, CLEAR_INOBJECT_PROPERTIES, 0,
+  JSObject::NormalizeProperties(obj, CLEAR_INOBJECT_PROPERTIES, 0,
                                 "cctest/test-hashcode");
-  CheckIsDictionaryModeObject(obj);
+  CHECK(obj->raw_properties_or_hash().IsNameDictionary());
 
   int hash = AddToSetAndGetHash(isolate, obj, false);
-  CHECK_EQ(hash, GetPropertyDictionaryHash(obj));
+  CHECK_EQ(hash, obj->property_dictionary().Hash());
 
   JSObject::MigrateSlowToFast(obj, 0, "cctest/test-hashcode");
   CHECK_EQ(Smi::FromInt(hash), obj->GetHash());
@@ -246,10 +221,10 @@ TEST(TransitionSlowToFastWithPropertyArray) {
   CompileRun(source);
 
   Handle<JSObject> obj = GetGlobal<JSObject>("x");
-  CheckIsDictionaryModeObject(obj);
+  CHECK(obj->raw_properties_or_hash().IsNameDictionary());
 
   int hash = AddToSetAndGetHash(isolate, obj, false);
-  CHECK_EQ(hash, GetPropertyDictionaryHash(obj));
+  CHECK_EQ(hash, obj->property_dictionary().Hash());
 
   JSObject::MigrateSlowToFast(obj, 0, "cctest/test-hashcode");
   CheckFastObject(obj, hash);

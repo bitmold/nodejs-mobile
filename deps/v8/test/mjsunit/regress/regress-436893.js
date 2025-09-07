@@ -33,6 +33,5 @@ function foo() {
 }
 // Test passing null or undefined as receiver.
 function g() { return foo.apply(null, x()++); }
-%PrepareFunctionForOptimization(g);
 %OptimizeFunctionOnNextCall(g);
 assertThrows(g);

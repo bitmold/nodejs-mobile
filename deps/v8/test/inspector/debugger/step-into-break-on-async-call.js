@@ -5,8 +5,6 @@
 let {session, contextGroup, Protocol} =
     InspectorTest.start('Test for Debugger.stepInto with breakOnAsyncCall.');
 
-session.setupScriptMap();
-
 InspectorTest.runAsyncTestSuite([
   async function testSetTimeout() {
     Protocol.Debugger.enable();
@@ -19,8 +17,21 @@ InspectorTest.runAsyncTestSuite([
     });
     await pausedPromise;
     Protocol.Debugger.stepInto({breakOnAsyncCall: true});
-    let {params: {callFrames}} = await Protocol.Debugger.oncePaused();
+    let {params: {callFrames, asyncCallStackTraceId}} =
+        await Protocol.Debugger.oncePaused();
     session.logCallFrames(callFrames);
+    if (asyncCallStackTraceId) {
+      InspectorTest.log('asyncCallStackTraceId is set');
+    }
+    Protocol.Debugger.pauseOnAsyncCall(
+        {parentStackTraceId: asyncCallStackTraceId});
+    pausedPromise = Protocol.Debugger.oncePaused();
+    Protocol.Debugger.resume();
+    ({params: {callFrames, asyncCallStackTraceId}} = await pausedPromise);
+    session.logCallFrames(callFrames);
+    if (!asyncCallStackTraceId) {
+      InspectorTest.log('asyncCallStackTraceId is empty');
+    }
     await Protocol.Debugger.disable();
   },
 
@@ -34,8 +45,21 @@ InspectorTest.runAsyncTestSuite([
     Protocol.Runtime.evaluate({expression: 'p.then(() => 42)//# sourceURL=test.js'});
     await pausedPromise;
     Protocol.Debugger.stepInto({breakOnAsyncCall: true});
-    let {params: {callFrames}} = await Protocol.Debugger.oncePaused();
+    let {params: {callFrames, asyncCallStackTraceId}} =
+        await Protocol.Debugger.oncePaused();
     session.logCallFrames(callFrames);
+    if (asyncCallStackTraceId) {
+      InspectorTest.log('asyncCallStackTraceId is set');
+    }
+    Protocol.Debugger.pauseOnAsyncCall(
+        {parentStackTraceId: asyncCallStackTraceId});
+    pausedPromise = Protocol.Debugger.oncePaused();
+    Protocol.Debugger.resume();
+    ({params: {callFrames, asyncCallStackTraceId}} = await pausedPromise);
+    session.logCallFrames(callFrames);
+    if (!asyncCallStackTraceId) {
+      InspectorTest.log('asyncCallStackTraceId is empty');
+    }
     await Protocol.Debugger.disable();
   }
 ]);

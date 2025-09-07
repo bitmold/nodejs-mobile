@@ -1,5 +1,4 @@
 #include "env-inl.h"
-#include "node_external_reference.h"
 #include "node_internals.h"
 #include "util-inl.h"
 
@@ -11,91 +10,47 @@
 #if !defined(_MSC_VER)
 #include <unistd.h>  // setuid, getuid
 #endif
-#ifdef __linux__
-#include <linux/capability.h>
-#include <sys/auxv.h>
-#include <sys/syscall.h>
-#endif  // __linux__
 
 namespace node {
 
 using v8::Array;
 using v8::Context;
+using v8::Function;
 using v8::FunctionCallbackInfo;
 using v8::HandleScope;
 using v8::Isolate;
 using v8::Local;
 using v8::MaybeLocal;
+using v8::NewStringType;
 using v8::Object;
 using v8::String;
 using v8::TryCatch;
 using v8::Uint32;
 using v8::Value;
 
-bool linux_at_secure() {
-  // This could reasonably be a static variable, but this way
-  // we can guarantee that this function is always usable
-  // and returns the correct value,  e.g. even in static
-  // initialization code in other files.
-#ifdef __linux__
-  static const bool value = getauxval(AT_SECURE);
-  return value;
-#else
-  return false;
-#endif
-}
+namespace per_process {
+bool linux_at_secure = false;
+}  // namespace per_process
 
 namespace credentials {
 
-#if defined(__linux__)
-// Returns true if the current process only has the passed-in capability.
-bool HasOnly(int capability) {
-  DCHECK(cap_valid(capability));
-
-  struct __user_cap_data_struct cap_data[_LINUX_CAPABILITY_U32S_3];
-  struct __user_cap_header_struct cap_header_data = {
-    _LINUX_CAPABILITY_VERSION_3,
-    getpid()};
-
-
-  if (syscall(SYS_capget, &cap_header_data, &cap_data) != 0) {
-    return false;
-  }
-
-  static_assert(arraysize(cap_data) == 2);
-  return cap_data[CAP_TO_INDEX(capability)].permitted ==
-             static_cast<unsigned int>(CAP_TO_MASK(capability)) &&
-         cap_data[1 - CAP_TO_INDEX(capability)].permitted == 0;
-}
-#endif
-
-// Look up the environment variable and allow the lookup if the current
-// process only has the capability CAP_NET_BIND_SERVICE set. If the current
-// process does not have any capabilities set and the process is running as
-// setuid root then lookup will not be allowed.
-bool SafeGetenv(const char* key,
-                std::string* text,
-                std::shared_ptr<KVStore> env_vars,
-                v8::Isolate* isolate) {
+// Look up environment variable unless running as setuid root.
+bool SafeGetenv(const char* key, std::string* text, Environment* env) {
 #if !defined(__CloudABI__) && !defined(_WIN32)
-#if defined(__linux__)
-  if ((!HasOnly(CAP_NET_BIND_SERVICE) && linux_at_secure()) ||
-      getuid() != geteuid() || getgid() != getegid())
-#else
-  if (linux_at_secure() || getuid() != geteuid() || getgid() != getegid())
-#endif
+  if (per_process::linux_at_secure || getuid() != geteuid() ||
+      getgid() != getegid())
     goto fail;
 #endif
 
-  if (env_vars != nullptr) {
-    DCHECK_NOT_NULL(isolate);
-    HandleScope handle_scope(isolate);
-    TryCatch ignore_errors(isolate);
-    MaybeLocal<String> maybe_value = env_vars->Get(
-        isolate, String::NewFromUtf8(isolate, key).ToLocalChecked());
-    Local<String> value;
-    if (!maybe_value.ToLocal(&value)) goto fail;
-    String::Utf8Value utf8_value(isolate, value);
+  if (env != nullptr) {
+    HandleScope handle_scope(env->isolate());
+    TryCatch ignore_errors(env->isolate());
+    MaybeLocal<String> value = env->env_vars()->Get(
+        env->isolate(),
+        String::NewFromUtf8(env->isolate(), key, NewStringType::kNormal)
+            .ToLocalChecked());
+    if (value.IsEmpty()) goto fail;
+    String::Utf8Value utf8_value(env->isolate(), value.ToLocalChecked());
     if (*utf8_value == nullptr) goto fail;
     *text = std::string(*utf8_value, utf8_value.length());
     return true;
@@ -103,20 +58,8 @@ bool SafeGetenv(const char* key,
 
   {
     Mutex::ScopedLock lock(per_process::env_var_mutex);
-
-    size_t init_sz = 256;
-    MaybeStackBuffer<char, 256> val;
-    int ret = uv_os_getenv(key, *val, &init_sz);
-
-    if (ret == UV_ENOBUFS) {
-      // Buffer is not large enough, reallocate to the updated init_sz
-      // and fetch env value again.
-      val.AllocateSufficientStorage(init_sz);
-      ret = uv_os_getenv(key, *val, &init_sz);
-    }
-
-    if (ret >= 0) {  // Env key value fetch success.
-      *text = *val;
+    if (const char* value = getenv(key)) {
+      *text = value;
       return true;
     }
   }
@@ -132,7 +75,7 @@ static void SafeGetenv(const FunctionCallbackInfo<Value>& args) {
   Isolate* isolate = env->isolate();
   Utf8Value strenvtag(isolate, args[0]);
   std::string text;
-  if (!SafeGetenv(*strenvtag, &text, env->env_vars(), isolate)) return;
+  if (!SafeGetenv(*strenvtag, &text, env)) return;
   Local<Value> result =
       ToV8Value(isolate->GetCurrentContext(), text).ToLocalChecked();
   args.GetReturnValue().Set(result);
@@ -176,19 +119,6 @@ static char* name_by_uid(uid_t uid) {
   return nullptr;
 }
 
-#ifdef __ANDROID__
-// Android has getgrnam instead of getgrnam_r.
-static gid_t gid_by_name(const char* name) {
-  struct group* pp = getgrnam(name);  // NOLINT(runtime/threadsafe_fn)
-
-  errno = 0;
-
-  if (pp != nullptr)
-    return pp->gr_gid;
-
-  return gid_not_found;
-}
-#else  // __ANDROID__
 static gid_t gid_by_name(const char* name) {
   struct group pwd;
   struct group* pp;
@@ -202,7 +132,6 @@ static gid_t gid_by_name(const char* name) {
 
   return gid_not_found;
 }
-#endif  // __ANDROID__
 
 #if 0  // For future use.
 static const char* name_by_gid(gid_t gid) {
@@ -228,8 +157,7 @@ static const char* name_by_gid(gid_t gid) {
 
 static uid_t uid_by_name(Isolate* isolate, Local<Value> value) {
   if (value->IsUint32()) {
-    static_assert(std::is_same<uid_t, uint32_t>::value);
-    return value.As<Uint32>()->Value();
+    return static_cast<uid_t>(value.As<Uint32>()->Value());
   } else {
     Utf8Value name(isolate, value);
     return uid_by_name(*name);
@@ -238,8 +166,7 @@ static uid_t uid_by_name(Isolate* isolate, Local<Value> value) {
 
 static gid_t gid_by_name(Isolate* isolate, Local<Value> value) {
   if (value->IsUint32()) {
-    static_assert(std::is_same<gid_t, uint32_t>::value);
-    return value.As<Uint32>()->Value();
+    return static_cast<gid_t>(value.As<Uint32>()->Value());
   } else {
     Utf8Value name(isolate, value);
     return gid_by_name(*name);
@@ -274,8 +201,6 @@ static void GetEGid(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(static_cast<uint32_t>(getegid()));
 }
 
-#ifndef __ANDROID__
-// Android blocks setting Uid and Gid.
 static void SetGid(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
   CHECK(env->owns_process_state());
@@ -351,7 +276,6 @@ static void SetEUid(const FunctionCallbackInfo<Value>& args) {
     args.GetReturnValue().Set(0);
   }
 }
-#endif  // ifndef __ANDROID__
 
 static void GetGroups(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -375,8 +299,6 @@ static void GetGroups(const FunctionCallbackInfo<Value>& args) {
     args.GetReturnValue().Set(array.ToLocalChecked());
 }
 
-#ifndef __ANDROID__
-// Android blocks setting groups
 static void SetGroups(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
@@ -406,7 +328,6 @@ static void SetGroups(const FunctionCallbackInfo<Value>& args) {
 
   args.GetReturnValue().Set(0);
 }
-#endif  // ifndef __ANDROID__
 
 static void InitGroups(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -452,53 +373,30 @@ static void InitGroups(const FunctionCallbackInfo<Value>& args) {
 
 #endif  // NODE_IMPLEMENTS_POSIX_CREDENTIALS
 
-void RegisterExternalReferences(ExternalReferenceRegistry* registry) {
-  registry->Register(SafeGetenv);
-
-#ifdef NODE_IMPLEMENTS_POSIX_CREDENTIALS
-  registry->Register(GetUid);
-  registry->Register(GetEUid);
-  registry->Register(GetGid);
-  registry->Register(GetEGid);
-  registry->Register(GetGroups);
-
-  registry->Register(InitGroups);
-  #ifndef __ANDROID__
-  registry->Register(SetEGid);
-  registry->Register(SetEUid);
-  registry->Register(SetGid);
-  registry->Register(SetUid);
-  registry->Register(SetGroups);
-  #endif
-#endif  // NODE_IMPLEMENTS_POSIX_CREDENTIALS
-}
-
 static void Initialize(Local<Object> target,
                        Local<Value> unused,
                        Local<Context> context,
                        void* priv) {
-  SetMethod(context, target, "safeGetenv", SafeGetenv);
-
-#ifdef NODE_IMPLEMENTS_POSIX_CREDENTIALS
   Environment* env = Environment::GetCurrent(context);
   Isolate* isolate = env->isolate();
 
+  env->SetMethod(target, "safeGetenv", SafeGetenv);
+
+#ifdef NODE_IMPLEMENTS_POSIX_CREDENTIALS
   READONLY_TRUE_PROPERTY(target, "implementsPosixCredentials");
-  SetMethodNoSideEffect(context, target, "getuid", GetUid);
-  SetMethodNoSideEffect(context, target, "geteuid", GetEUid);
-  SetMethodNoSideEffect(context, target, "getgid", GetGid);
-  SetMethodNoSideEffect(context, target, "getegid", GetEGid);
-  SetMethodNoSideEffect(context, target, "getgroups", GetGroups);
+  env->SetMethodNoSideEffect(target, "getuid", GetUid);
+  env->SetMethodNoSideEffect(target, "geteuid", GetEUid);
+  env->SetMethodNoSideEffect(target, "getgid", GetGid);
+  env->SetMethodNoSideEffect(target, "getegid", GetEGid);
+  env->SetMethodNoSideEffect(target, "getgroups", GetGroups);
 
   if (env->owns_process_state()) {
-    SetMethod(context, target, "initgroups", InitGroups);
-    #ifndef __ANDROID__ // nodejs-mobile patch
-    SetMethod(context, target, "setegid", SetEGid);
-    SetMethod(context, target, "seteuid", SetEUid);
-    SetMethod(context, target, "setgid", SetGid);
-    SetMethod(context, target, "setuid", SetUid);
-    SetMethod(context, target, "setgroups", SetGroups);
-    #endif
+    env->SetMethod(target, "initgroups", InitGroups);
+    env->SetMethod(target, "setegid", SetEGid);
+    env->SetMethod(target, "seteuid", SetEUid);
+    env->SetMethod(target, "setgid", SetGid);
+    env->SetMethod(target, "setuid", SetUid);
+    env->SetMethod(target, "setgroups", SetGroups);
   }
 #endif  // NODE_IMPLEMENTS_POSIX_CREDENTIALS
 }
@@ -506,6 +404,4 @@ static void Initialize(Local<Object> target,
 }  // namespace credentials
 }  // namespace node
 
-NODE_BINDING_CONTEXT_AWARE_INTERNAL(credentials, node::credentials::Initialize)
-NODE_BINDING_EXTERNAL_REFERENCE(credentials,
-                                node::credentials::RegisterExternalReferences)
+NODE_MODULE_CONTEXT_AWARE_INTERNAL(credentials, node::credentials::Initialize)

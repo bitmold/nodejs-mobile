@@ -5,12 +5,12 @@
 #ifndef V8_TORQUE_DECLARATION_VISITOR_H_
 #define V8_TORQUE_DECLARATION_VISITOR_H_
 
+#include <set>
 #include <string>
 
 #include "src/base/macros.h"
 #include "src/torque/declarations.h"
 #include "src/torque/global-context.h"
-#include "src/torque/kythe-data.h"
 #include "src/torque/types.h"
 #include "src/torque/utils.h"
 
@@ -35,30 +35,10 @@ class PredeclarationVisitor {
     for (Declaration* child : decl->declarations) Predeclare(child);
   }
   static void Predeclare(TypeDeclaration* decl) {
-    TypeAlias* alias =
-        Declarations::PredeclareTypeAlias(decl->name, decl, false);
-    alias->SetPosition(decl->pos);
-    alias->SetIdentifierPosition(decl->name->pos);
-    if (GlobalContext::collect_kythe_data()) {
-      KytheData::AddTypeDefinition(alias);
-    }
+    Declarations::PredeclareTypeAlias(decl->name, decl, false);
   }
-  static void Predeclare(StructDeclaration* decl) {
-    TypeAlias* alias =
-        Declarations::PredeclareTypeAlias(decl->name, decl, false);
-    alias->SetPosition(decl->pos);
-    alias->SetIdentifierPosition(decl->name->pos);
-    if (GlobalContext::collect_kythe_data()) {
-      KytheData::AddTypeDefinition(alias);
-    }
-  }
-  static void Predeclare(GenericTypeDeclaration* generic_decl) {
-    Declarations::DeclareGenericType(generic_decl->declaration->name->value,
-                                     generic_decl);
-  }
-  static void Predeclare(GenericCallableDeclaration* generic_decl) {
-    Declarations::DeclareGenericCallable(generic_decl->declaration->name->value,
-                                         generic_decl);
+  static void Predeclare(GenericDeclaration* decl) {
+    Declarations::DeclareGeneric(decl->callable->name, decl);
   }
 };
 
@@ -79,46 +59,51 @@ class DeclarationVisitor {
     // are reported even if the type is unused.
     Declarations::LookupType(decl->name);
   }
-  static void Visit(StructDeclaration* decl) {
-    Declarations::LookupType(decl->name);
-  }
 
   static Builtin* CreateBuiltin(BuiltinDeclaration* decl,
                                 std::string external_name,
                                 std::string readable_name, Signature signature,
                                 base::Optional<Statement*> body);
+  static void Visit(ExternalBuiltinDeclaration* decl,
+                    const Signature& signature,
+                    base::Optional<Statement*> body) {
+    Declarations::Declare(
+        decl->name,
+        CreateBuiltin(decl, decl->name, decl->name, signature, base::nullopt));
+  }
 
-  static void Visit(ExternalBuiltinDeclaration* decl);
-  static void Visit(ExternalRuntimeDeclaration* decl);
-  static void Visit(ExternalMacroDeclaration* decl);
-  static void Visit(TorqueBuiltinDeclaration* decl);
-  static void Visit(TorqueMacroDeclaration* decl);
-  static void Visit(IntrinsicDeclaration* decl);
+  static void Visit(ExternalRuntimeDeclaration* decl, const Signature& sig,
+                    base::Optional<Statement*> body);
+  static void Visit(ExternalMacroDeclaration* decl, const Signature& sig,
+                    base::Optional<Statement*> body);
+  static void Visit(TorqueBuiltinDeclaration* decl, const Signature& signature,
+                    base::Optional<Statement*> body);
+  static void Visit(TorqueMacroDeclaration* decl, const Signature& signature,
+                    base::Optional<Statement*> body);
+  static void Visit(IntrinsicDeclaration* decl, const Signature& signature,
+                    base::Optional<Statement*> body);
+
+  static void Visit(CallableNode* decl, const Signature& signature,
+                    base::Optional<Statement*> body);
 
   static void Visit(ConstDeclaration* decl);
-  static void Visit(GenericCallableDeclaration* decl) {
-    // The PredeclarationVisitor already handled this case.
-  }
-  static void Visit(GenericTypeDeclaration* decl) {
+  static void Visit(StandardDeclaration* decl);
+  static void Visit(GenericDeclaration* decl) {
     // The PredeclarationVisitor already handled this case.
   }
   static void Visit(SpecializationDeclaration* decl);
   static void Visit(ExternConstDeclaration* decl);
   static void Visit(CppIncludeDeclaration* decl);
 
-  static Signature MakeSpecializedSignature(
-      const SpecializationKey<GenericCallable>& key);
-  static Callable* SpecializeImplicit(
-      const SpecializationKey<GenericCallable>& key);
+  static Signature MakeSpecializedSignature(const SpecializationKey& key);
+  static Callable* SpecializeImplicit(const SpecializationKey& key);
   static Callable* Specialize(
-      const SpecializationKey<GenericCallable>& key,
-      CallableDeclaration* declaration,
-      base::Optional<const SpecializationDeclaration*> explicit_specialization,
+      const SpecializationKey& key, CallableNode* declaration,
+      base::Optional<const CallableNodeSignature*> signature,
       base::Optional<Statement*> body, SourcePosition position);
 
  private:
-  static void DeclareSpecializedTypes(
-      const SpecializationKey<GenericCallable>& key);
+  static void DeclareSpecializedTypes(const SpecializationKey& key);
 };
 
 }  // namespace torque

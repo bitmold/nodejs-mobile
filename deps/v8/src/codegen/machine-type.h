@@ -7,10 +7,8 @@
 
 #include <iosfwd>
 
-#include "include/v8-fast-api-calls.h"
 #include "src/base/bits.h"
 #include "src/common/globals.h"
-#include "src/flags/flags.h"
 
 namespace v8 {
 namespace internal {
@@ -18,33 +16,17 @@ namespace internal {
 enum class MachineRepresentation : uint8_t {
   kNone,
   kBit,
-  // Integral representations must be consecutive, in order of increasing order.
   kWord8,
   kWord16,
   kWord32,
   kWord64,
-  // (uncompressed) MapWord
-  // kMapWord is the representation of a map word, i.e. a map in the header
-  // of a HeapObject.
-  // If V8_MAP_PACKING is disabled, a map word is just the map itself. Hence
-  //     kMapWord is equivalent to kTaggedPointer -- in fact it will be
-  //     translated to kTaggedPointer during memory lowering.
-  // If V8_MAP_PACKING is enabled, a map word is a Smi-like encoding of a map
-  //     and some meta data. Memory lowering of kMapWord loads/stores
-  //     produces low-level kTagged loads/stores plus the necessary
-  //     decode/encode operations.
-  // In either case, the kMapWord representation is not used after memory
-  // lowering.
-  kMapWord,
-  kTaggedSigned,       // (uncompressed) Smi
-  kTaggedPointer,      // (uncompressed) HeapObject
-  kTagged,             // (uncompressed) Object (Smi or HeapObject)
-  kCompressedPointer,  // (compressed) HeapObject
-  kCompressed,         // (compressed) Object (Smi or HeapObject)
-  // A 64-bit pointer encoded in a way (e.g. as offset) that guarantees it will
-  // point into the sandbox.
-  kSandboxedPointer,
-  // FP and SIMD representations must be last, and in order of increasing size.
+  kTaggedSigned,
+  kTaggedPointer,
+  kTagged,
+  kCompressedSigned,
+  kCompressedPointer,
+  kCompressed,
+  // FP representations must be last, and in order of increasing size.
   kFloat32,
   kFloat64,
   kSimd128,
@@ -53,22 +35,6 @@ enum class MachineRepresentation : uint8_t {
 };
 
 bool IsSubtype(MachineRepresentation rep1, MachineRepresentation rep2);
-
-#define ASSERT_CONSECUTIVE(rep1, rep2)                                      \
-  static_assert(static_cast<uint8_t>(MachineRepresentation::k##rep1) + 1 == \
-                    static_cast<uint8_t>(MachineRepresentation::k##rep2),   \
-                #rep1 " and " #rep2 " must be consecutive.");
-
-ASSERT_CONSECUTIVE(Word8, Word16)
-ASSERT_CONSECUTIVE(Word16, Word32)
-ASSERT_CONSECUTIVE(Word32, Word64)
-ASSERT_CONSECUTIVE(Float32, Float64)
-ASSERT_CONSECUTIVE(Float64, Simd128)
-#undef ASSERT_CONSECUTIVE
-
-static_assert(MachineRepresentation::kLastRepresentation ==
-                  MachineRepresentation::kSimd128,
-              "FP and SIMD representations must be last.");
 
 static_assert(static_cast<int>(MachineRepresentation::kLastRepresentation) <
                   kIntSize * kBitsPerByte,
@@ -87,10 +53,9 @@ enum class MachineSemantic : uint8_t {
   kAny
 };
 
-V8_EXPORT_PRIVATE inline constexpr int ElementSizeLog2Of(MachineRepresentation);
+V8_EXPORT_PRIVATE inline int ElementSizeLog2Of(MachineRepresentation rep);
 
-V8_EXPORT_PRIVATE inline constexpr int ElementSizeInBytes(
-    MachineRepresentation);
+V8_EXPORT_PRIVATE inline int ElementSizeInBytes(MachineRepresentation rep);
 
 class MachineType {
  public:
@@ -119,10 +84,6 @@ class MachineType {
     return representation() == MachineRepresentation::kNone;
   }
 
-  constexpr bool IsMapWord() const {
-    return representation() == MachineRepresentation::kMapWord;
-  }
-
   constexpr bool IsSigned() const {
     return semantic() == MachineSemantic::kInt32 ||
            semantic() == MachineSemantic::kInt64;
@@ -144,14 +105,14 @@ class MachineType {
   }
   constexpr bool IsCompressed() const {
     return representation() == MachineRepresentation::kCompressedPointer ||
+           representation() == MachineRepresentation::kCompressedSigned ||
            representation() == MachineRepresentation::kCompressed;
+  }
+  constexpr bool IsCompressedSigned() const {
+    return representation() == MachineRepresentation::kCompressedSigned;
   }
   constexpr bool IsCompressedPointer() const {
     return representation() == MachineRepresentation::kCompressedPointer;
-  }
-  constexpr static MachineRepresentation TaggedRepresentation() {
-    return (kTaggedSize == 4) ? MachineRepresentation::kWord32
-                              : MachineRepresentation::kWord64;
   }
   constexpr static MachineRepresentation PointerRepresentation() {
     return (kSystemPointerSize == 4) ? MachineRepresentation::kWord32
@@ -208,15 +169,16 @@ class MachineType {
     return MachineType(MachineRepresentation::kTaggedPointer,
                        MachineSemantic::kAny);
   }
-  constexpr static MachineType MapInHeader() {
-    return MachineType(MachineRepresentation::kMapWord, MachineSemantic::kAny);
-  }
   constexpr static MachineType TaggedSigned() {
     return MachineType(MachineRepresentation::kTaggedSigned,
                        MachineSemantic::kInt32);
   }
   constexpr static MachineType AnyTagged() {
     return MachineType(MachineRepresentation::kTagged, MachineSemantic::kAny);
+  }
+  constexpr static MachineType CompressedSigned() {
+    return MachineType(MachineRepresentation::kCompressedSigned,
+                       MachineSemantic::kInt32);
   }
   constexpr static MachineType CompressedPointer() {
     return MachineType(MachineRepresentation::kCompressedPointer,
@@ -226,15 +188,122 @@ class MachineType {
     return MachineType(MachineRepresentation::kCompressed,
                        MachineSemantic::kAny);
   }
-  constexpr static MachineType SandboxedPointer() {
-    return MachineType(MachineRepresentation::kSandboxedPointer,
-                       MachineSemantic::kNone);
-  }
   constexpr static MachineType Bool() {
     return MachineType(MachineRepresentation::kBit, MachineSemantic::kBool);
   }
+  constexpr static MachineType TaggedBool() {
+    return MachineType(MachineRepresentation::kTagged, MachineSemantic::kBool);
+  }
+  constexpr static MachineType CompressedBool() {
+    return MachineType(MachineRepresentation::kCompressed,
+                       MachineSemantic::kBool);
+  }
   constexpr static MachineType None() {
     return MachineType(MachineRepresentation::kNone, MachineSemantic::kNone);
+  }
+
+  // These naked representations should eventually go away.
+  constexpr static MachineType RepWord8() {
+    return MachineType(MachineRepresentation::kWord8, MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepWord16() {
+    return MachineType(MachineRepresentation::kWord16, MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepWord32() {
+    return MachineType(MachineRepresentation::kWord32, MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepWord64() {
+    return MachineType(MachineRepresentation::kWord64, MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepFloat32() {
+    return MachineType(MachineRepresentation::kFloat32, MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepFloat64() {
+    return MachineType(MachineRepresentation::kFloat64, MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepSimd128() {
+    return MachineType(MachineRepresentation::kSimd128, MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepTagged() {
+    return MachineType(MachineRepresentation::kTagged, MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepCompressed() {
+    return MachineType(MachineRepresentation::kCompressed,
+                       MachineSemantic::kNone);
+  }
+  constexpr static MachineType RepBit() {
+    return MachineType(MachineRepresentation::kBit, MachineSemantic::kNone);
+  }
+
+  // These methods return compressed representations when the compressed
+  // pointer flag is enabled. Otherwise, they returned the corresponding tagged
+  // one.
+  constexpr static MachineRepresentation RepCompressedTagged() {
+#ifdef V8_COMPRESS_POINTERS
+    return MachineRepresentation::kCompressed;
+#else
+    return MachineRepresentation::kTagged;
+#endif
+  }
+  constexpr static MachineRepresentation RepCompressedTaggedSigned() {
+#ifdef V8_COMPRESS_POINTERS
+    return MachineRepresentation::kCompressedSigned;
+#else
+    return MachineRepresentation::kTaggedSigned;
+#endif
+  }
+  constexpr static MachineRepresentation RepCompressedTaggedPointer() {
+#ifdef V8_COMPRESS_POINTERS
+    return MachineRepresentation::kCompressedPointer;
+#else
+    return MachineRepresentation::kTaggedPointer;
+#endif
+  }
+
+  constexpr static MachineType TypeCompressedTagged() {
+#ifdef V8_COMPRESS_POINTERS
+    return MachineType::AnyCompressed();
+#else
+    return MachineType::AnyTagged();
+#endif
+  }
+  constexpr static MachineType TypeCompressedTaggedSigned() {
+#ifdef V8_COMPRESS_POINTERS
+    return MachineType::CompressedSigned();
+#else
+    return MachineType::TaggedSigned();
+#endif
+  }
+  constexpr static MachineType TypeCompressedTaggedPointer() {
+#ifdef V8_COMPRESS_POINTERS
+    return MachineType::CompressedPointer();
+#else
+    return MachineType::TaggedPointer();
+#endif
+  }
+
+  constexpr bool IsCompressedTagged() const {
+#ifdef V8_COMPRESS_POINTERS
+    return IsCompressed();
+#else
+    return IsTagged();
+#endif
+  }
+
+  constexpr bool IsCompressedTaggedSigned() const {
+#ifdef V8_COMPRESS_POINTERS
+    return IsCompressedSigned();
+#else
+    return IsTaggedSigned();
+#endif
+  }
+
+  constexpr bool IsCompressedTaggedPointer() const {
+#ifdef V8_COMPRESS_POINTERS
+    return IsCompressedPointer();
+#else
+    return IsTaggedPointer();
+#endif
   }
 
   static MachineType TypeForRepresentation(const MachineRepresentation& rep,
@@ -268,48 +337,15 @@ class MachineType {
         return MachineType::AnyCompressed();
       case MachineRepresentation::kCompressedPointer:
         return MachineType::CompressedPointer();
-      case MachineRepresentation::kSandboxedPointer:
-        return MachineType::SandboxedPointer();
+      case MachineRepresentation::kCompressedSigned:
+        return MachineType::CompressedSigned();
       default:
         UNREACHABLE();
     }
   }
 
-  static MachineType TypeForCType(const CTypeInfo& type) {
-    switch (type.GetType()) {
-      case CTypeInfo::Type::kVoid:
-        return MachineType::AnyTagged();
-      case CTypeInfo::Type::kBool:
-        return MachineType::Bool();
-      case CTypeInfo::Type::kInt32:
-        return MachineType::Int32();
-      case CTypeInfo::Type::kUint32:
-        return MachineType::Uint32();
-      case CTypeInfo::Type::kInt64:
-        return MachineType::Int64();
-      case CTypeInfo::Type::kAny:
-        static_assert(
-            sizeof(AnyCType) == kInt64Size,
-            "CTypeInfo::Type::kAny is assumed to be of size 64 bits.");
-        return MachineType::Int64();
-      case CTypeInfo::Type::kUint64:
-        return MachineType::Uint64();
-      case CTypeInfo::Type::kFloat32:
-        return MachineType::Float32();
-      case CTypeInfo::Type::kFloat64:
-        return MachineType::Float64();
-      case CTypeInfo::Type::kV8Value:
-      case CTypeInfo::Type::kApiObject:
-        return MachineType::AnyTagged();
-    }
-  }
-
-  constexpr bool LessThanOrEqualPointerSize() const {
+  bool LessThanOrEqualPointerSize() {
     return ElementSizeLog2Of(this->representation()) <= kSystemPointerSizeLog2;
-  }
-
-  constexpr byte MemSize() const {
-    return 1 << i::ElementSizeLog2Of(this->representation());
   }
 
  private:
@@ -331,23 +367,13 @@ V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os,
 std::ostream& operator<<(std::ostream& os, MachineSemantic type);
 V8_EXPORT_PRIVATE std::ostream& operator<<(std::ostream& os, MachineType type);
 
-inline bool IsIntegral(MachineRepresentation rep) {
-  return rep >= MachineRepresentation::kWord8 &&
-         rep <= MachineRepresentation::kWord64;
-}
-
 inline bool IsFloatingPoint(MachineRepresentation rep) {
   return rep >= MachineRepresentation::kFirstFPRepresentation;
 }
 
-inline bool IsSimd128(MachineRepresentation rep) {
-  return rep == MachineRepresentation::kSimd128;
-}
-
 inline bool CanBeTaggedPointer(MachineRepresentation rep) {
   return rep == MachineRepresentation::kTagged ||
-         rep == MachineRepresentation::kTaggedPointer ||
-         rep == MachineRepresentation::kMapWord;
+         rep == MachineRepresentation::kTaggedPointer;
 }
 
 inline bool CanBeTaggedSigned(MachineRepresentation rep) {
@@ -368,13 +394,26 @@ inline bool CanBeTaggedOrCompressedPointer(MachineRepresentation rep) {
   return CanBeTaggedPointer(rep) || CanBeCompressedPointer(rep);
 }
 
+inline bool CanBeCompressedSigned(MachineRepresentation rep) {
+  return rep == MachineRepresentation::kCompressed ||
+         rep == MachineRepresentation::kCompressedSigned;
+}
+
 inline bool IsAnyCompressed(MachineRepresentation rep) {
-  return CanBeCompressedPointer(rep);
+  return CanBeCompressedPointer(rep) ||
+         rep == MachineRepresentation::kCompressedSigned;
+}
+
+inline bool IsAnyCompressedTagged(MachineRepresentation rep) {
+#ifdef V8_COMPRESS_POINTERS
+  return IsAnyCompressed(rep);
+#else
+  return IsAnyTagged(rep);
+#endif
 }
 
 // Gets the log2 of the element size in bytes of the machine type.
-V8_EXPORT_PRIVATE inline constexpr int ElementSizeLog2Of(
-    MachineRepresentation rep) {
+V8_EXPORT_PRIVATE inline int ElementSizeLog2Of(MachineRepresentation rep) {
   switch (rep) {
     case MachineRepresentation::kBit:
     case MachineRepresentation::kWord8:
@@ -392,35 +431,19 @@ V8_EXPORT_PRIVATE inline constexpr int ElementSizeLog2Of(
     case MachineRepresentation::kTaggedSigned:
     case MachineRepresentation::kTaggedPointer:
     case MachineRepresentation::kTagged:
-    case MachineRepresentation::kMapWord:
+      return kSystemPointerSizeLog2;
+    case MachineRepresentation::kCompressedSigned:
     case MachineRepresentation::kCompressedPointer:
     case MachineRepresentation::kCompressed:
       return kTaggedSizeLog2;
-    case MachineRepresentation::kSandboxedPointer:
-      return kSystemPointerSizeLog2;
     default:
-      UNREACHABLE();
+      break;
   }
+  UNREACHABLE();
 }
 
-constexpr int kMaximumReprSizeLog2 =
-    ElementSizeLog2Of(MachineRepresentation::kSimd128);
-constexpr int kMaximumReprSizeInBytes = 1 << kTaggedSizeLog2;
-
-STATIC_ASSERT(kMaximumReprSizeLog2 >=
-              ElementSizeLog2Of(MachineRepresentation::kTagged));
-STATIC_ASSERT(kMaximumReprSizeLog2 >=
-              ElementSizeLog2Of(MachineRepresentation::kWord64));
-
-V8_EXPORT_PRIVATE inline constexpr int ElementSizeInBytes(
-    MachineRepresentation rep) {
+V8_EXPORT_PRIVATE inline int ElementSizeInBytes(MachineRepresentation rep) {
   return 1 << ElementSizeLog2Of(rep);
-}
-
-V8_EXPORT_PRIVATE inline constexpr int ElementSizeInPointers(
-    MachineRepresentation rep) {
-  return (ElementSizeInBytes(rep) + kSystemPointerSize - 1) /
-         kSystemPointerSize;
 }
 
 // Converts representation to bit for representation masks.

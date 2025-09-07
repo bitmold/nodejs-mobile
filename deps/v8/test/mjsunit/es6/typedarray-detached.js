@@ -27,8 +27,7 @@ function TestArrayBufferCreation() {
   assertThrows(function() { new ArrayBuffer(-2.567); }, RangeError);
 
   assertThrows(function() {
-    let kArrayBufferByteLengthLimit = %ArrayBufferMaxByteLength() + 1;
-    var ab1 = new ArrayBuffer(kArrayBufferByteLengthLimit);
+    var ab1 = new ArrayBuffer(0xFFFFFFFFFFFF)
   }, RangeError);
 
   var ab = new ArrayBuffer();
@@ -529,10 +528,8 @@ function TestTypedArraySet() {
   assertThrows(function() { a.set.call({}) }, TypeError);
   assertThrows(function() { a.set.call([]) }, TypeError);
 
-  a.set(0);
-  assertArrayPrefix(expected, a);
-  a.set(0, 1);
-  assertArrayPrefix(expected, a);
+  assertThrows(function() { a.set(0); }, TypeError);
+  assertThrows(function() { a.set(0, 1); }, TypeError);
 
   assertEquals(1, a.set.length);
 }
@@ -772,7 +769,7 @@ assertThrows(function() { DataView(new ArrayBuffer()); }, TypeError);
 
 function TestNonConfigurableProperties(constructor) {
   var arr = new constructor([100])
-  assertTrue(Object.getOwnPropertyDescriptor(arr,"0").configurable)
+  assertFalse(Object.getOwnPropertyDescriptor(arr,"0").configurable)
   assertFalse(delete arr[0])
 }
 

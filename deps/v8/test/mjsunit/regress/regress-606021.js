@@ -14,7 +14,6 @@ function foo() {
 
 var f1 = foo();
 var f2 = foo();
-%PrepareFunctionForOptimization(f1);
 
 // Both closures point to full code.
 f1(false);

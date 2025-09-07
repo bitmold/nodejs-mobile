@@ -64,10 +64,3 @@ Pause inside microtask and terminate execution
         }
     }
 }
-Terminate execution with pending microtasks
-{
-    id : <messageId>
-    result : {
-    }
-}
-

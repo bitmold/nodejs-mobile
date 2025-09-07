@@ -27,15 +27,16 @@
 
 #include <stdlib.h>
 
-#include "src/base/numbers/double.h"
-#include "src/base/numbers/fixed-dtoa.h"
-#include "src/base/platform/platform.h"
 #include "src/init/v8.h"
+
+#include "src/base/platform/platform.h"
+#include "src/numbers/double.h"
+#include "src/numbers/fixed-dtoa.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/gay-fixed.h"
 
 namespace v8 {
-namespace base {
+namespace internal {
 
 static const int kBufferSize = 500;
 
@@ -511,5 +512,5 @@ TEST(FastFixedDtoaGayFixed) {
   }
 }
 
-}  // namespace base
+}  // namespace internal
 }  // namespace v8

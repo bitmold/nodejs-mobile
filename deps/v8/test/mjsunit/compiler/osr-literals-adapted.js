@@ -8,7 +8,6 @@ function mod() {
   function f0() {
     for (var i = 0; i < 3; i = i + 1 | 0) {
       %OptimizeOsr();
-      %PrepareFunctionForOptimization(f0);
     }
     return {blah: i};
   }
@@ -17,7 +16,6 @@ function mod() {
   function f1(a) {
     for (var i = 0; i < 3; i = i + 1 | 0) {
       %OptimizeOsr();
-      %PrepareFunctionForOptimization(f1);
     }
     return {blah: i};
   }
@@ -26,7 +24,6 @@ function mod() {
   function f2(a,b) {
     for (var i = 0; i < 3; i = i + 1 | 0) {
       %OptimizeOsr();
-      %PrepareFunctionForOptimization(f2);
     }
     return {blah: i};
   }
@@ -35,7 +32,6 @@ function mod() {
   function f3(a,b,c) {
     for (var i = 0; i < 3; i = i + 1 | 0) {
       %OptimizeOsr();
-      %PrepareFunctionForOptimization(f3);
     }
     return {blah: i};
   }
@@ -44,7 +40,6 @@ function mod() {
   function f4(a,b,c,d) {
     for (var i = 0; i < 3; i = i + 1 | 0) {
       %OptimizeOsr();
-      %PrepareFunctionForOptimization(f4);
     }
     return {blah: i};
   }

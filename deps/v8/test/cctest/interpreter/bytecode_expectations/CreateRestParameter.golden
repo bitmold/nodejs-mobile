@@ -13,11 +13,12 @@ snippet: "
 "
 frame size: 2
 parameter count: 1
-bytecode array length: 4
+bytecode array length: 7
 bytecodes: [
-  /*   10 E> */ B(CreateRestParameter),
-                B(Star1),
-                B(Star0),
+                B(CreateRestParameter),
+                B(Star), R(1),
+  /*   10 E> */ B(StackCheck),
+                B(Star), R(0),
   /*   42 S> */ B(Return),
 ]
 constant pool: [
@@ -32,10 +33,11 @@ snippet: "
 "
 frame size: 3
 parameter count: 2
-bytecode array length: 11
+bytecode array length: 13
 bytecodes: [
-  /*   10 E> */ B(CreateRestParameter),
-                B(Star2),
+                B(CreateRestParameter),
+                B(Star), R(2),
+  /*   10 E> */ B(StackCheck),
                 B(Mov), R(arg0), R(0),
                 B(Mov), R(2), R(1),
   /*   29 S> */ B(Ldar), R(1),
@@ -53,14 +55,15 @@ snippet: "
 "
 frame size: 3
 parameter count: 2
-bytecode array length: 13
+bytecode array length: 15
 bytecodes: [
-  /*   10 E> */ B(CreateRestParameter),
-                B(Star2),
+                B(CreateRestParameter),
+                B(Star), R(2),
+  /*   10 E> */ B(StackCheck),
                 B(Mov), R(arg0), R(0),
                 B(Mov), R(2), R(1),
   /*   29 S> */ B(LdaZero),
-  /*   44 E> */ B(GetKeyedProperty), R(1), U8(0),
+  /*   44 E> */ B(LdaKeyedProperty), R(1), U8(0),
   /*   48 S> */ B(Return),
 ]
 constant pool: [
@@ -75,19 +78,20 @@ snippet: "
 "
 frame size: 5
 parameter count: 2
-bytecode array length: 23
+bytecode array length: 27
 bytecodes: [
-  /*   10 E> */ B(CreateUnmappedArguments),
-                B(Star3),
+                B(CreateUnmappedArguments),
+                B(Star), R(3),
                 B(CreateRestParameter),
-                B(Star2),
+                B(Star), R(2),
+  /*   10 E> */ B(StackCheck),
                 B(Mov), R(arg0), R(0),
                 B(Mov), R(2), R(1),
   /*   29 S> */ B(LdaZero),
-  /*   44 E> */ B(GetKeyedProperty), R(1), U8(1),
-                B(Star4),
+  /*   44 E> */ B(LdaKeyedProperty), R(1), U8(1),
+                B(Star), R(4),
                 B(LdaZero),
-  /*   59 E> */ B(GetKeyedProperty), R(3), U8(3),
+  /*   59 E> */ B(LdaKeyedProperty), R(3), U8(3),
   /*   48 E> */ B(Add), R(4), U8(0),
   /*   63 S> */ B(Return),
 ]

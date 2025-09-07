@@ -29,16 +29,11 @@ template <typename T, typename BaseClass,
 class ThreadedListBase final : public BaseClass {
  public:
   ThreadedListBase() : head_(nullptr), tail_(&head_) {}
-  ThreadedListBase(const ThreadedListBase&) = delete;
-  ThreadedListBase& operator=(const ThreadedListBase&) = delete;
-
   void Add(T* v) {
     DCHECK_NULL(*tail_);
     DCHECK_NULL(*TLTraits::next(v));
     *tail_ = v;
     tail_ = TLTraits::next(v);
-    // Check that only one element was added (and that hasn't created a cycle).
-    DCHECK_NULL(*tail_);
   }
 
   void AddFront(T* v) {
@@ -160,15 +155,6 @@ class ThreadedListBase final : public BaseClass {
       return *this;
     }
 
-    bool is_null() { return entry_ == nullptr; }
-
-    void InsertBefore(T* value) {
-      T* old_entry_value = *entry_;
-      *entry_ = value;
-      entry_ = TLTraits::next(value);
-      *entry_ = old_entry_value;
-    }
-
     Iterator() : entry_(nullptr) {}
 
    private:
@@ -186,10 +172,6 @@ class ThreadedListBase final : public BaseClass {
     using value_type = T*;
     using reference = const value_type;
     using pointer = const value_type*;
-
-    // Allow implicit conversion to const iterator.
-    // NOLINTNEXTLINE
-    ConstIterator(Iterator& iterator) : entry_(iterator.entry_) {}
 
    public:
     ConstIterator& operator++() {
@@ -266,20 +248,10 @@ class ThreadedListBase final : public BaseClass {
     return true;
   }
 
-  void RevalidateTail() {
-    T* last = *tail_;
-    if (last != nullptr) {
-      while (*TLTraits::next(last) != nullptr) {
-        last = *TLTraits::next(last);
-      }
-      tail_ = TLTraits::next(last);
-    }
-    SLOW_DCHECK(Verify());
-  }
-
  private:
   T* head_;
   T** tail_;
+  DISALLOW_COPY_AND_ASSIGN(ThreadedListBase);
 };
 
 struct EmptyBase {};

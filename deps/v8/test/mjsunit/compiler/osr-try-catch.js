@@ -16,7 +16,6 @@ function SingleLoop() {
     catch(e) {}
     for (var b = 0; b < 1; b++) {
       %OptimizeOsr();
-      %PrepareFunctionForOptimization(SingleLoop);
     }
   }
 }
@@ -38,7 +37,6 @@ function EmptyBody() {
 
     if (a == 1) break;
     a++;
-    %PrepareFunctionForOptimization(EmptyBody);
   }
 }
 %PrepareFunctionForOptimization(EmptyBody);
@@ -54,7 +52,6 @@ function NestedLoops() {
       if (b == 1) break;
       b++;
     }
-    %PrepareFunctionForOptimization(NestedLoops);
   }
 }
 %PrepareFunctionForOptimization(NestedLoops);

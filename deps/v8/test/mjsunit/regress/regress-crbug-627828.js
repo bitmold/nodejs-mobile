@@ -12,14 +12,8 @@
         return "x";
       }
     };
-
-    return {
-      [o]() {
-        return 23;
-      }
-    };
-  };
-  %PrepareFunctionForOptimization(f);
+    return { [o]() { return 23 } };
+  }
   assertEquals(23, f().x());
   assertEquals(23, f().x());
   %OptimizeFunctionOnNextCall(f);
@@ -31,11 +25,13 @@
   // happens in the object literal.
 
   Object.defineProperty(Object.prototype, 'x_proto', {
-    get: function() {
+    get: function () {
       return 21;
     },
-    set: function() {}
+    set: function () {
+    }
   });
+
 
   function f() {
     var o = {
@@ -44,14 +40,8 @@
         return "x_proto";
       }
     };
-
-    return {
-      [o]() {
-        return 23;
-      }
-    };
-  };
-  %PrepareFunctionForOptimization(f);
+    return { [o]() { return 23 } };
+  }
   assertEquals(23, f().x_proto());
   assertEquals(23, f().x_proto());
   %OptimizeFunctionOnNextCall(f);
@@ -69,16 +59,11 @@
         return "y";
       }
     };
-
     class C {
-      [o]() {
-        return 42;
-      }
+      [o]() { return 42 };
     }
-
     return new C();
-  };
-  %PrepareFunctionForOptimization(g);
+  }
   assertEquals(42, g().y());
   assertEquals(42, g().y());
   %OptimizeFunctionOnNextCall(g);

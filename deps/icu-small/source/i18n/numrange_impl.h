@@ -13,9 +13,8 @@
 #include "number_types.h"
 #include "number_decimalquantity.h"
 #include "number_formatimpl.h"
-#include "formatted_string_builder.h"
+#include "number_stringbuilder.h"
 #include "formattedval_impl.h"
-#include "pluralranges.h"
 
 U_NAMESPACE_BEGIN namespace number {
 namespace impl {
@@ -30,14 +29,44 @@ namespace impl {
  * Possible magic number: 0x46445200
  * Reads in ASCII as "FDR" (FormatteDnumberRange with room at the end)
  */
-class UFormattedNumberRangeData : public FormattedValueStringBuilderImpl {
+class UFormattedNumberRangeData : public FormattedValueNumberStringBuilderImpl {
 public:
-    UFormattedNumberRangeData() : FormattedValueStringBuilderImpl(kUndefinedField) {}
+    UFormattedNumberRangeData() : FormattedValueNumberStringBuilderImpl(0) {}
     virtual ~UFormattedNumberRangeData();
 
     DecimalQuantity quantity1;
     DecimalQuantity quantity2;
     UNumberRangeIdentityResult identityResult = UNUM_IDENTITY_RESULT_COUNT;
+};
+
+
+class StandardPluralRanges : public UMemory {
+  public:
+    void initialize(const Locale& locale, UErrorCode& status);
+    StandardPlural::Form resolve(StandardPlural::Form first, StandardPlural::Form second) const;
+
+    /** Used for data loading. */
+    void addPluralRange(
+        StandardPlural::Form first,
+        StandardPlural::Form second,
+        StandardPlural::Form result);
+
+    /** Used for data loading. */
+    void setCapacity(int32_t length);
+
+  private:
+    struct StandardPluralRangeTriple {
+        StandardPlural::Form first;
+        StandardPlural::Form second;
+        StandardPlural::Form result;
+    };
+
+    // TODO: An array is simple here, but it results in linear lookup time.
+    // Certain locales have 20-30 entries in this list.
+    // Consider changing to a smarter data structure.
+    typedef MaybeStackArray<StandardPluralRangeTriple, 3> PluralRangeTriples;
+    PluralRangeTriples fTriples;
+    int32_t fTriplesLen = 0;
 };
 
 
@@ -56,7 +85,7 @@ class NumberRangeFormatterImpl : public UMemory {
     UNumberRangeIdentityFallback fIdentityFallback;
 
     SimpleFormatter fRangeFormatter;
-    NumberFormatterImpl fApproximatelyFormatter;
+    SimpleModifier fApproximatelyModifier;
 
     StandardPluralRanges fPluralRanges;
 
@@ -74,11 +103,6 @@ class NumberRangeFormatterImpl : public UMemory {
 
     const Modifier& resolveModifierPlurals(const Modifier& first, const Modifier& second) const;
 };
-
-
-/** Helper function used in upluralrules.cpp */
-const UFormattedNumberRangeData* validateUFormattedNumberRange(
-    const UFormattedNumberRange* uresult, UErrorCode& status);
 
 
 } // namespace impl

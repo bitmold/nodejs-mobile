@@ -5,6 +5,7 @@
 #error("This header can only be used when inspector is enabled")
 #endif
 
+#include "env.h"
 #include "inspector_agent.h"
 #include "node_mutex.h"
 
@@ -34,7 +35,7 @@ class Deletable {
 };
 
 std::unique_ptr<v8_inspector::StringBuffer> Utf8ToStringView(
-    const std::string_view message);
+    const std::string& message);
 
 using MessageQueue = std::deque<std::unique_ptr<Request>>;
 
@@ -69,10 +70,10 @@ class MainThreadHandle : public std::enable_shared_from_this<MainThreadHandle> {
   friend class MainThreadInterface;
 };
 
-class MainThreadInterface :
-    public std::enable_shared_from_this<MainThreadInterface> {
+class MainThreadInterface {
  public:
-  explicit MainThreadInterface(Agent* agent);
+  MainThreadInterface(Agent* agent, uv_loop_t*, v8::Isolate* isolate,
+                      v8::Platform* platform);
   ~MainThreadInterface();
 
   void DispatchMessages();
@@ -97,6 +98,8 @@ class MainThreadInterface :
   ConditionVariable incoming_message_cond_;
   // Used from any thread
   Agent* const agent_;
+  v8::Isolate* const isolate_;
+  v8::Platform* const platform_;
   std::shared_ptr<MainThreadHandle> handle_;
   std::unordered_map<int, std::unique_ptr<Deletable>> managed_objects_;
 };

@@ -2,9 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-// Flags: --expose-wasm
+// Flags: --expose-wasm --experimental-wasm-anyref
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 function dummy_func(val) {
   let builder = new WasmModuleBuilder();
@@ -14,31 +14,31 @@ function dummy_func(val) {
   return builder.instantiate().exports.dummy;
 }
 
-let kSig_v_iri = makeSig([kWasmI32, kWasmExternRef, kWasmI32], []);
+let kSig_v_iri = makeSig([kWasmI32, kWasmAnyRef, kWasmI32], []);
 let kSig_v_iai = makeSig([kWasmI32, kWasmAnyFunc, kWasmI32], []);
-let kSig_r_i = makeSig([kWasmI32], [kWasmExternRef]);
+let kSig_r_i = makeSig([kWasmI32], [kWasmAnyRef]);
 
 const builder = new WasmModuleBuilder();
 const size = 10;
 const maximum = size;
 const import_ref =
-    builder.addImportedTable('imp', 'table_ref', size, maximum, kWasmExternRef);
+    builder.addImportedTable('imp', 'table_ref', size, maximum, kWasmAnyRef);
 const import_func =
     builder.addImportedTable('imp', 'table_func', size, maximum, kWasmAnyFunc);
-const internal_ref = builder.addTable(kWasmExternRef, size, maximum).index;
+const internal_ref = builder.addTable(kWasmAnyRef, size, maximum).index;
 const internal_func = builder.addTable(kWasmAnyFunc, size, maximum).index;
 
-// Add fill and get functions for the externref tables.
+// Add fill and get functions for the anyref tables.
 for (index of [import_ref, internal_ref]) {
   builder.addFunction(`fill${index}`, kSig_v_iri)
       .addBody([
-        kExprLocalGet, 0, kExprLocalGet, 1, kExprLocalGet, 2, kNumericPrefix,
+        kExprGetLocal, 0, kExprGetLocal, 1, kExprGetLocal, 2, kNumericPrefix,
         kExprTableFill, index
       ])
       .exportFunc();
 
   builder.addFunction(`get${index}`, kSig_r_i)
-      .addBody([kExprLocalGet, 0, kExprTableGet, index])
+      .addBody([kExprGetLocal, 0, kExprGetTable, index])
       .exportFunc();
 }
 
@@ -47,53 +47,54 @@ const sig_index = builder.addType(kSig_i_v);
 for (index of [import_func, internal_func]) {
   builder.addFunction(`fill${index}`, kSig_v_iai)
       .addBody([
-        kExprLocalGet, 0, kExprLocalGet, 1, kExprLocalGet, 2, kNumericPrefix,
+        kExprGetLocal, 0, kExprGetLocal, 1, kExprGetLocal, 2, kNumericPrefix,
         kExprTableFill, index
       ])
       .exportFunc();
 
   builder.addFunction(`call${index}`, kSig_i_i)
-      .addBody([kExprLocalGet, 0, kExprCallIndirect, sig_index, index])
+      .addBody([kExprGetLocal, 0, kExprCallIndirect, sig_index, index])
       .exportFunc();
 }
 
 const table_ref =
-    new WebAssembly.Table({element: 'externref', initial: size, maximum: maximum});
+    new WebAssembly.Table({element: 'anyref', initial: size, maximum: maximum});
 const table_func = new WebAssembly.Table(
     {element: 'anyfunc', initial: size, maximum: maximum});
 
 const instance =
     builder.instantiate({imp: {table_ref: table_ref, table_func: table_func}});
 
-function checkExternRefTable(getter, start, count, value) {
+function checkAnyRefTable(getter, start, count, value) {
   for (i = 0; i < count; ++i) {
     assertEquals(value, getter(start + i));
   }
 }
 
-(function testExternRefTableIsUninitialized() {
+(function testAnyRefTableIsUninitialized() {
   print(arguments.callee.name);
 
-  checkExternRefTable(instance.exports[`get${import_ref}`], 0, size, undefined);
-  checkExternRefTable(instance.exports[`get${internal_ref}`], 0, size, null);
+  checkAnyRefTable(instance.exports[`get${import_ref}`], 0, size, null);
+  checkAnyRefTable(instance.exports[`get${internal_ref}`], 0, size, null);
 })();
 
-(function testExternRefTableFill() {
+(function testAnyRefTableFill() {
   print(arguments.callee.name);
   // Fill table and check the content.
   let start = 1;
   let value = {foo: 23};
   let count = 3;
   instance.exports[`fill${import_ref}`](start, value, count);
-  checkExternRefTable(instance.exports[`get${import_ref}`], start, count, value);
+  checkAnyRefTable(instance.exports[`get${import_ref}`], start, count, value);
   value = 'foo';
   instance.exports[`fill${internal_ref}`](start, value, count);
-  checkExternRefTable(instance.exports[`get${internal_ref}`], start, count, value);
+  checkAnyRefTable(instance.exports[`get${internal_ref}`], start, count, value);
 })();
 
-(function testExternRefTableFillOOB() {
+(function testAnyRefTableFillOOB() {
   print(arguments.callee.name);
-  // Fill table out-of-bounds, check if the table wasn't altered.
+  // Fill table out-of-bounds, check if the table got filled as much as
+  // possible.
   let start = 7;
   let value = {foo: 27};
   // {maximum + 4} elements definitely don't fit into the table.
@@ -101,18 +102,18 @@ function checkExternRefTable(getter, start, count, value) {
   assertTraps(
       kTrapTableOutOfBounds,
       () => instance.exports[`fill${import_ref}`](start, value, count));
-  checkExternRefTable(
-      instance.exports[`get${import_ref}`], start, size - start, undefined);
+  checkAnyRefTable(
+      instance.exports[`get${import_ref}`], start, size - start, value);
 
   value = 45;
   assertTraps(
       kTrapTableOutOfBounds,
       () => instance.exports[`fill${internal_ref}`](start, value, count));
-  checkExternRefTable(
-      instance.exports[`get${internal_ref}`], start, size - start, null);
+  checkAnyRefTable(
+      instance.exports[`get${internal_ref}`], start, size - start, value);
 })();
 
-(function testExternRefTableFillOOBCountZero() {
+(function testAnyRefTableFillOOBCountZero() {
   print(arguments.callee.name);
   // Fill 0 elements at an oob position. This should trap.
   let start = size + 32;
@@ -135,7 +136,7 @@ function checkAnyFuncTable(call, start, count, value) {
   }
 }
 
-(function testExternRefTableIsUninitialized() {
+(function testAnyRefTableIsUninitialized() {
   print(arguments.callee.name);
   // Check that the table is uninitialized.
   checkAnyFuncTable(instance.exports[`call${import_func}`], 0, size);
@@ -159,7 +160,8 @@ function checkAnyFuncTable(call, start, count, value) {
 
 (function testAnyFuncTableFillOOB() {
   print(arguments.callee.name);
-  // Fill table out-of-bounds, check if the table wasn't altered.
+  // Fill table out-of-bounds, check if the table got filled as much as
+  // possible.
   let start = 7;
   let value = 38;
   // {maximum + 4} elements definitely don't fit into the table.
@@ -169,7 +171,7 @@ function checkAnyFuncTable(call, start, count, value) {
       () => instance.exports[`fill${import_func}`](
           start, dummy_func(value), count));
   checkAnyFuncTable(
-      instance.exports[`call${import_func}`], start, size - start, null);
+      instance.exports[`call${import_func}`], start, size - start, value);
 
   value = 46;
   assertTraps(
@@ -177,7 +179,7 @@ function checkAnyFuncTable(call, start, count, value) {
       () => instance.exports[`fill${internal_func}`](
           start, dummy_func(value), count));
   checkAnyFuncTable(
-      instance.exports[`call${internal_func}`], start, size - start, null);
+      instance.exports[`call${internal_func}`], start, size - start, value);
 })();
 
 (function testAnyFuncTableFillOOBCountZero() {

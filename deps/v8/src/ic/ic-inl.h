@@ -16,12 +16,28 @@
 namespace v8 {
 namespace internal {
 
-void IC::update_lookup_start_object_map(Handle<Object> object) {
-  if (object->IsSmi()) {
-    lookup_start_object_map_ = isolate_->factory()->heap_number_map();
+Address IC::constant_pool() const {
+  if (FLAG_enable_embedded_constant_pool) {
+    return raw_constant_pool();
   } else {
-    lookup_start_object_map_ =
-        handle(HeapObject::cast(*object).map(), isolate_);
+    return kNullAddress;
+  }
+}
+
+
+Address IC::raw_constant_pool() const {
+  if (FLAG_enable_embedded_constant_pool) {
+    return *constant_pool_address_;
+  } else {
+    return kNullAddress;
+  }
+}
+
+void IC::update_receiver_map(Handle<Object> receiver) {
+  if (receiver->IsSmi()) {
+    receiver_map_ = isolate_->factory()->heap_number_map();
+  } else {
+    receiver_map_ = handle(HeapObject::cast(*receiver).map(), isolate_);
   }
 }
 
@@ -31,13 +47,21 @@ bool IC::IsHandler(MaybeObject object) {
          (object->GetHeapObjectIfWeak(&heap_object) &&
           (heap_object.IsMap() || heap_object.IsPropertyCell())) ||
          (object->GetHeapObjectIfStrong(&heap_object) &&
-          (heap_object.IsDataHandler() || heap_object.IsCodeT()));
+          (heap_object.IsDataHandler() || heap_object.IsCode()));
+}
+
+bool IC::HostIsDeoptimizedCode() const {
+  Code host =
+      isolate()->inner_pointer_to_code_cache()->GetCacheEntry(pc())->code;
+  return (host.kind() == Code::OPTIMIZED_FUNCTION &&
+          host.marked_for_deoptimization());
 }
 
 bool IC::vector_needs_update() {
-  if (state() == InlineCacheState::NO_FEEDBACK) return false;
-  return (!vector_set_ && (state() != InlineCacheState::MEGAMORPHIC ||
-                           nexus()->GetKeyType() != IcCheckType::kElement));
+  if (state() == NO_FEEDBACK) return false;
+  return (!vector_set_ &&
+          (state() != MEGAMORPHIC ||
+           nexus()->GetFeedbackExtra().ToSmi().value() != ELEMENT));
 }
 
 }  // namespace internal

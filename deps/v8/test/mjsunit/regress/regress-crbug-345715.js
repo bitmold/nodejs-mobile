@@ -4,14 +4,10 @@
 
 // Flags: --allow-natives-syntax
 
-a = {
-  y: 1.5
-};
+a = {y:1.5};
 a.y = 0;
 b = a.y;
-c = {
-  y: {}
-};
+c = {y:{}};
 
 function f() {
   return 1;
@@ -19,11 +15,11 @@ function f() {
 
 function g() {
   var e = {y: b};
-  var d = {x: f()};
-  var d = {x: f()};
+  var d = {x:f()};
+  var d = {x:f()};
   return [e, d];
-};
-%PrepareFunctionForOptimization(g);
+}
+
 g();
 g();
 %OptimizeFunctionOnNextCall(g);

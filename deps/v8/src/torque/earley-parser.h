@@ -6,7 +6,6 @@
 #define V8_TORQUE_EARLEY_PARSER_H_
 
 #include <map>
-#include <memory>
 #include <vector>
 
 #include "src/base/optional.h"
@@ -43,9 +42,6 @@ class ParseResultHolderBase {
 enum class ParseResultHolderBase::TypeId {
   kStdString,
   kBool,
-  kInt32,
-  kDouble,
-  kIntegerLiteral,
   kStdVectorOfString,
   kExpressionPtr,
   kIdentifierPtr,
@@ -54,25 +50,18 @@ enum class ParseResultHolderBase::TypeId {
   kDeclarationPtr,
   kTypeExpressionPtr,
   kOptionalTypeExpressionPtr,
-  kTryHandlerPtr,
+  kLabelBlockPtr,
+  kOptionalLabelBlockPtr,
   kNameAndTypeExpression,
-  kEnumEntry,
-  kStdVectorOfEnumEntry,
-  kImplicitParameters,
-  kOptionalImplicitParameters,
   kNameAndExpression,
-  kAnnotation,
-  kVectorOfAnnotation,
-  kAnnotationParameter,
-  kOptionalAnnotationParameter,
+  kConditionalAnnotation,
+  kOptionalConditionalAnnotation,
   kClassFieldExpression,
   kStructFieldExpression,
-  kBitFieldDeclaration,
   kStdVectorOfNameAndTypeExpression,
   kStdVectorOfNameAndExpression,
   kStdVectorOfClassFieldExpression,
   kStdVectorOfStructFieldExpression,
-  kStdVectorOfBitFieldDeclaration,
   kIncrementDecrementOperator,
   kOptionalStdString,
   kStdVectorOfStatementPtr,
@@ -81,19 +70,18 @@ enum class ParseResultHolderBase::TypeId {
   kStdVectorOfExpressionPtr,
   kExpressionWithSource,
   kParameterList,
+  kRangeExpression,
+  kOptionalRangeExpression,
   kTypeList,
   kOptionalTypeList,
   kLabelAndTypes,
   kStdVectorOfLabelAndTypes,
-  kStdVectorOfTryHandlerPtr,
+  kStdVectorOfLabelBlockPtr,
   kOptionalStatementPtr,
   kOptionalExpressionPtr,
   kTypeswitchCase,
   kStdVectorOfTypeswitchCase,
   kStdVectorOfIdentifierPtr,
-  kOptionalClassBody,
-  kGenericParameter,
-  kGenericParameters,
 
   kJsonValue,
   kJsonMember,
@@ -165,9 +153,10 @@ class ParseResultIterator {
   explicit ParseResultIterator(std::vector<ParseResult> results,
                                MatchedInput matched_input)
       : results_(std::move(results)), matched_input_(matched_input) {}
-
-  ParseResultIterator(const ParseResultIterator&) = delete;
-  ParseResultIterator& operator=(const ParseResultIterator&) = delete;
+  ~ParseResultIterator() {
+    // Check that all parse results have been used.
+    CHECK_EQ(results_.size(), i_);
+  }
 
   ParseResult Next() {
     CHECK_LT(i_, results_.size());
@@ -185,6 +174,8 @@ class ParseResultIterator {
   std::vector<ParseResult> results_;
   size_t i_ = 0;
   MatchedInput matched_input_;
+
+  DISALLOW_COPY_AND_ASSIGN(ParseResultIterator);
 };
 
 struct LexerResult {
@@ -247,12 +238,8 @@ class Rule final {
 // used in the parser.
 class Symbol {
  public:
-  Symbol() = default;
+  Symbol() : Symbol({}) {}
   Symbol(std::initializer_list<Rule> rules) { *this = rules; }
-
-  // Disallow copying and moving to ensure Symbol has a stable address.
-  Symbol(const Symbol&) = delete;
-  Symbol& operator=(const Symbol&) = delete;
 
   V8_EXPORT_PRIVATE Symbol& operator=(std::initializer_list<Rule> rules);
 
@@ -261,7 +248,7 @@ class Symbol {
   size_t rule_number() const { return rules_.size(); }
 
   void AddRule(const Rule& rule) {
-    rules_.push_back(std::make_unique<Rule>(rule));
+    rules_.push_back(base::make_unique<Rule>(rule));
     rules_.back()->SetLeftHandSide(this);
   }
 
@@ -270,6 +257,9 @@ class Symbol {
 
  private:
   std::vector<std::unique_ptr<Rule>> rules_;
+
+  // Disallow copying and moving to ensure Symbol has a stable address.
+  DISALLOW_COPY_AND_ASSIGN(Symbol);
 };
 
 // Items are the core datastructure of Earley's algorithm.
@@ -434,9 +424,8 @@ class Grammar {
   // NewSymbol() allocates a fresh symbol and stores it in the current grammar.
   // This is necessary to define helpers that create new symbols.
   Symbol* NewSymbol(std::initializer_list<Rule> rules = {}) {
-    auto symbol = std::make_unique<Symbol>(rules);
-    Symbol* result = symbol.get();
-    generated_symbols_.push_back(std::move(symbol));
+    Symbol* result = new Symbol(rules);
+    generated_symbols_.push_back(std::unique_ptr<Symbol>(result));
     return result;
   }
 

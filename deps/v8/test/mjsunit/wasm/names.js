@@ -4,7 +4,7 @@
 
 // Flags: --expose-wasm
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 function toBytes(string) {
   var a = new Array(string.length + 1);

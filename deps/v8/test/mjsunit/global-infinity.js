@@ -5,7 +5,6 @@
 // Flags: --allow-natives-syntax
 
 function test(expected, f) {
-  %PrepareFunctionForOptimization(f);
   assertEquals(expected, f());
   assertEquals(expected, f());
   %OptimizeFunctionOnNextCall(f);

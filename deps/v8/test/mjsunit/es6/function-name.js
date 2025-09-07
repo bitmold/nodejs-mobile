@@ -394,25 +394,25 @@
 })();
 
 (function testClassNameOrder() {
-  assertEquals(['length', 'name', 'prototype'], Object.getOwnPropertyNames(class {}));
+  assertEquals(['length', 'prototype'], Object.getOwnPropertyNames(class {}));
 
   var tmp = {'': class {}};
   var Tmp = tmp[''];
-  assertEquals(['length', 'name', 'prototype'], Object.getOwnPropertyNames(Tmp));
+  assertEquals(['length', 'prototype', 'name'], Object.getOwnPropertyNames(Tmp));
 
   var name = () => '';
   var tmp = {[name()]: class {}};
   var Tmp = tmp[name()];
-  assertEquals(['length', 'name', 'prototype'], Object.getOwnPropertyNames(Tmp));
+  assertEquals(['length', 'prototype', 'name'], Object.getOwnPropertyNames(Tmp));
 
   class A { }
-  assertEquals(['length', 'name', 'prototype'], Object.getOwnPropertyNames(A));
+  assertEquals(['length', 'prototype', 'name'], Object.getOwnPropertyNames(A));
 
   class B { static foo() { } }
-  assertEquals(['length', 'name', 'prototype', 'foo'], Object.getOwnPropertyNames(B));
+  assertEquals(['length', 'prototype', 'foo', 'name'], Object.getOwnPropertyNames(B));
 
   class C { static name() { } static foo() { } }
-  assertEquals(['length', 'name', 'prototype', 'foo'], Object.getOwnPropertyNames(C));
+  assertEquals(['length', 'prototype', 'name', 'foo'], Object.getOwnPropertyNames(C));
 })();
 
 (function testStaticName() {

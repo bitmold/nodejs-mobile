@@ -4,18 +4,15 @@
 
 'use strict';
 
-import {
-  VIEW_BY_INSTANCE_TYPE,
-  VIEW_BY_INSTANCE_CATEGORY,
-  VIEW_BY_FIELD_TYPE
-} from './details-selection.js';
+const global_timeline_template =
+    document.currentScript.ownerDocument.querySelector(
+        '#global-timeline-template');
 
-defineCustomElement('global-timeline', (templateText) =>
- class GlobalTimeline extends HTMLElement {
+class GlobalTimeline extends HTMLElement {
   constructor() {
     super();
     const shadowRoot = this.attachShadow({mode: 'open'});
-    shadowRoot.innerHTML = templateText;
+    shadowRoot.appendChild(global_timeline_template.content.cloneNode(true));
   }
 
   $(id) {
@@ -66,12 +63,9 @@ defineCustomElement('global-timeline', (templateText) =>
       {type: 'number', label: 'Ptr compression benefit'},
       {type: 'string', role: 'tooltip'},
       {type: 'number', label: 'Embedder fields'},
-      {type: 'number', label: 'Tagged fields (excl. in-object Smis)'},
-      {type: 'number', label: 'In-object Smi-only fields'},
+      {type: 'number', label: 'Tagged fields'},
       {type: 'number', label: 'Other raw fields'},
-      {type: 'number', label: 'Unboxed doubles'},
-      {type: 'number', label: 'Boxed doubles'},
-      {type: 'number', label: 'String data'}
+      {type: 'number', label: 'Unboxed doubles'}
     ];
     const chart_data = [labels];
     const isolate_data = this.data[this.selection.isolate];
@@ -84,14 +78,10 @@ defineCustomElement('global-timeline', (templateText) =>
       const data = [];
       data.push(gc_data.time * kMillis2Seconds);
       const total = data_set.tagged_fields +
-                    data_set.inobject_smi_fields +
                     data_set.embedder_fields +
                     data_set.other_raw_fields +
-                    data_set.unboxed_double_fields +
-                    data_set.boxed_double_fields +
-                    data_set.string_data;
-      const ptr_compr_benefit =
-          (data_set.inobject_smi_fields + data_set.tagged_fields) / 2;
+                    data_set.unboxed_double_fields;
+      const ptr_compr_benefit = data_set.tagged_fields / 2;
       const ptr_compr_benefit_perc = ptr_compr_benefit / total * 100;
       sum_total += total;
       sum_ptr_compr_benefit_perc += ptr_compr_benefit_perc;
@@ -103,11 +93,8 @@ defineCustomElement('global-timeline', (templateText) =>
       data.push(tooltip);
       data.push(data_set.embedder_fields / KB);
       data.push(data_set.tagged_fields / KB);
-      data.push(data_set.inobject_smi_fields / KB);
       data.push(data_set.other_raw_fields / KB);
       data.push(data_set.unboxed_double_fields / KB);
-      data.push(data_set.boxed_double_fields / KB);
-      data.push(data_set.string_data / KB);
       chart_data.push(data);
     });
     const avg_ptr_compr_benefit_perc =
@@ -209,10 +196,6 @@ defineCustomElement('global-timeline', (templateText) =>
   }
 
   drawChart() {
-    setTimeout(() => this._drawChart(), 10);
-  }
-
-  _drawChart() {
     console.assert(this.data, 'invalid data');
     console.assert(this.selection, 'invalid selection');
 
@@ -224,4 +207,6 @@ defineCustomElement('global-timeline', (templateText) =>
     this.show();
     chart.draw(data, google.charts.Line.convertOptions(options));
   }
-});
+}
+
+customElements.define('global-timeline', GlobalTimeline);

@@ -1,15 +1,10 @@
-#include "debug_utils-inl.h"  // NOLINT(build/include)
+#include "debug_utils.h"
 #include "env-inl.h"
-#include "node_internals.h"
-#include "util.h"
+#include "util-inl.h"
 
 #ifdef __POSIX__
 #if defined(__linux__)
 #include <features.h>
-#endif
-
-#ifdef __ANDROID__
-#include <android/log.h>
 #endif
 
 #if defined(__linux__) && !defined(__GLIBC__) || \
@@ -32,10 +27,10 @@
 #endif  // __POSIX__
 
 #if defined(__linux__) || defined(__sun) || \
-    defined(__FreeBSD__) || defined(__OpenBSD__) || \
-    defined(__DragonFly__)
+    defined(__FreeBSD__) || defined(__OpenBSD__)
 #include <link.h>
-#endif
+#endif  // (__linux__) || defined(__sun) ||
+        // (__FreeBSD__) || defined(__OpenBSD__)
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>  // _dyld_get_image_name()
@@ -55,38 +50,6 @@
 #endif  // _WIN32
 
 namespace node {
-namespace per_process {
-EnabledDebugList enabled_debug_list;
-}
-
-void EnabledDebugList::Parse(std::shared_ptr<KVStore> env_vars,
-                             v8::Isolate* isolate) {
-  std::string cats;
-  credentials::SafeGetenv("NODE_DEBUG_NATIVE", &cats, env_vars, isolate);
-  Parse(cats);
-}
-
-void EnabledDebugList::Parse(const std::string& cats) {
-  std::string debug_categories = cats;
-  while (!debug_categories.empty()) {
-    std::string::size_type comma_pos = debug_categories.find(',');
-    std::string wanted = ToLower(debug_categories.substr(0, comma_pos));
-
-#define V(name)                                                                \
-  {                                                                            \
-    static const std::string available_category = ToLower(#name);              \
-    if (available_category.find(wanted) != std::string::npos)                  \
-      set_enabled(DebugCategory::name);                                        \
-  }
-
-    DEBUG_CATEGORY_NAMES(V)
-#undef V
-
-    if (comma_pos == std::string::npos) break;
-    // Use everything after the `,` as the list for the next iteration.
-    debug_categories = debug_categories.substr(comma_pos + 1);
-  }
-}
 
 #ifdef __POSIX__
 #if HAVE_EXECINFO_H
@@ -134,14 +97,16 @@ class PosixSymbolDebuggingContext final : public NativeSymbolDebuggingContext {
 
 std::unique_ptr<NativeSymbolDebuggingContext>
 NativeSymbolDebuggingContext::New() {
-  return std::make_unique<PosixSymbolDebuggingContext>();
+  return std::unique_ptr<NativeSymbolDebuggingContext>(
+      new PosixSymbolDebuggingContext());
 }
 
 #else  // HAVE_EXECINFO_H
 
 std::unique_ptr<NativeSymbolDebuggingContext>
 NativeSymbolDebuggingContext::New() {
-  return std::make_unique<NativeSymbolDebuggingContext>();
+  return std::unique_ptr<NativeSymbolDebuggingContext>(
+      new NativeSymbolDebuggingContext());
 }
 
 #endif  // HAVE_EXECINFO_H
@@ -321,28 +286,26 @@ void CheckedUvLoopClose(uv_loop_t* loop) {
 
   fflush(stderr);
   // Finally, abort.
-  UNREACHABLE("uv_loop_close() while having open handles");
+  CHECK(0 && "uv_loop_close() while having open handles");
 }
 
 void PrintLibuvHandleInformation(uv_loop_t* loop, FILE* stream) {
   struct Info {
     std::unique_ptr<NativeSymbolDebuggingContext> ctx;
     FILE* stream;
-    size_t num_handles;
   };
 
-  Info info { NativeSymbolDebuggingContext::New(), stream, 0 };
+  Info info { NativeSymbolDebuggingContext::New(), stream };
 
-  fprintf(stream, "uv loop at [%p] has open handles:\n", loop);
+  fprintf(stream, "uv loop at [%p] has %d active handles\n",
+          loop, loop->active_handles);
 
   uv_walk(loop, [](uv_handle_t* handle, void* arg) {
     Info* info = static_cast<Info*>(arg);
     NativeSymbolDebuggingContext* sym_ctx = info->ctx.get();
     FILE* stream = info->stream;
-    info->num_handles++;
 
-    fprintf(stream, "[%p] %s%s\n", handle, uv_handle_type_name(handle->type),
-            uv_is_active(handle) ? " (active)" : "");
+    fprintf(stream, "[%p] %s\n", handle, uv_handle_type_name(handle->type));
 
     void* close_cb = reinterpret_cast<void*>(handle->close_cb);
     fprintf(stream, "\tClose callback: %p %s\n",
@@ -357,7 +320,7 @@ void PrintLibuvHandleInformation(uv_loop_t* loop, FILE* stream) {
     void* first_field = nullptr;
     // `handle->data` might be any value, including `nullptr`, or something
     // cast from a completely different type; therefore, check that it’s
-    // dereferenceable first.
+    // dereferencable first.
     if (sym_ctx->IsMapped(handle->data))
       first_field = *reinterpret_cast<void**>(handle->data);
 
@@ -366,20 +329,16 @@ void PrintLibuvHandleInformation(uv_loop_t* loop, FILE* stream) {
           first_field, sym_ctx->LookupSymbol(first_field).Display().c_str());
     }
   }, &info);
-
-  fprintf(stream, "uv loop at [%p] has %zu open handles in total\n",
-          loop, info.num_handles);
 }
 
 std::vector<std::string> NativeSymbolDebuggingContext::GetLoadedLibraries() {
   std::vector<std::string> list;
-#if defined(__linux__) || defined(__FreeBSD__) || \
-    defined(__OpenBSD__) || defined(__DragonFly__)
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__)
   dl_iterate_phdr(
       [](struct dl_phdr_info* info, size_t size, void* data) {
         auto list = static_cast<std::vector<std::string>*>(data);
         if (*info->dlpi_name != '\0') {
-          list->emplace_back(info->dlpi_name);
+          list->push_back(info->dlpi_name);
         }
         return 0;
       },
@@ -388,7 +347,7 @@ std::vector<std::string> NativeSymbolDebuggingContext::GetLoadedLibraries() {
   uint32_t i = 0;
   for (const char* name = _dyld_get_image_name(i); name != nullptr;
        name = _dyld_get_image_name(++i)) {
-    list.emplace_back(name);
+    list.push_back(name);
   }
 
 #elif _AIX
@@ -413,10 +372,10 @@ std::vector<std::string> NativeSymbolDebuggingContext::GetLoadedLibraries() {
           strlen(cur_info->ldinfo_filename) + 1;
       if (*member_name != '\0') {
         str << cur_info->ldinfo_filename << "(" << member_name << ")";
-        list.emplace_back(str.str());
+        list.push_back(str.str());
         str.str("");
       } else {
-        list.emplace_back(cur_info->ldinfo_filename);
+        list.push_back(cur_info->ldinfo_filename);
       }
       buf += cur_info->ldinfo_next;
     } while (cur_info->ldinfo_next != 0);
@@ -426,7 +385,7 @@ std::vector<std::string> NativeSymbolDebuggingContext::GetLoadedLibraries() {
 
   if (dlinfo(RTLD_SELF, RTLD_DI_LINKMAP, &p) != -1) {
     for (Link_map* l = p; l != nullptr; l = l->l_next) {
-      list.emplace_back(l->l_name);
+      list.push_back(l->l_name);
     }
   }
 
@@ -461,7 +420,7 @@ std::vector<std::string> NativeSymbolDebuggingContext::GetLoadedLibraries() {
           char* str = new char[size];
           WideCharToMultiByte(
               CP_UTF8, 0, module_name, -1, str, size, nullptr, nullptr);
-          list.emplace_back(str);
+          list.push_back(str);
         }
       }
     }
@@ -473,69 +432,6 @@ std::vector<std::string> NativeSymbolDebuggingContext::GetLoadedLibraries() {
   return list;
 }
 
-void FWrite(FILE* file, const std::string& str) {
-  auto simple_fwrite = [&]() {
-    // The return value is ignored because there's no good way to handle it.
-    fwrite(str.data(), str.size(), 1, file);
-  };
-
-  if (file != stderr && file != stdout) {
-    simple_fwrite();
-    return;
-  }
-#ifdef _WIN32
-  HANDLE handle =
-      GetStdHandle(file == stdout ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE);
-
-  // Check if stderr is something other than a tty/console
-  if (handle == INVALID_HANDLE_VALUE || handle == nullptr ||
-      uv_guess_handle(_fileno(file)) != UV_TTY) {
-    simple_fwrite();
-    return;
-  }
-
-  // Get required wide buffer size
-  int n = MultiByteToWideChar(CP_UTF8, 0, str.data(), str.size(), nullptr, 0);
-
-  std::vector<wchar_t> wbuf(n);
-  MultiByteToWideChar(CP_UTF8, 0, str.data(), str.size(), wbuf.data(), n);
-
-  WriteConsoleW(handle, wbuf.data(), n, nullptr, nullptr);
-  return;
-#elif defined(__ANDROID__)
-  if (file == stderr) {
-    // Android log implementations will truncate log messages to 1023 length.
-    const int maxLength = 1023;
-
-    int n = str.size();
-
-    if (n <= maxLength) {
-      __android_log_print(ANDROID_LOG_ERROR, "nodejs", "%s", str.data());
-    } else {
-      // Divide the output in lines with length < maxLength.
-      std::vector<char> line(maxLength+1);
-      const char* sep = "\n";
-      const char* token = str.c_str();
-      while (*token) {
-        int tokenLen = std::strcspn(token, sep);
-        if (tokenLen > maxLength) {
-          tokenLen = maxLength;
-        }
-        std::strncpy(line.data(), token, tokenLen);
-        line.data()[tokenLen]='\0';
-        __android_log_print(ANDROID_LOG_ERROR, "nodejs", "%s", line.data());
-        token += tokenLen;
-        if (*token == '\n') {
-          // __android_log_write will introduce the line break.
-          token++;
-        }
-      }
-    }
-    return;
-  }
-#endif
-  simple_fwrite();
-}
 
 }  // namespace node
 

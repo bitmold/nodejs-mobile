@@ -4,7 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-d8.file.execute('test/mjsunit/test-async.js');
+load('test/mjsunit/test-async.js');
 
 // Test that pre-allocation of the result array works even if it needs to be
 // allocated in large object space.

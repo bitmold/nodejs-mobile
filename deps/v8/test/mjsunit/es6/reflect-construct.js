@@ -311,7 +311,6 @@
   var realm2 = Realm.create();
 
   var well_known_intrinsic_constructors = [
-    ["AggregateError", [[]]],
       "Array",
       "ArrayBuffer",
       "Boolean",

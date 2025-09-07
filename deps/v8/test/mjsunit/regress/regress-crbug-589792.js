@@ -16,6 +16,5 @@ var boom = (function(stdlib, foreign, heap) {
   }
   return foo
 })(this, 0, new ArrayBuffer(256));
-%PrepareFunctionForOptimization(boom);
 %OptimizeFunctionOnNextCall(boom);
 boom(0, 0x1000);

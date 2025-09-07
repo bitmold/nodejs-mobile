@@ -5,15 +5,11 @@
 #ifndef V8_INSPECTOR_V8_HEAP_PROFILER_AGENT_IMPL_H_
 #define V8_INSPECTOR_V8_HEAP_PROFILER_AGENT_IMPL_H_
 
-#include <memory>
-
 #include "src/base/macros.h"
 #include "src/inspector/protocol/Forward.h"
 #include "src/inspector/protocol/HeapProfiler.h"
 
-namespace v8 {
-class Isolate;
-}
+#include "include/v8.h"
 
 namespace v8_inspector {
 
@@ -27,24 +23,17 @@ class V8HeapProfilerAgentImpl : public protocol::HeapProfiler::Backend {
   V8HeapProfilerAgentImpl(V8InspectorSessionImpl*, protocol::FrontendChannel*,
                           protocol::DictionaryValue* state);
   ~V8HeapProfilerAgentImpl() override;
-  V8HeapProfilerAgentImpl(const V8HeapProfilerAgentImpl&) = delete;
-  V8HeapProfilerAgentImpl& operator=(const V8HeapProfilerAgentImpl&) = delete;
   void restore();
 
-  void collectGarbage(
-      std::unique_ptr<CollectGarbageCallback> callback) override;
+  Response collectGarbage() override;
 
   Response enable() override;
   Response startTrackingHeapObjects(Maybe<bool> trackAllocations) override;
-  Response stopTrackingHeapObjects(Maybe<bool> reportProgress,
-                                   Maybe<bool> treatGlobalObjectsAsRoots,
-                                   Maybe<bool> captureNumericValue) override;
+  Response stopTrackingHeapObjects(Maybe<bool> reportProgress) override;
 
   Response disable() override;
 
-  Response takeHeapSnapshot(Maybe<bool> reportProgress,
-                            Maybe<bool> treatGlobalObjectsAsRoots,
-                            Maybe<bool> captureNumericValue) override;
+  Response takeHeapSnapshot(Maybe<bool> reportProgress) override;
 
   Response getObjectByHeapObjectId(
       const String16& heapSnapshotObjectId, Maybe<String16> objectGroup,
@@ -61,9 +50,6 @@ class V8HeapProfilerAgentImpl : public protocol::HeapProfiler::Backend {
       std::unique_ptr<protocol::HeapProfiler::SamplingHeapProfile>*) override;
 
  private:
-  struct AsyncGC;
-  class GCTask;
-
   void startTrackingHeapObjectsInternal(bool trackAllocations);
   void stopTrackingHeapObjectsInternal();
   void requestHeapStatsUpdate();
@@ -74,7 +60,8 @@ class V8HeapProfilerAgentImpl : public protocol::HeapProfiler::Backend {
   protocol::HeapProfiler::Frontend m_frontend;
   protocol::DictionaryValue* m_state;
   bool m_hasTimer;
-  std::shared_ptr<AsyncGC> m_async_gc;
+
+  DISALLOW_COPY_AND_ASSIGN(V8HeapProfilerAgentImpl);
 };
 
 }  // namespace v8_inspector

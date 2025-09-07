@@ -1,9 +1,5 @@
-ftang@chromium.org
-ishell@chromium.org
-jgruber@chromium.org
+ahaas@chromium.org
+bmeurer@chromium.org
 jkummerow@chromium.org
-marja@chromium.org
-verwaest@chromium.org
-syg@chromium.org
-
-per-file heap-symbols.h=file:../../COMMON_OWNERS
+jgruber@chromium.org
+yangguo@chromium.org

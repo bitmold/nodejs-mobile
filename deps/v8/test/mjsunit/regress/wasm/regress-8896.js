@@ -3,14 +3,12 @@
 // found in the LICENSE file.
 
 // Flags: --experimental-wasm-eh --allow-natives-syntax
-// Disable Liftoff so we can serialize the module.
-// Flags: --no-liftoff
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 (function TestSerializeDeserializeRuntimeCall() {
   var builder = new WasmModuleBuilder();
-  var except = builder.addTag(kSig_v_v);
+  var except = builder.addException(kSig_v_v);
   builder.addFunction("f", kSig_v_v)
       .addBody([
         kExprThrow, except,
@@ -21,5 +19,5 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   var serialized = %SerializeWasmModule(module);
   module = %DeserializeWasmModule(serialized, wire_bytes);
   var instance2 = new WebAssembly.Instance(module);
-  assertThrows(() => instance2.exports.f(), WebAssembly.Exception);
+  assertThrows(() => instance2.exports.f(), WebAssembly.RuntimeError);
 })();

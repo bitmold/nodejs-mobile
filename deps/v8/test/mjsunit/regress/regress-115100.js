@@ -27,13 +27,8 @@
 
 // Flags: --allow-natives-syntax
 
-function foo(obj) {
-  obj.prop = 0;
-};
-%PrepareFunctionForOptimization(foo);
-function mk() {
-  return Object.create(null);
-}
+function foo(obj) { obj.prop = 0; }
+function mk() { return Object.create(null); }
 
 foo(mk());
 foo(mk());

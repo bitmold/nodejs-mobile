@@ -1,7 +1,7 @@
 /*
- * Copyright 2015-2021 The OpenSSL Project Authors. All Rights Reserved.
+ * Copyright 2015-2019 The OpenSSL Project Authors. All Rights Reserved.
  *
- * Licensed under the Apache License 2.0 (the "License").  You may not use
+ * Licensed under the OpenSSL license (the "License").  You may not use
  * this file except in compliance with the License.  You can obtain a copy
  * in the file LICENSE in the source distribution or at
  * https://www.openssl.org/source/license.html
@@ -9,19 +9,18 @@
 
 #include <stdio.h>
 #include "internal/cryptlib.h"
-#include "internal/endian.h"
 
 #ifndef OPENSSL_NO_CHACHA
 
 # include <openssl/evp.h>
 # include <openssl/objects.h>
-# include "crypto/evp.h"
-# include "evp_local.h"
-# include "crypto/chacha.h"
+# include "evp_locl.h"
+# include "internal/evp_int.h"
+# include "internal/chacha.h"
 
 typedef struct {
     union {
-        OSSL_UNION_ALIGN;  /* this ensures even sizeof(EVP_CHACHA_KEY)%8==0 */
+        double align;   /* this ensures even sizeof(EVP_CHACHA_KEY)%8==0 */
         unsigned int d[CHACHA_KEY_SIZE / 4];
     } key;
     unsigned int  counter[CHACHA_CTR_SIZE / 4];
@@ -131,7 +130,6 @@ static const EVP_CIPHER chacha20 = {
     CHACHA_KEY_SIZE,        /* key_len */
     CHACHA_CTR_SIZE,        /* iv_len, 128-bit counter in the context */
     EVP_CIPH_CUSTOM_IV | EVP_CIPH_ALWAYS_CALL_INIT,
-    EVP_ORIG_GLOBAL,
     chacha_init_key,
     chacha_cipher,
     NULL,
@@ -148,7 +146,7 @@ const EVP_CIPHER *EVP_chacha20(void)
 }
 
 # ifndef OPENSSL_NO_POLY1305
-#  include "crypto/poly1305.h"
+#  include "internal/poly1305.h"
 
 typedef struct {
     EVP_CHACHA_KEY key;
@@ -312,9 +310,12 @@ static int chacha20_poly1305_tls_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
     }
 
     {
-        DECLARE_IS_ENDIAN;
+        const union {
+            long one;
+            char little;
+        } is_endian = { 1 };
 
-        if (IS_LITTLE_ENDIAN) {
+        if (is_endian.little) {
             memcpy(ctr, (unsigned char *)&actx->len, POLY1305_BLOCK_SIZE);
         } else {
             ctr[0]  = (unsigned char)(actx->len.aad);
@@ -425,7 +426,10 @@ static int chacha20_poly1305_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
     }
     if (in == NULL                              /* explicit final */
         || plen != len) {                       /* or tls mode */
-        DECLARE_IS_ENDIAN;
+        const union {
+            long one;
+            char little;
+        } is_endian = { 1 };
         unsigned char temp[POLY1305_BLOCK_SIZE];
 
         if (actx->aad) {                        /* wrap up aad */
@@ -439,7 +443,7 @@ static int chacha20_poly1305_cipher(EVP_CIPHER_CTX *ctx, unsigned char *out,
             Poly1305_Update(POLY1305_ctx(actx), zero,
                             POLY1305_BLOCK_SIZE - rem);
 
-        if (IS_LITTLE_ENDIAN) {
+        if (is_endian.little) {
             Poly1305_Update(POLY1305_ctx(actx),
                             (unsigned char *)&actx->len, POLY1305_BLOCK_SIZE);
         } else {
@@ -504,7 +508,7 @@ static int chacha20_poly1305_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg,
             actx = ctx->cipher_data
                  = OPENSSL_zalloc(sizeof(*actx) + Poly1305_ctx_size());
         if (actx == NULL) {
-            ERR_raise(ERR_LIB_EVP, EVP_R_INITIALIZATION_ERROR);
+            EVPerr(EVP_F_CHACHA20_POLY1305_CTRL, EVP_R_INITIALIZATION_ERROR);
             return 0;
         }
         actx->len.aad = 0;
@@ -524,14 +528,10 @@ static int chacha20_poly1305_ctrl(EVP_CIPHER_CTX *ctx, int type, int arg,
             dst->cipher_data =
                    OPENSSL_memdup(actx, sizeof(*actx) + Poly1305_ctx_size());
             if (dst->cipher_data == NULL) {
-                ERR_raise(ERR_LIB_EVP, EVP_R_COPY_ERROR);
+                EVPerr(EVP_F_CHACHA20_POLY1305_CTRL, EVP_R_COPY_ERROR);
                 return 0;
             }
         }
-        return 1;
-
-    case EVP_CTRL_GET_IVLEN:
-        *(int *)ptr = actx->nonce_len;
         return 1;
 
     case EVP_CTRL_AEAD_SET_IVLEN:
@@ -613,9 +613,7 @@ static EVP_CIPHER chacha20_poly1305 = {
     12,                 /* iv_len, 96-bit nonce in the context */
     EVP_CIPH_FLAG_AEAD_CIPHER | EVP_CIPH_CUSTOM_IV |
     EVP_CIPH_ALWAYS_CALL_INIT | EVP_CIPH_CTRL_INIT |
-    EVP_CIPH_CUSTOM_COPY | EVP_CIPH_FLAG_CUSTOM_CIPHER |
-    EVP_CIPH_CUSTOM_IV_LENGTH,
-    EVP_ORIG_GLOBAL,
+    EVP_CIPH_CUSTOM_COPY | EVP_CIPH_FLAG_CUSTOM_CIPHER,
     chacha20_poly1305_init_key,
     chacha20_poly1305_cipher,
     chacha20_poly1305_cleanup,

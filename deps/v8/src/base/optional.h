@@ -35,7 +35,7 @@ constexpr in_place_t in_place = {};
 // http://en.cppreference.com/w/cpp/utility/optional/nullopt
 constexpr nullopt_t nullopt(0);
 
-// Forward declaration, which is referred by following helpers.
+// Forward declaration, which is refered by following helpers.
 template <typename T>
 class Optional;
 
@@ -131,8 +131,21 @@ struct OptionalStorageBase<T, true /* trivially destructible */> {
 // the condition of constexpr-ness is satisfied because the base class also has
 // compiler generated constexpr {copy,move} constructors). Note that
 // placement-new is prohibited in constexpr.
-template <typename T, bool = std::is_trivially_copy_constructible<T>::value,
-          bool = std::is_trivially_move_constructible<T>::value>
+#if defined(__GNUC__) && __GNUC__ < 5
+// gcc <5 does not implement std::is_trivially_copy_constructible.
+// Conservatively assume false for this configuration.
+// TODO(clemensh): Remove this once we drop support for gcc <5.
+#define TRIVIALLY_COPY_CONSTRUCTIBLE(T) false
+#define TRIVIALLY_MOVE_CONSTRUCTIBLE(T) false
+#else
+#define TRIVIALLY_COPY_CONSTRUCTIBLE(T) \
+  std::is_trivially_copy_constructible<T>::value
+#define TRIVIALLY_MOVE_CONSTRUCTIBLE(T) \
+  std::is_trivially_move_constructible<T>::value
+#endif
+template <typename T, bool = TRIVIALLY_COPY_CONSTRUCTIBLE(T),
+          bool = TRIVIALLY_MOVE_CONSTRUCTIBLE(T)>
+#undef TRIVIALLY_COPY_CONSTRUCTIBLE
 struct OptionalStorage : OptionalStorageBase<T> {
   // This is no trivially {copy,move} constructible case. Other cases are
   // defined below as specializations.
@@ -557,32 +570,32 @@ class OPTIONAL_DECLSPEC_EMPTY_BASES Optional
     return *this;
   }
 
-  constexpr const T* operator->() const {
+  const T* operator->() const {
     DCHECK(storage_.is_populated_);
     return &storage_.value_;
   }
 
-  constexpr T* operator->() {
+  T* operator->() {
     DCHECK(storage_.is_populated_);
     return &storage_.value_;
   }
 
-  constexpr const T& operator*() const& {
+  const T& operator*() const & {
     DCHECK(storage_.is_populated_);
     return storage_.value_;
   }
 
-  constexpr T& operator*() & {
+  T& operator*() & {
     DCHECK(storage_.is_populated_);
     return storage_.value_;
   }
 
-  constexpr const T&& operator*() const&& {
+  const T&& operator*() const && {
     DCHECK(storage_.is_populated_);
     return std::move(storage_.value_);
   }
 
-  constexpr T&& operator*() && {
+  T&& operator*() && {
     DCHECK(storage_.is_populated_);
     return std::move(storage_.value_);
   }

@@ -114,11 +114,11 @@ static void connect_cb(uv_connect_t* req, int status) {
     return;
   }
 
-  ASSERT_NOT_NULL(req);
+  ASSERT(req != NULL);
   ASSERT(status == 0);
 
   conn = (conn_rec*)req->data;
-  ASSERT_NOT_NULL(conn);
+  ASSERT(conn != NULL);
 
 #if DEBUG
   printf("connect_cb %d\n", conn->i);
@@ -137,7 +137,7 @@ static void connect_cb(uv_connect_t* req, int status) {
 
 static void read_cb(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
 
-  ASSERT_NOT_NULL(stream);
+  ASSERT(stream != NULL);
 
 #if DEBUG
   printf("read_cb %d\n", p->i);
@@ -161,7 +161,7 @@ static void read_cb(uv_stream_t* stream, ssize_t nread, const uv_buf_t* buf) {
 static void close_cb(uv_handle_t* handle) {
   conn_rec* p = (conn_rec*)handle->data;
 
-  ASSERT_NOT_NULL(handle);
+  ASSERT(handle != NULL);
   closed_streams++;
 
 #if DEBUG

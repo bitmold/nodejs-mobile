@@ -17,7 +17,6 @@ namespace tracing {
 
 class TraceBufferRingBuffer : public TraceBuffer {
  public:
-  // Takes ownership of |trace_writer|.
   TraceBufferRingBuffer(size_t max_chunks, TraceWriter* trace_writer);
   ~TraceBufferRingBuffer() override = default;
 

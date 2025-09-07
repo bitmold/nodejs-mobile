@@ -14,7 +14,6 @@ function opt(){
     finally{}
   }
 }
-%PrepareFunctionForOptimization(opt);
 opt();
 %OptimizeFunctionOnNextCall(opt);
 opt();

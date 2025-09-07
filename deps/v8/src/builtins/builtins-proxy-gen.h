@@ -10,36 +10,39 @@
 
 namespace v8 {
 namespace internal {
+using compiler::Node;
 
 class ProxiesCodeStubAssembler : public CodeStubAssembler {
  public:
   explicit ProxiesCodeStubAssembler(compiler::CodeAssemblerState* state)
       : CodeStubAssembler(state) {}
 
-  TNode<JSProxy> AllocateProxy(TNode<Context> context, TNode<JSReceiver> target,
-                               TNode<JSReceiver> handler);
-  TNode<JSFunction> AllocateProxyRevokeFunction(TNode<Context> context,
-                                                TNode<JSProxy> proxy);
+  Node* AllocateProxy(Node* target, Node* handler, Node* context);
+  Node* AllocateProxyRevokeFunction(Node* proxy, Node* context);
 
-  void CheckGetSetTrapResult(TNode<Context> context, TNode<JSReceiver> target,
-                             TNode<JSProxy> proxy, TNode<Name> name,
-                             TNode<Object> trap_result,
-                             JSProxy::AccessKind access_kind);
+  // Get JSNewTarget parameter for ProxyConstructor builtin (Torque).
+  // TODO(v8:9120): Remove this once torque support exists
+  Node* GetProxyConstructorJSNewTarget();
 
-  void CheckHasTrapResult(TNode<Context> context, TNode<JSReceiver> target,
-                          TNode<JSProxy> proxy, TNode<Name> name);
+  Node* CheckGetSetTrapResult(Node* context, Node* target, Node* proxy,
+                              Node* name, Node* trap_result,
+                              JSProxy::AccessKind access_kind);
 
-  void CheckDeleteTrapResult(TNode<Context> context, TNode<JSReceiver> target,
-                             TNode<JSProxy> proxy, TNode<Name> name);
+  Node* CheckHasTrapResult(Node* context, Node* target, Node* proxy,
+                           Node* name);
 
+ protected:
   enum ProxyRevokeFunctionContextSlot {
     kProxySlot = Context::MIN_CONTEXT_SLOTS,
     kProxyContextLength,
   };
 
+  Node* AllocateJSArrayForCodeStubArguments(Node* context,
+                                            CodeStubArguments& args, Node* argc,
+                                            ParameterMode mode);
+
  private:
-  TNode<Context> CreateProxyRevokeFunctionContext(
-      TNode<JSProxy> proxy, TNode<NativeContext> native_context);
+  Node* CreateProxyRevokeFunctionContext(Node* proxy, Node* native_context);
 };
 
 }  // namespace internal

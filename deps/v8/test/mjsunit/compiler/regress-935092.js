@@ -5,17 +5,14 @@
 // Flags: --allow-natives-syntax
 
 function opt(g) {
-  for (var X = 0; X < 1; X++) {
-    new function() {
-      this.y;
-    }().x;
-    (g || g && (g || -N)(g && 0)).y = 0;
-  }
-  (function() {
-    g;
-  });
-};
-%PrepareFunctionForOptimization(opt);
+    for (var X = 0; X < 1; X++) {
+        (new(function() {
+            this.y
+        })).x;
+        (g || (g && (((g || -N)(g && 0))))).y = 0
+    }
+    (function() { g })
+}
 opt({});
 %OptimizeFunctionOnNextCall(opt);
 opt({});

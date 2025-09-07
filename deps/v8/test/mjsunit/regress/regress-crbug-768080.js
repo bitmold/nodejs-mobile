@@ -11,8 +11,7 @@
   }
   function f() {
     return new g();
-  };
-  %PrepareFunctionForOptimization(f);
+  }
   new C();  // Warm-up!
   assertThrows(f, TypeError);
   assertThrows(f, TypeError);
@@ -30,8 +29,7 @@
   }
   function f() {
     return new g();
-  };
-  %PrepareFunctionForOptimization(f);
+  }
   new C();  // Warm-up!
   assertThrows(f, TypeError);
   assertThrows(f, TypeError);
@@ -45,8 +43,7 @@
   }
   function f() {
     return new g();
-  };
-  %PrepareFunctionForOptimization(f);
+  }
   assertThrows(f, TypeError);
   assertThrows(f, TypeError);
   %OptimizeFunctionOnNextCall(f);
@@ -59,8 +56,7 @@
   }
   function f() {
     return g();
-  };
-  %PrepareFunctionForOptimization(f);
+  }
   assertThrows(f, TypeError);
   assertThrows(f, TypeError);
   %OptimizeFunctionOnNextCall(f);

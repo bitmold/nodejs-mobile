@@ -4,12 +4,11 @@
 
 // Flags: --experimental-wasm-threads
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 const kSequenceLength = 8192;
 const kNumberOfWorkers = 4;
 const kBitMask = kNumberOfWorkers - 1;
-const kMemoryAddress = 0;
 const kSequenceStartAddress = 32;
 
 function makeWorkerCodeForOpcode(compareExchangeOpcode, size, functionName,
@@ -41,44 +40,44 @@ function makeWorkerCodeForOpcode(compareExchangeOpcode, size, functionName,
     const kLocalNextValue = 7; // the value to write in the update
     let body = [
         // Turn sequence length to equivalent in bytes.
-        kExprLocalGet, kArgSeqenceLength,
+        kExprGetLocal, kArgSeqenceLength,
         kExprI32Const, size / 8,
         kExprI32Mul,
-        kExprLocalSet, kArgSeqenceLength,
+        kExprSetLocal, kArgSeqenceLength,
         // Outer block so we have something to jump for return.
-        ...[kExprBlock, kWasmVoid,
+        ...[kExprBlock, kWasmStmt,
             // Set counter to 0.
             kExprI32Const, 0,
-            kExprLocalSet, kLocalCurrentOffset,
+            kExprSetLocal, kLocalCurrentOffset,
             // Outer loop until maxcount.
-            ...[kExprLoop, kWasmVoid,
+            ...[kExprLoop, kWasmStmt,
                 // Find the next value to wait for.
-                ...[kExprLoop, kWasmVoid,
+                ...[kExprLoop, kWasmStmt,
                     // Check end of sequence.
-                    kExprLocalGet, kLocalCurrentOffset,
-                    kExprLocalGet, kArgSeqenceLength,
+                    kExprGetLocal, kLocalCurrentOffset,
+                    kExprGetLocal, kArgSeqenceLength,
                     kExprI32Eq,
                     kExprBrIf, 2, // return
-                    ...[kExprBlock, kWasmVoid,
+                    ...[kExprBlock, kWasmStmt,
                         // Load next value.
-                        kExprLocalGet, kArgSequencePtr,
-                        kExprLocalGet, kLocalCurrentOffset,
+                        kExprGetLocal, kArgSequencePtr,
+                        kExprGetLocal, kLocalCurrentOffset,
                         kExprI32Add,
                         loadMemOpcode, 0, 0,
                         // Mask off bits.
-                        kExprLocalGet, kArgBitMask,
+                        kExprGetLocal, kArgBitMask,
                         kExprI64UConvertI32,
                         kExprI64And,
                         // Compare with worker id.
-                        kExprLocalGet, kArgWorkerId,
+                        kExprGetLocal, kArgWorkerId,
                         kExprI64UConvertI32,
                         kExprI64Eq,
                         kExprBrIf, 0,
                         // Not found, increment position.
-                        kExprLocalGet, kLocalCurrentOffset,
+                        kExprGetLocal, kLocalCurrentOffset,
                         kExprI32Const, size / 8,
                         kExprI32Add,
-                        kExprLocalSet, kLocalCurrentOffset,
+                        kExprSetLocal, kLocalCurrentOffset,
                         kExprBr, 1,
                         kExprEnd
                     ],
@@ -86,41 +85,41 @@ function makeWorkerCodeForOpcode(compareExchangeOpcode, size, functionName,
                     kExprEnd
                 ],
                 // Load expected value to local.
-                kExprLocalGet, kArgSequencePtr,
-                kExprLocalGet, kLocalCurrentOffset,
+                kExprGetLocal, kArgSequencePtr,
+                kExprGetLocal, kLocalCurrentOffset,
                 kExprI32Add,
                 loadMemOpcode, 0, 0,
-                kExprLocalSet, kLocalExpectedValue,
+                kExprSetLocal, kLocalExpectedValue,
                 // Load value after expected one.
-                kExprLocalGet, kArgSequencePtr,
-                kExprLocalGet, kLocalCurrentOffset,
+                kExprGetLocal, kArgSequencePtr,
+                kExprGetLocal, kLocalCurrentOffset,
                 kExprI32Add,
                 kExprI32Const, size / 8,
                 kExprI32Add,
                 loadMemOpcode, 0, 0,
-                kExprLocalSet, kLocalNextValue,
+                kExprSetLocal, kLocalNextValue,
                 // Hammer on memory until value found.
-                ...[kExprLoop, kWasmVoid,
+                ...[kExprLoop, kWasmStmt,
                     // Load address.
-                    kExprLocalGet, kArgMemoryCell,
+                    kExprGetLocal, kArgMemoryCell,
                     // Load expected value.
-                    kExprLocalGet, kLocalExpectedValue,
+                    kExprGetLocal, kLocalExpectedValue,
                     // Load updated value.
-                    kExprLocalGet, kLocalNextValue,
+                    kExprGetLocal, kLocalNextValue,
                     // Try update.
                     kAtomicPrefix, compareExchangeOpcode, 0, 0,
                     // Load expected value.
-                    kExprLocalGet, kLocalExpectedValue,
+                    kExprGetLocal, kLocalExpectedValue,
                     // Spin if not what expected.
                     kExprI64Ne,
                     kExprBrIf, 0,
                     kExprEnd
                 ],
                 // Next iteration of loop.
-                kExprLocalGet, kLocalCurrentOffset,
+                kExprGetLocal, kLocalCurrentOffset,
                 kExprI32Const, size / 8,
                 kExprI32Add,
-                kExprLocalSet, kLocalCurrentOffset,
+                kExprSetLocal, kLocalCurrentOffset,
                 kExprBr, 0,
                 kExprEnd
             ], // outer loop
@@ -131,7 +130,9 @@ function makeWorkerCodeForOpcode(compareExchangeOpcode, size, functionName,
     builder.addFunction(functionName, makeSig([kWasmI32, kWasmI32, kWasmI32,
             kWasmI32, kWasmI32
         ], []))
-        .addLocals(kWasmI32, 1).addLocals(kWasmI64, 2)
+        .addLocals({
+            i32_count: 1, i64_count: 2
+        })
         .addBody(body)
         .exportAs(functionName);
 }
@@ -190,19 +191,15 @@ function testOpcode(opcode, opcodeSize) {
         shared: true
     });
     let memoryView = new Uint8Array(memory.buffer);
-    let numBytes = opcodeSize / 8;
-    generateSequence(
-        memoryView, kSequenceStartAddress, kSequenceLength * numBytes);
-
-    // Write the first element of the sequence to memory, such that the workers
-    // can start running as soon as they are spawned.
-    memoryView.copyWithin(
-        kMemoryAddress, kSequenceStartAddress,
-        kSequenceStartAddress + numBytes);
+    generateSequence(memoryView, kSequenceStartAddress, kSequenceLength * (opcodeSize / 8));
 
     let module = new WebAssembly.Module(builder.toBuffer());
-    let workers =
-        spawnWorker(module, memory, kMemoryAddress, kSequenceStartAddress);
+    let workers = spawnWorker(module, memory, 0, kSequenceStartAddress);
+
+    // Fire the workers off
+    for (let i = opcodeSize / 8 - 1; i >= 0; i--) {
+      memoryView[i] = memoryView[kSequenceStartAddress + i];
+    }
 
     waitForWorkers(workers);
 

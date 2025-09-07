@@ -1,7 +1,8 @@
-bikineev@chromium.org
-dinfuehr@chromium.org
+set noparent
+
 hpayer@chromium.org
 mlippautz@chromium.org
-omerkatz@chromium.org
+mstarzinger@chromium.org
+ulan@chromium.org
 
-per-file *factory*=file:../objects/OWNERS
+# COMPONENT: Blink>JavaScript>GC

@@ -18,11 +18,19 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/microtask-tq-inl.inc"
+OBJECT_CONSTRUCTORS_IMPL(Microtask, Struct)
+OBJECT_CONSTRUCTORS_IMPL(CallbackTask, Microtask)
+OBJECT_CONSTRUCTORS_IMPL(CallableTask, Microtask)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(Microtask)
-TQ_OBJECT_CONSTRUCTORS_IMPL(CallbackTask)
-TQ_OBJECT_CONSTRUCTORS_IMPL(CallableTask)
+CAST_ACCESSOR(Microtask)
+CAST_ACCESSOR(CallbackTask)
+CAST_ACCESSOR(CallableTask)
+
+ACCESSORS(CallableTask, callable, JSReceiver, kCallableOffset)
+ACCESSORS(CallableTask, context, Context, kContextOffset)
+
+ACCESSORS(CallbackTask, callback, Foreign, kCallbackOffset)
+ACCESSORS(CallbackTask, data, Foreign, kDataOffset)
 
 }  // namespace internal
 }  // namespace v8

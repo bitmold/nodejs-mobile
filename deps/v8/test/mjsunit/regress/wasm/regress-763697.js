@@ -4,11 +4,11 @@
 
 // Flags: --expose-wasm --no-experimental-wasm-simd
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 let builder = new WasmModuleBuilder();
     builder.addFunction("main", kSig_i_i)
-      .addBody([kExprLocalGet, 0])
-      .addLocals(kWasmS128, 1)
+      .addBody([kExprGetLocal, 0])
+      .addLocals({s128_count: 1});
 
   assertFalse(WebAssembly.validate(builder.toBuffer()));

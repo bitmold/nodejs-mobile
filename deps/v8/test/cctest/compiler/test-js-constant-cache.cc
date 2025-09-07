@@ -4,7 +4,6 @@
 
 #include "src/codegen/assembler.h"
 #include "src/compiler/js-graph.h"
-#include "src/compiler/js-heap-broker.h"
 #include "src/compiler/node-properties.h"
 #include "src/heap/factory-inl.h"
 #include "test/cctest/cctest.h"
@@ -34,12 +33,9 @@ class JSConstantCacheTester : public HandleAndZoneScope,
                               public JSGraph {
  public:
   JSConstantCacheTester()
-      : HandleAndZoneScope(kCompressGraphZone),
-        JSCacheTesterHelper(main_zone()),
+      : JSCacheTesterHelper(main_zone()),
         JSGraph(main_isolate(), &main_graph_, &main_common_, &main_javascript_,
-                nullptr, &main_machine_),
-        canonical_(main_isolate()),
-        broker_(main_isolate(), main_zone()) {
+                nullptr, &main_machine_) {
     main_graph_.SetStart(main_graph_.NewNode(common()->Start(0)));
     main_graph_.SetEnd(
         main_graph_.NewNode(common()->End(1), main_graph_.start()));
@@ -51,11 +47,6 @@ class JSConstantCacheTester : public HandleAndZoneScope,
   }
 
   Factory* factory() { return main_isolate()->factory(); }
-  JSHeapBroker* broker() { return &broker_; }
-
- private:
-  CanonicalHandleScope canonical_;
-  JSHeapBroker broker_;
 };
 
 
@@ -191,8 +182,8 @@ TEST(HeapNumbers) {
     Handle<Object> num = T.factory()->NewNumber(value);
     Handle<HeapNumber> heap = T.factory()->NewHeapNumber(value);
     Node* node1 = T.Constant(value);
-    Node* node2 = T.Constant(MakeRef(T.broker(), num));
-    Node* node3 = T.Constant(MakeRef(T.broker(), heap));
+    Node* node2 = T.Constant(num);
+    Node* node3 = T.Constant(heap);
     CHECK_EQ(node1, node2);
     CHECK_EQ(node1, node3);
   }
@@ -202,20 +193,12 @@ TEST(HeapNumbers) {
 TEST(OddballHandle) {
   JSConstantCacheTester T;
 
-  CHECK_EQ(
-      T.UndefinedConstant(),
-      T.Constant(MakeRef<Object>(T.broker(), T.factory()->undefined_value())));
-  CHECK_EQ(
-      T.TheHoleConstant(),
-      T.Constant(MakeRef<Object>(T.broker(), T.factory()->the_hole_value())));
-  CHECK_EQ(T.TrueConstant(),
-           T.Constant(MakeRef<Object>(T.broker(), T.factory()->true_value())));
-  CHECK_EQ(T.FalseConstant(),
-           T.Constant(MakeRef<Object>(T.broker(), T.factory()->false_value())));
-  CHECK_EQ(T.NullConstant(),
-           T.Constant(MakeRef<Object>(T.broker(), T.factory()->null_value())));
-  CHECK_EQ(T.NaNConstant(),
-           T.Constant(MakeRef<Object>(T.broker(), T.factory()->nan_value())));
+  CHECK_EQ(T.UndefinedConstant(), T.Constant(T.factory()->undefined_value()));
+  CHECK_EQ(T.TheHoleConstant(), T.Constant(T.factory()->the_hole_value()));
+  CHECK_EQ(T.TrueConstant(), T.Constant(T.factory()->true_value()));
+  CHECK_EQ(T.FalseConstant(), T.Constant(T.factory()->false_value()));
+  CHECK_EQ(T.NullConstant(), T.Constant(T.factory()->null_value()));
+  CHECK_EQ(T.NaNConstant(), T.Constant(T.factory()->nan_value()));
 }
 
 

@@ -3,10 +3,10 @@
 #include "inspector_socket_server.h"
 #include "inspector/main_thread_interface.h"
 #include "inspector/node_string.h"
-#include "crypto/crypto_util.h"
 #include "base_object-inl.h"
-#include "debug_utils-inl.h"
+#include "debug_utils.h"
 #include "node.h"
+#include "node_crypto.h"
 #include "node_internals.h"
 #include "node_mutex.h"
 #include "v8-inspector.h"
@@ -46,7 +46,8 @@ std::string ScriptPath(uv_loop_t* loop, const std::string& script_name) {
 // Used ver 4 - with numbers
 std::string GenerateID() {
   uint16_t buffer[8];
-  CHECK(crypto::CSPRNG(buffer, sizeof(buffer)).is_ok());
+  CHECK(crypto::EntropySource(reinterpret_cast<unsigned char*>(buffer),
+                              sizeof(buffer)));
 
   char uuid[256];
   snprintf(uuid, sizeof(uuid), "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
@@ -74,7 +75,7 @@ class RequestToServer {
     switch (action_) {
       case TransportAction::kKill:
         server->TerminateConnections();
-        [[fallthrough]];
+        // Fallthrough
       case TransportAction::kStop:
         server->Stop();
         break;
@@ -208,7 +209,7 @@ class IoSessionDelegate : public InspectorSessionDelegate {
 class InspectorIoDelegate: public node::inspector::SocketServerDelegate {
  public:
   InspectorIoDelegate(std::shared_ptr<RequestQueueData> queue,
-                      std::shared_ptr<MainThreadHandle> main_thread,
+                      std::shared_ptr<MainThreadHandle> main_threade,
                       const std::string& target_id,
                       const std::string& script_path,
                       const std::string& script_name);
@@ -238,7 +239,7 @@ class InspectorIoDelegate: public node::inspector::SocketServerDelegate {
 std::unique_ptr<InspectorIo> InspectorIo::Start(
     std::shared_ptr<MainThreadHandle> main_thread,
     const std::string& path,
-    std::shared_ptr<ExclusiveAccess<HostPort>> host_port,
+    std::shared_ptr<HostPort> host_port,
     const InspectPublishUid& inspect_publish_uid) {
   auto io = std::unique_ptr<InspectorIo>(
       new InspectorIo(main_thread,
@@ -253,7 +254,7 @@ std::unique_ptr<InspectorIo> InspectorIo::Start(
 
 InspectorIo::InspectorIo(std::shared_ptr<MainThreadHandle> main_thread,
                          const std::string& path,
-                         std::shared_ptr<ExclusiveAccess<HostPort>> host_port,
+                         std::shared_ptr<HostPort> host_port,
                          const InspectPublishUid& inspect_publish_uid)
     : main_thread_(main_thread),
       host_port_(host_port),
@@ -292,17 +293,10 @@ void InspectorIo::ThreadMain() {
   std::unique_ptr<InspectorIoDelegate> delegate(
       new InspectorIoDelegate(queue, main_thread_, id_,
                               script_path, script_name_));
-  std::string host;
-  int port;
-  {
-    ExclusiveAccess<HostPort>::Scoped host_port(host_port_);
-    host = host_port->host();
-    port = host_port->port();
-  }
   InspectorSocketServer server(std::move(delegate),
                                &loop,
-                               std::move(host),
-                               port,
+                               host_port_->host(),
+                               host_port_->port(),
                                inspect_publish_uid_);
   request_queue_ = queue->handle();
   // Its lifetime is now that of the server delegate
@@ -310,8 +304,7 @@ void InspectorIo::ThreadMain() {
   {
     Mutex::ScopedLock scoped_lock(thread_start_lock_);
     if (server.Start()) {
-      ExclusiveAccess<HostPort>::Scoped host_port(host_port_);
-      host_port->set_port(server.Port());
+      host_port_->set_port(server.Port());
     }
     thread_start_condition_.Broadcast(scoped_lock);
   }
@@ -320,8 +313,7 @@ void InspectorIo::ThreadMain() {
 }
 
 std::string InspectorIo::GetWsUrl() const {
-  ExclusiveAccess<HostPort>::Scoped host_port(host_port_);
-  return FormatWsAddress(host_port->host(), host_port->port(), id_, true);
+  return FormatWsAddress(host_port_->host(), host_port_->port(), id_, true);
 }
 
 InspectorIoDelegate::InspectorIoDelegate(

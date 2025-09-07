@@ -8,7 +8,6 @@
 #define __NUMBER_ROUNDINGUTILS_H__
 
 #include "number_types.h"
-#include "string_segment.h"
 
 U_NAMESPACE_BEGIN
 namespace number {
@@ -45,9 +44,6 @@ enum Section {
 inline bool
 getRoundingDirection(bool isEven, bool isNegative, Section section, RoundingMode roundingMode,
                      UErrorCode &status) {
-    if (U_FAILURE(status)) {
-        return false;
-    }
     switch (roundingMode) {
         case RoundingMode::UNUM_ROUND_UP:
             // round away from zero
@@ -104,45 +100,6 @@ getRoundingDirection(bool isEven, bool isNegative, Section section, RoundingMode
             }
             break;
 
-        case RoundingMode::UNUM_ROUND_HALF_ODD:
-            switch (section) {
-                case SECTION_MIDPOINT:
-                    return !isEven;
-                case SECTION_LOWER:
-                    return true;
-                case SECTION_UPPER:
-                    return false;
-                default:
-                    break;
-            }
-            break;
-
-        case RoundingMode::UNUM_ROUND_HALF_CEILING:
-            switch (section) {
-                case SECTION_MIDPOINT:
-                    return isNegative;
-                case SECTION_LOWER:
-                    return true;
-                case SECTION_UPPER:
-                    return false;
-                default:
-                    break;
-            }
-            break;
-
-        case RoundingMode::UNUM_ROUND_HALF_FLOOR:
-            switch (section) {
-                case SECTION_MIDPOINT:
-                    return !isNegative;
-                case SECTION_LOWER:
-                    return true;
-                case SECTION_UPPER:
-                    return false;
-                default:
-                    break;
-            }
-            break;
-
         default:
             break;
     }
@@ -174,6 +131,15 @@ inline bool roundsAtMidpoint(int roundingMode) {
     }
 }
 
+/**
+ * Computes the number of fraction digits in a double. Used for computing maxFrac for an increment.
+ * Calls into the DoubleToStringConverter library to do so.
+ *
+ * @param singleDigit An output parameter; set to a number if that is the
+ *        only digit in the double, or -1 if there is more than one digit.
+ */
+digits_t doubleFractionLength(double input, int8_t* singleDigit);
+
 } // namespace roundingutils
 
 
@@ -184,7 +150,7 @@ inline bool roundsAtMidpoint(int roundingMode) {
  */
 class RoundingImpl {
   public:
-    RoundingImpl() = default;  // defaults to pass-through rounder
+    RoundingImpl() = default;  // default constructor: leaves object in undefined state
 
     RoundingImpl(const Precision& precision, UNumberFormatRoundingMode roundingMode,
                  const CurrencyUnit& currency, UErrorCode& status);
@@ -220,23 +186,9 @@ class RoundingImpl {
   private:
     Precision fPrecision;
     UNumberFormatRoundingMode fRoundingMode;
-    bool fPassThrough = true;  // default value
-
-    // Permits access to fPrecision.
-    friend class units::UnitsRouter;
-
-    // Permits access to fPrecision.
-    friend class UnitConversionHandler;
+    bool fPassThrough;
 };
 
-/**
- * Parses Precision-related skeleton strings without knowledge of MacroProps
- * - see blueprint_helpers::parseIncrementOption().
- *
- * Referencing MacroProps means needing to pull in the .o files that have the
- * destructors for the SymbolsWrapper, StringProp, and Scale classes.
- */
-void parseIncrementOption(const StringSegment &segment, Precision &outPrecision, UErrorCode &status);
 
 } // namespace impl
 } // namespace number

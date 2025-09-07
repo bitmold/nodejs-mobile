@@ -68,22 +68,25 @@ const char* ICStats::GetOrCacheScriptName(Script script) {
     script_name_map_.insert(
         std::make_pair(script_ptr, std::unique_ptr<char[]>(c_script_name)));
     return c_script_name;
+  } else {
+    script_name_map_.insert(
+        std::make_pair(script_ptr, std::unique_ptr<char[]>(nullptr)));
+    return nullptr;
   }
-  script_name_map_.insert(
-      std::make_pair(script_ptr, std::unique_ptr<char[]>(nullptr)));
   return nullptr;
 }
 
 const char* ICStats::GetOrCacheFunctionName(JSFunction function) {
   Address function_ptr = function.ptr();
-  // Lookup the function name or add a null unique_ptr if no entry exists.
-  std::unique_ptr<char[]>& function_name = function_name_map_[function_ptr];
-  if (!function_name) {
-    ic_infos_[pos_].is_optimized = function.HasAttachedOptimizedCode();
-    // Update the map entry with the actual debug name.
-    function_name = function.shared().DebugNameCStr();
+  if (function_name_map_.find(function_ptr) != function_name_map_.end()) {
+    return function_name_map_[function_ptr].get();
   }
-  return function_name.get();
+  SharedFunctionInfo shared = function.shared();
+  ic_infos_[pos_].is_optimized = function.IsOptimized();
+  char* function_name = shared.DebugName().ToCString().release();
+  function_name_map_.insert(
+      std::make_pair(function_ptr, std::unique_ptr<char[]>(function_name)));
+  return function_name;
 }
 
 ICInfo::ICInfo()
@@ -91,7 +94,6 @@ ICInfo::ICInfo()
       script_offset(0),
       script_name(nullptr),
       line_num(-1),
-      column_num(-1),
       is_constructor(false),
       is_optimized(false),
       map(nullptr),
@@ -104,7 +106,6 @@ void ICInfo::Reset() {
   script_offset = 0;
   script_name = nullptr;
   line_num = -1;
-  column_num = -1;
   is_constructor = false;
   is_optimized = false;
   state.clear();
@@ -126,7 +127,6 @@ void ICInfo::AppendToTracedValue(v8::tracing::TracedValue* value) const {
   if (script_offset) value->SetInteger("offset", script_offset);
   if (script_name) value->SetString("scriptName", script_name);
   if (line_num != -1) value->SetInteger("lineNum", line_num);
-  if (column_num != -1) value->SetInteger("columnNum", column_num);
   if (is_constructor) value->SetInteger("constructor", is_constructor);
   if (!state.empty()) value->SetString("state", state);
   if (map) {

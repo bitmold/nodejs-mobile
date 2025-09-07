@@ -5,11 +5,7 @@
 #ifndef V8_OBJECTS_DESCRIPTOR_ARRAY_H_
 #define V8_OBJECTS_DESCRIPTOR_ARRAY_H_
 
-#include "src/common/globals.h"
 #include "src/objects/fixed-array.h"
-// TODO(jkummerow): Consider forward-declaring instead.
-#include "src/base/bit-field.h"
-#include "src/objects/internal-index.h"
 #include "src/objects/objects.h"
 #include "src/objects/struct.h"
 #include "src/utils/utils.h"
@@ -24,18 +20,23 @@ template <typename T>
 class Handle;
 
 class Isolate;
-class StructBodyDescriptor;
-
-#include "torque-generated/src/objects/descriptor-array-tq.inc"
 
 // An EnumCache is a pair used to hold keys and indices caches.
-class EnumCache : public TorqueGeneratedEnumCache<EnumCache, Struct> {
+class EnumCache : public Struct {
  public:
+  DECL_ACCESSORS(keys, FixedArray)
+  DECL_ACCESSORS(indices, FixedArray)
+
+  DECL_CAST(EnumCache)
+
+  DECL_PRINTER(EnumCache)
   DECL_VERIFIER(EnumCache)
 
-  using BodyDescriptor = StructBodyDescriptor;
+  // Layout description.
+  DEFINE_FIELD_OFFSET_CONSTANTS(Struct::kHeaderSize,
+                                TORQUE_GENERATED_ENUM_CACHE_FIELDS)
 
-  TQ_OBJECT_CONSTRUCTORS(EnumCache)
+  OBJECT_CONSTRUCTORS(EnumCache, Struct);
 };
 
 // A DescriptorArray is a custom array that holds instance descriptors.
@@ -55,13 +56,13 @@ class EnumCache : public TorqueGeneratedEnumCache<EnumCache, Struct> {
 // The "value" fields store either values or field types. A field type is either
 // FieldType::None(), FieldType::Any() or a weak reference to a Map. All other
 // references are strong.
-class DescriptorArray
-    : public TorqueGeneratedDescriptorArray<DescriptorArray, HeapObject> {
+class DescriptorArray : public HeapObject {
  public:
   DECL_INT16_ACCESSORS(number_of_all_descriptors)
   DECL_INT16_ACCESSORS(number_of_descriptors)
   inline int16_t number_of_slack_descriptors() const;
   inline int number_of_entries() const;
+  DECL_ACCESSORS(enum_cache, EnumCache)
 
   void ClearEnumCache();
   inline void CopyEnumCacheFrom(DescriptorArray array);
@@ -71,30 +72,23 @@ class DescriptorArray
                                           Handle<FixedArray> indices);
 
   // Accessors for fetching instance descriptor at descriptor number.
-  inline Name GetKey(InternalIndex descriptor_number) const;
-  inline Name GetKey(PtrComprCageBase cage_base,
-                     InternalIndex descriptor_number) const;
-  inline Object GetStrongValue(InternalIndex descriptor_number);
-  inline Object GetStrongValue(PtrComprCageBase cage_base,
-                               InternalIndex descriptor_number);
-  inline MaybeObject GetValue(InternalIndex descriptor_number);
-  inline MaybeObject GetValue(PtrComprCageBase cage_base,
-                              InternalIndex descriptor_number);
-  inline PropertyDetails GetDetails(InternalIndex descriptor_number);
-  inline int GetFieldIndex(InternalIndex descriptor_number);
-  inline FieldType GetFieldType(InternalIndex descriptor_number);
-  inline FieldType GetFieldType(PtrComprCageBase cage_base,
-                                InternalIndex descriptor_number);
+  inline Name GetKey(int descriptor_number) const;
+  inline Object GetStrongValue(int descriptor_number);
+  inline void SetValue(int descriptor_number, Object value);
+  inline MaybeObject GetValue(int descriptor_number);
+  inline PropertyDetails GetDetails(int descriptor_number);
+  inline int GetFieldIndex(int descriptor_number);
+  inline FieldType GetFieldType(int descriptor_number);
 
   inline Name GetSortedKey(int descriptor_number);
-  inline Name GetSortedKey(PtrComprCageBase cage_base, int descriptor_number);
   inline int GetSortedKeyIndex(int descriptor_number);
+  inline void SetSortedKey(int pointer, int descriptor_number);
 
   // Accessor for complete descriptor.
-  inline void Set(InternalIndex descriptor_number, Descriptor* desc);
-  inline void Set(InternalIndex descriptor_number, Name key, MaybeObject value,
+  inline void Set(int descriptor_number, Descriptor* desc);
+  inline void Set(int descriptor_number, Name key, MaybeObject value,
                   PropertyDetails details);
-  void Replace(InternalIndex descriptor_number, Descriptor* descriptor);
+  void Replace(int descriptor_number, Descriptor* descriptor);
 
   // Generalizes constness, representation and field type of all field
   // descriptors.
@@ -118,35 +112,35 @@ class DescriptorArray
       int slack = 0);
 
   // Sort the instance descriptors by the hash codes of their keys.
-  V8_EXPORT_PRIVATE void Sort();
+  void Sort();
 
-  // Search the instance descriptors for given name. {concurrent_search} signals
-  // if we are doing the search on a background thread. If so, we will sacrifice
-  // speed for thread-safety.
-  V8_INLINE InternalIndex Search(Name name, int number_of_own_descriptors,
-                                 bool concurrent_search = false);
-  V8_INLINE InternalIndex Search(Name name, Map map,
-                                 bool concurrent_search = false);
+  // Search the instance descriptors for given name.
+  V8_INLINE int Search(Name name, int number_of_own_descriptors);
+  V8_INLINE int Search(Name name, Map map);
 
   // As the above, but uses DescriptorLookupCache and updates it when
   // necessary.
-  V8_INLINE InternalIndex SearchWithCache(Isolate* isolate, Name name, Map map);
+  V8_INLINE int SearchWithCache(Isolate* isolate, Name name, Map map);
 
   bool IsEqualUpTo(DescriptorArray desc, int nof_descriptors);
 
   // Allocates a DescriptorArray, but returns the singleton
   // empty descriptor array object if number_of_descriptors is 0.
-  template <typename IsolateT>
   V8_EXPORT_PRIVATE static Handle<DescriptorArray> Allocate(
-      IsolateT* isolate, int nof_descriptors, int slack,
+      Isolate* isolate, int nof_descriptors, int slack,
       AllocationType allocation = AllocationType::kYoung);
 
   void Initialize(EnumCache enum_cache, HeapObject undefined_value,
                   int nof_descriptors, int slack);
 
+  DECL_CAST(DescriptorArray)
+
   // Constant for denoting key was not found.
   static const int kNotFound = -1;
 
+  // Layout description.
+  DEFINE_FIELD_OFFSET_CONSTANTS(HeapObject::kHeaderSize,
+                                TORQUE_GENERATED_DESCRIPTOR_ARRAY_FIELDS)
   STATIC_ASSERT(IsAligned(kStartOfWeakFieldsOffset, kTaggedSize));
   STATIC_ASSERT(IsAligned(kHeaderSize, kTaggedSize));
 
@@ -159,21 +153,23 @@ class DescriptorArray
                                           int16_t number_of_marked_descriptors);
 
   static constexpr int SizeFor(int number_of_all_descriptors) {
-    return OffsetOfDescriptorAt(number_of_all_descriptors);
+    return offset(number_of_all_descriptors * kEntrySize);
   }
   static constexpr int OffsetOfDescriptorAt(int descriptor) {
-    return kDescriptorsOffset + descriptor * kEntrySize * kTaggedSize;
+    return offset(descriptor * kEntrySize);
   }
   inline ObjectSlot GetFirstPointerSlot();
   inline ObjectSlot GetDescriptorSlot(int descriptor);
+  inline ObjectSlot GetKeySlot(int descriptor);
+  inline MaybeObjectSlot GetValueSlot(int descriptor);
 
   static_assert(kEndOfStrongFieldsOffset == kStartOfWeakFieldsOffset,
                 "Weak fields follow strong fields.");
   static_assert(kEndOfWeakFieldsOffset == kHeaderSize,
                 "Weak fields extend up to the end of the header.");
-  static_assert(kDescriptorsOffset == kHeaderSize,
-                "Variable-size array follows header.");
-  class BodyDescriptor;
+  // We use this visitor to also visitor to also visit the enum_cache, which is
+  // the only tagged field in the header, and placed at the end of the header.
+  using BodyDescriptor = FlexibleWeakBodyDescriptor<kStartOfStrongFieldsOffset>;
 
   // Layout of descriptor.
   // Naming is consistent with Dictionary classes for easy templating.
@@ -182,13 +178,9 @@ class DescriptorArray
   static const int kEntryValueIndex = 2;
   static const int kEntrySize = 3;
 
-  static const int kEntryKeyOffset = kEntryKeyIndex * kTaggedSize;
-  static const int kEntryDetailsOffset = kEntryDetailsIndex * kTaggedSize;
-  static const int kEntryValueOffset = kEntryValueIndex * kTaggedSize;
-
   // Print all the descriptors.
   void PrintDescriptors(std::ostream& os);
-  void PrintDescriptorDetails(std::ostream& os, InternalIndex descriptor,
+  void PrintDescriptorDetails(std::ostream& os, int descriptor,
                               PropertyDetails::PrintMode mode);
 
   DECL_PRINTER(DescriptorArray)
@@ -196,7 +188,7 @@ class DescriptorArray
 
 #ifdef DEBUG
   // Is the descriptor array sorted and without duplicates?
-  V8_EXPORT_PRIVATE bool IsSortedNoDuplicates();
+  V8_EXPORT_PRIVATE bool IsSortedNoDuplicates(int valid_descriptors = -1);
 
   // Are two DescriptorArrays equal?
   bool IsEqualTo(DescriptorArray other);
@@ -215,29 +207,24 @@ class DescriptorArray
     return (descriptor_number * kEntrySize) + kEntryValueIndex;
   }
 
-  using EntryKeyField = TaggedField<HeapObject, kEntryKeyOffset>;
-  using EntryDetailsField = TaggedField<Smi, kEntryDetailsOffset>;
-  using EntryValueField = TaggedField<MaybeObject, kEntryValueOffset>;
-
  private:
-  friend class WebSnapshotDeserializer;
   DECL_INT16_ACCESSORS(filler16bits)
-
-  inline void SetKey(InternalIndex descriptor_number, Name key);
-  inline void SetValue(InternalIndex descriptor_number, MaybeObject value);
-  inline void SetDetails(InternalIndex descriptor_number,
-                         PropertyDetails details);
+  // Low-level per-element accessors.
+  static constexpr int offset(int index) {
+    return kHeaderSize + index * kTaggedSize;
+  }
+  inline int length() const;
+  inline MaybeObject get(int index) const;
+  inline void set(int index, MaybeObject value);
 
   // Transfer a complete descriptor from the src descriptor array to this
   // descriptor array.
-  void CopyFrom(InternalIndex index, DescriptorArray src);
-
-  inline void SetSortedKey(int pointer, int descriptor_number);
+  void CopyFrom(int index, DescriptorArray src);
 
   // Swap first and second descriptor.
   inline void SwapSortedKeys(int first, int second);
 
-  TQ_OBJECT_CONSTRUCTORS(DescriptorArray)
+  OBJECT_CONSTRUCTORS(DescriptorArray, HeapObject);
 };
 
 class NumberOfMarkedDescriptors {

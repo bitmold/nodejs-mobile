@@ -4,18 +4,18 @@
 
 // Flags: --turbo-loop-rotation --noliftoff --nowasm-tier-up
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
 
 (function TestTrivialLoop1() {
   print(arguments.callee.name);
   var builder = new WasmModuleBuilder();
   builder.addFunction("main", kSig_v_i)
     .addBody([
-      kExprLoop, kWasmVoid,
-        kExprLocalGet, 0,
+      kExprLoop, kWasmStmt,
+        kExprGetLocal, 0,
         kExprI32Const, 1,
         kExprI32Sub,
-        kExprLocalTee, 0,
+        kExprTeeLocal, 0,
         kExprBrIf, 0,
       kExprEnd,
     ])
@@ -32,11 +32,11 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   var builder = new WasmModuleBuilder();
   builder.addFunction("main", kSig_v_i)
     .addBody([
-      kExprLoop, kWasmVoid,
-        kExprLocalGet, 0,
+      kExprLoop, kWasmStmt,
+        kExprGetLocal, 0,
         kExprI32Const, 1,
         kExprI32Sub,
-        kExprLocalTee, 0,
+        kExprTeeLocal, 0,
         kExprBrIf, 1,
         kExprBr, 0,
       kExprEnd,
@@ -55,11 +55,11 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
   builder.addMemory(1, undefined, false);
   builder.addFunction("main", kSig_v_i)
     .addBody([
-      kExprLoop, kWasmVoid,
-        kExprLocalGet, 0,
+      kExprLoop, kWasmStmt,
+        kExprGetLocal, 0,
         kExprI32Const, 1,
         kExprI32Sub,
-        kExprLocalTee, 0,
+        kExprTeeLocal, 0,
       kExprBrIf, 1,
         kExprI32Const, 0,
         kExprI32Const, 0,

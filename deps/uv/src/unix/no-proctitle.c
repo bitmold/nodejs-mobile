@@ -29,9 +29,6 @@ char** uv_setup_args(int argc, char** argv) {
   return argv;
 }
 
-void uv__process_title_cleanup(void) {
-}
-
 int uv_set_process_title(const char* title) {
   return 0;
 }

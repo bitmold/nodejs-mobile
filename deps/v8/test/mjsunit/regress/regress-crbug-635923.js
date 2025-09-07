@@ -4,14 +4,9 @@
 
 // Flags: --allow-natives-syntax --turbo-filter=f
 
-function f(x) {
-  return x + 23;
-};
-%PrepareFunctionForOptimization(f);
-function g(x) {
-  return f(x) + 42;
-};
-%PrepareFunctionForOptimization(g);
+function f(x) { return x + 23 }
+function g(x) { return f(x) + 42 }
+
 assertEquals(23, f(0));
 assertEquals(24, f(1));
 assertEquals(67, g(2));

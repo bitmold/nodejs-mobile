@@ -23,7 +23,6 @@ function emit_f(size) {
 // a single instruction's immediate field (2^12).
 var kLength = 701;
 emit_f(kLength);
-%PrepareFunctionForOptimization(f);
 f(1);
 f(1);
 %OptimizeFunctionOnNextCall(f);

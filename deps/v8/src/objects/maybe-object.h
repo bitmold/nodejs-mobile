@@ -27,17 +27,9 @@ class MaybeObject : public TaggedImpl<HeapObjectReferenceType::WEAK, Address> {
 
   V8_INLINE static MaybeObject MakeWeak(MaybeObject object);
 
-  V8_INLINE static MaybeObject Create(MaybeObject o);
-  V8_INLINE static MaybeObject Create(Object o);
-  V8_INLINE static MaybeObject Create(Smi smi);
-
 #ifdef VERIFY_HEAP
   static void VerifyMaybeObjectPointer(Isolate* isolate, MaybeObject p);
 #endif
-
- private:
-  template <typename TFieldType, int kFieldOffset>
-  friend class TaggedField;
 };
 
 // A HeapObjectReference is either a strong reference to a HeapObject, a weak
@@ -51,10 +43,7 @@ class HeapObjectReference : public MaybeObject {
 
   V8_INLINE static HeapObjectReference Weak(Object object);
 
-  V8_INLINE static HeapObjectReference From(Object object,
-                                            HeapObjectReferenceType type);
-
-  V8_INLINE static HeapObjectReference ClearedValue(PtrComprCageBase cage_base);
+  V8_INLINE static HeapObjectReference ClearedValue(Isolate* isolate);
 
   template <typename THeapObjectSlot>
   V8_INLINE static void Update(THeapObjectSlot slot, HeapObject value);

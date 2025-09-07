@@ -8,9 +8,9 @@ namespace v8 {
 namespace internal {
 namespace interpreter {
 
-static const int kFirstParamRegisterIndex =
+static const int kLastParamRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
-     InterpreterFrameConstants::kFirstParamFromFp) /
+     InterpreterFrameConstants::kLastParamFromFp) /
     kSystemPointerSize;
 static const int kFunctionClosureRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
@@ -30,23 +30,20 @@ static const int kBytecodeOffsetRegisterIndex =
     kSystemPointerSize;
 static const int kCallerPCOffsetRegisterIndex =
     (InterpreterFrameConstants::kRegisterFileFromFp -
-     InterpreterFrameConstants::kCallerPCOffset) /
-    kSystemPointerSize;
-static const int kArgumentCountRegisterIndex =
-    (InterpreterFrameConstants::kRegisterFileFromFp -
-     InterpreterFrameConstants::kArgCOffset) /
+     InterpreterFrameConstants::kCallerPCOffsetFromFp) /
     kSystemPointerSize;
 
-Register Register::FromParameterIndex(int index) {
+Register Register::FromParameterIndex(int index, int parameter_count) {
   DCHECK_GE(index, 0);
-  int register_index = kFirstParamRegisterIndex - index;
+  DCHECK_LT(index, parameter_count);
+  int register_index = kLastParamRegisterIndex - parameter_count + index + 1;
   DCHECK_LT(register_index, 0);
   return Register(register_index);
 }
 
-int Register::ToParameterIndex() const {
+int Register::ToParameterIndex(int parameter_count) const {
   DCHECK(is_parameter());
-  return kFirstParamRegisterIndex - index();
+  return index() - kLastParamRegisterIndex + parameter_count - 1;
 }
 
 Register Register::function_closure() {
@@ -86,11 +83,6 @@ Register Register::virtual_accumulator() {
   return Register(kCallerPCOffsetRegisterIndex);
 }
 
-// static
-Register Register::argument_count() {
-  return Register(kArgumentCountRegisterIndex);
-}
-
 OperandSize Register::SizeOfOperand() const {
   int32_t operand = ToOperand();
   if (operand >= kMinInt8 && operand <= kMaxInt8) {
@@ -119,15 +111,13 @@ bool Register::AreContiguous(Register reg1, Register reg2, Register reg3,
   return true;
 }
 
-std::string Register::ToString() const {
+std::string Register::ToString(int parameter_count) const {
   if (is_current_context()) {
     return std::string("<context>");
   } else if (is_function_closure()) {
     return std::string("<closure>");
-  } else if (*this == virtual_accumulator()) {
-    return std::string("<accumulator>");
   } else if (is_parameter()) {
-    int parameter_index = ToParameterIndex();
+    int parameter_index = ToParameterIndex(parameter_count);
     if (parameter_index == 0) {
       return std::string("<this>");
     } else {

@@ -5,8 +5,6 @@
 #ifndef V8_COMPILER_PIPELINE_H_
 #define V8_COMPILER_PIPELINE_H_
 
-#include <memory>
-
 // Clients of this interface shouldn't depend on lots of compiler internals.
 // Do not include anything from src/compiler here!
 #include "src/common/globals.h"
@@ -18,18 +16,15 @@ namespace internal {
 
 struct AssemblerOptions;
 class OptimizedCompilationInfo;
-class TurbofanCompilationJob;
-class ProfileDataFromFile;
+class OptimizedCompilationJob;
 class RegisterConfiguration;
 
 namespace wasm {
-struct CompilationEnv;
 struct FunctionBody;
 class NativeModule;
 struct WasmCompilationResult;
 class WasmEngine;
 struct WasmModule;
-class WireBytesStorage;
 }  // namespace wasm
 
 namespace compiler {
@@ -37,51 +32,48 @@ namespace compiler {
 class CallDescriptor;
 class Graph;
 class InstructionSequence;
-class JSGraph;
 class JSHeapBroker;
 class MachineGraph;
 class NodeOriginTable;
 class Schedule;
 class SourcePositionTable;
-struct WasmLoopInfo;
 
 class Pipeline : public AllStatic {
  public:
   // Returns a new compilation job for the given JavaScript function.
-  static V8_EXPORT_PRIVATE std::unique_ptr<TurbofanCompilationJob>
-  NewCompilationJob(Isolate* isolate, Handle<JSFunction> function,
-                    CodeKind code_kind, bool has_script,
-                    BytecodeOffset osr_offset = BytecodeOffset::None(),
-                    JavaScriptFrame* osr_frame = nullptr);
+  static OptimizedCompilationJob* NewCompilationJob(Isolate* isolate,
+                                                    Handle<JSFunction> function,
+                                                    bool has_script);
 
   // Run the pipeline for the WebAssembly compilation info.
   static void GenerateCodeForWasmFunction(
-      OptimizedCompilationInfo* info, wasm::CompilationEnv* env,
-      const wasm::WireBytesStorage* wire_bytes_storage, MachineGraph* mcgraph,
-      CallDescriptor* call_descriptor, SourcePositionTable* source_positions,
-      NodeOriginTable* node_origins, wasm::FunctionBody function_body,
-      const wasm::WasmModule* module, int function_index,
-      std::vector<compiler::WasmLoopInfo>* loop_infos);
+      OptimizedCompilationInfo* info, wasm::WasmEngine* wasm_engine,
+      MachineGraph* mcgraph, CallDescriptor* call_descriptor,
+      SourcePositionTable* source_positions, NodeOriginTable* node_origins,
+      wasm::FunctionBody function_body, const wasm::WasmModule* module,
+      int function_index);
 
   // Run the pipeline on a machine graph and generate code.
   static wasm::WasmCompilationResult GenerateCodeForWasmNativeStub(
-      CallDescriptor* call_descriptor, MachineGraph* mcgraph, CodeKind kind,
+      wasm::WasmEngine* wasm_engine, CallDescriptor* call_descriptor,
+      MachineGraph* mcgraph, Code::Kind kind, int wasm_kind,
       const char* debug_name, const AssemblerOptions& assembler_options,
       SourcePositionTable* source_positions = nullptr);
 
-  // Returns a new compilation job for a wasm heap stub.
-  static std::unique_ptr<TurbofanCompilationJob> NewWasmHeapStubCompilationJob(
-      Isolate* isolate, CallDescriptor* call_descriptor,
-      std::unique_ptr<Zone> zone, Graph* graph, CodeKind kind,
-      std::unique_ptr<char[]> debug_name, const AssemblerOptions& options,
+  // Run the pipeline on a machine graph and generate code.
+  static MaybeHandle<Code> GenerateCodeForWasmHeapStub(
+      Isolate* isolate, CallDescriptor* call_descriptor, Graph* graph,
+      Code::Kind kind, const char* debug_name,
+      const AssemblerOptions& assembler_options,
       SourcePositionTable* source_positions = nullptr);
 
   // Run the pipeline on a machine graph and generate code.
   static MaybeHandle<Code> GenerateCodeForCodeStub(
       Isolate* isolate, CallDescriptor* call_descriptor, Graph* graph,
-      JSGraph* jsgraph, SourcePositionTable* source_positions, CodeKind kind,
-      const char* debug_name, Builtin builtin, const AssemblerOptions& options,
-      const ProfileDataFromFile* profile_data);
+      SourcePositionTable* source_positions, Code::Kind kind,
+      const char* debug_name, int32_t builtin_index,
+      PoisoningMitigationLevel poisoning_level,
+      const AssemblerOptions& options);
 
   // ---------------------------------------------------------------------------
   // The following methods are for testing purposes only. Avoid production use.
@@ -104,7 +96,7 @@ class Pipeline : public AllStatic {
   // Run just the register allocator phases.
   V8_EXPORT_PRIVATE static bool AllocateRegistersForTesting(
       const RegisterConfiguration* config, InstructionSequence* sequence,
-      bool use_fast_register_allocator, bool run_verifier);
+      bool run_verifier);
 
  private:
   DISALLOW_IMPLICIT_CONSTRUCTORS(Pipeline);

@@ -114,7 +114,7 @@ static void ipc_connection_cb(uv_stream_t* ipc_pipe, int status) {
   buf = uv_buf_init("PING", 4);
   sc = container_of(ipc_pipe, struct ipc_server_ctx, ipc_pipe);
   pc = calloc(1, sizeof(*pc));
-  ASSERT_NOT_NULL(pc);
+  ASSERT(pc != NULL);
 
   if (ipc_pipe->type == UV_TCP)
     ASSERT(0 == uv_tcp_init(loop, (uv_tcp_t*) &pc->peer_handle));
@@ -218,12 +218,8 @@ static void send_listen_handles(uv_handle_type type,
   }
   else
     ASSERT(0);
-  /* We need to initialize this pipe with ipc=0 - this is not a uv_pipe we'll
-   * be sending handles over, it's just for listening for new connections.
-   * If we accept a connection then the connected pipe must be initialized
-   * with ipc=1.
-   */
-  ASSERT(0 == uv_pipe_init(loop, &ctx.ipc_pipe, 0));
+
+  ASSERT(0 == uv_pipe_init(loop, &ctx.ipc_pipe, 1));
   ASSERT(0 == uv_pipe_bind(&ctx.ipc_pipe, IPC_PIPE_NAME));
   ASSERT(0 == uv_listen((uv_stream_t*) &ctx.ipc_pipe, 128, ipc_connection_cb));
 
@@ -295,7 +291,7 @@ static void sv_connection_cb(uv_stream_t* server_handle, int status) {
   ASSERT(status == 0);
 
   storage = malloc(sizeof(*storage));
-  ASSERT_NOT_NULL(storage);
+  ASSERT(storage != NULL);
 
   if (server_handle->type == UV_TCP)
     ASSERT(0 == uv_tcp_init(server_handle->loop, (uv_tcp_t*) storage));
@@ -372,8 +368,8 @@ static int test_tcp(unsigned int num_servers, unsigned int num_clients) {
 
   servers = calloc(num_servers, sizeof(servers[0]));
   clients = calloc(num_clients, sizeof(clients[0]));
-  ASSERT_NOT_NULL(servers);
-  ASSERT_NOT_NULL(clients);
+  ASSERT(servers != NULL);
+  ASSERT(clients != NULL);
 
   /* We're making the assumption here that from the perspective of the
    * OS scheduler, threads are functionally equivalent to and interchangeable

@@ -4,10 +4,7 @@
 
 // Flags: --allow-natives-syntax
 
-function bar(len) {
-  return new Array(len);
-};
-%PrepareFunctionForOptimization(bar);
+function bar(len) { return new Array(len); }
 bar(0);
 %OptimizeFunctionOnNextCall(bar);
 bar(0);

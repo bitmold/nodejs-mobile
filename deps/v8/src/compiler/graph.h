@@ -34,13 +34,11 @@ using NodeId = uint32_t;
 class V8_EXPORT_PRIVATE Graph final : public NON_EXPORTED_BASE(ZoneObject) {
  public:
   explicit Graph(Zone* zone);
-  Graph(const Graph&) = delete;
-  Graph& operator=(const Graph&) = delete;
 
   // Scope used when creating a subgraph for inlining. Automatically preserves
   // the original start and end nodes of the graph, and resets them when you
   // leave the scope.
-  class V8_NODISCARD SubgraphScope final {
+  class SubgraphScope final {
    public:
     explicit SubgraphScope(Graph* graph)
         : graph_(graph), start_(graph->start()), end_(graph->end()) {}
@@ -48,13 +46,13 @@ class V8_EXPORT_PRIVATE Graph final : public NON_EXPORTED_BASE(ZoneObject) {
       graph_->SetStart(start_);
       graph_->SetEnd(end_);
     }
-    SubgraphScope(const SubgraphScope&) = delete;
-    SubgraphScope& operator=(const SubgraphScope&) = delete;
 
    private:
     Graph* const graph_;
     Node* const start_;
     Node* const end_;
+
+    DISALLOW_COPY_AND_ASSIGN(SubgraphScope);
   };
 
   // Base implementation used by all factory methods.
@@ -66,14 +64,9 @@ class V8_EXPORT_PRIVATE Graph final : public NON_EXPORTED_BASE(ZoneObject) {
                 bool incomplete = false);
 
   // Factory template for nodes with static input counts.
-  // Note: Template magic below is used to ensure this method is only considered
-  // for argument types convertible to Node* during overload resolution.
-  template <typename... Nodes,
-            typename = typename std::enable_if_t<
-                std::conjunction_v<std::is_convertible<Nodes, Node*>...>>>
-  Node* NewNode(const Operator* op, Nodes... nodes) {
-    std::array<Node*, sizeof...(nodes)> nodes_arr{
-        {static_cast<Node*>(nodes)...}};
+  template <typename... Nodes>
+  Node* NewNode(const Operator* op, Nodes*... nodes) {
+    std::array<Node*, sizeof...(nodes)> nodes_arr{{nodes...}};
     return NewNode(op, nodes_arr.size(), nodes_arr.data());
   }
 
@@ -107,6 +100,8 @@ class V8_EXPORT_PRIVATE Graph final : public NON_EXPORTED_BASE(ZoneObject) {
   Mark mark_max_;
   NodeId next_node_id_;
   ZoneVector<GraphDecorator*> decorators_;
+
+  DISALLOW_COPY_AND_ASSIGN(Graph);
 };
 
 

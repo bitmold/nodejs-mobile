@@ -6,7 +6,7 @@
 * others. All Rights Reserved.
 *******************************************************************************
 *
-* File DTINTRV.H 
+* File DTINTRV.H
 *
 *******************************************************************************
 */
@@ -15,15 +15,13 @@
 #define __DTINTRV_H__
 
 #include "unicode/utypes.h"
-
-#if U_SHOW_CPLUSPLUS_API
-
 #include "unicode/uobject.h"
 
 /**
  * \file
  * \brief C++ API: Date Interval data type
  */
+
 
 U_NAMESPACE_BEGIN
 
@@ -36,7 +34,7 @@ U_NAMESPACE_BEGIN
 class U_COMMON_API DateInterval : public UObject {
 public:
 
-    /** 
+    /**
      * Construct a DateInterval given a from date and a to date.
      * @param fromDate  The from date in date interval.
      * @param toDate    The to date in date interval.
@@ -49,15 +47,15 @@ public:
      * @stable ICU 4.0
      */
     virtual ~DateInterval();
- 
-    /** 
+
+    /**
      * Get the from date.
      * @return  the from date in dateInterval.
      * @stable ICU 4.0
      */
     inline UDate getFromDate() const;
 
-    /** 
+    /**
      * Get the to date.
      * @return  the to date in dateInterval.
      * @stable ICU 4.0
@@ -89,9 +87,9 @@ public:
      *                  other classes have different class IDs.
      * @stable ICU 4.0
      */
-    virtual UClassID getDynamicClassID(void) const override;
+    virtual UClassID getDynamicClassID(void) const;
 
-    
+
     /**
      * Copy constructor.
      * @stable ICU 4.0
@@ -106,21 +104,21 @@ public:
 
     /**
      * Equality operator.
-     * @return true if the two DateIntervals are the same
+     * @return TRUE if the two DateIntervals are the same
      * @stable ICU 4.0
      */
-    virtual bool operator==(const DateInterval& other) const;
+    virtual UBool operator==(const DateInterval& other) const;
 
     /**
      * Non-equality operator
-     * @return true if the two DateIntervals are not the same
+     * @return TRUE if the two DateIntervals are not the same
      * @stable ICU 4.0
      */
-    inline bool operator!=(const DateInterval& other) const;
+    inline UBool operator!=(const DateInterval& other) const;
 
 
     /**
-     * clone this object. 
+     * clone this object.
      * The caller owns the result and should delete it when done.
      * @return a cloned DateInterval
      * @stable ICU 4.0
@@ -128,10 +126,10 @@ public:
      virtual DateInterval* clone() const;
 
 private:
-    /** 
+    /**
      * Default constructor, not implemented.
      */
-    DateInterval() = delete;
+    DateInterval();
 
     UDate fromDate;
     UDate toDate;
@@ -139,26 +137,24 @@ private:
 } ;// end class DateInterval
 
 
-inline UDate 
-DateInterval::getFromDate() const { 
-    return fromDate; 
+inline UDate
+DateInterval::getFromDate() const {
+    return fromDate;
 }
 
 
-inline UDate 
-DateInterval::getToDate() const { 
-    return toDate; 
+inline UDate
+DateInterval::getToDate() const {
+    return toDate;
 }
 
 
-inline bool
-DateInterval::operator!=(const DateInterval& other) const { 
+inline UBool
+DateInterval::operator!=(const DateInterval& other) const {
     return ( !operator==(other) );
 }
 
 
 U_NAMESPACE_END
-
-#endif /* U_SHOW_CPLUSPLUS_API */
 
 #endif

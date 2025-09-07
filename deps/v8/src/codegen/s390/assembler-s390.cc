@@ -35,6 +35,7 @@
 // Copyright 2014 the V8 project authors. All rights reserved.
 
 #include "src/codegen/s390/assembler-s390.h"
+#include <sys/auxv.h>
 #include <set>
 #include <string>
 
@@ -42,7 +43,6 @@
 
 #if V8_HOST_ARCH_S390
 #include <elf.h>  // Required for auxv checks for STFLE support
-#include <sys/auxv.h>
 #endif
 
 #include "src/base/bits.h"
@@ -159,14 +159,6 @@ static bool supportsSTFLE() {
 #endif
 }
 
-bool CpuFeatures::SupportsWasmSimd128() {
-#if V8_ENABLE_WEBASSEMBLY
-  return CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1);
-#else
-  return false;
-#endif  // V8_ENABLE_WEBASSEMBLY
-}
-
 void CpuFeatures::ProbeImpl(bool cross_compile) {
   supported_ |= CpuFeaturesImpliedByCompiler();
   icache_line_size_ = 256;
@@ -226,11 +218,6 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
         supportsCPUFeature("vx")) {
       supported_ |= (1u << VECTOR_ENHANCE_FACILITY_1);
     }
-    // Test for Vector Enhancement Facility 2 - Bit 148
-    if (facilities[2] & (one << (63 - (148 - 128))) &&
-        supportsCPUFeature("vx")) {
-      supported_ |= (1u << VECTOR_ENHANCE_FACILITY_2);
-    }
     // Test for Miscellaneous Instruction Extension Facility - Bit 58
     if (facilities[0] & (1lu << (63 - 58))) {
       supported_ |= (1u << MISC_INSTR_EXT2);
@@ -247,15 +234,8 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
   USE(supportsCPUFeature);
   supported_ |= (1u << VECTOR_FACILITY);
   supported_ |= (1u << VECTOR_ENHANCE_FACILITY_1);
-  supported_ |= (1u << VECTOR_ENHANCE_FACILITY_2);
 #endif
   supported_ |= (1u << FPU);
-
-  // Set a static value on whether Simd is supported.
-  // This variable is only used for certain archs to query SupportWasmSimd128()
-  // at runtime in builtins using an extern ref. Other callers should use
-  // CpuFeatures::SupportWasmSimd128().
-  CpuFeatures::supports_wasm_simd_128_ = CpuFeatures::SupportsWasmSimd128();
 }
 
 void CpuFeatures::PrintTarget() {
@@ -276,10 +256,6 @@ void CpuFeatures::PrintFeatures() {
   PrintF("GENERAL_INSTR=%d\n", CpuFeatures::IsSupported(GENERAL_INSTR_EXT));
   PrintF("DISTINCT_OPS=%d\n", CpuFeatures::IsSupported(DISTINCT_OPS));
   PrintF("VECTOR_FACILITY=%d\n", CpuFeatures::IsSupported(VECTOR_FACILITY));
-  PrintF("VECTOR_ENHANCE_FACILITY_1=%d\n",
-         CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_1));
-  PrintF("VECTOR_ENHANCE_FACILITY_2=%d\n",
-         CpuFeatures::IsSupported(VECTOR_ENHANCE_FACILITY_2));
   PrintF("MISC_INSTR_EXT2=%d\n", CpuFeatures::IsSupported(MISC_INSTR_EXT2));
 }
 
@@ -353,8 +329,8 @@ void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
     Address pc = reinterpret_cast<Address>(buffer_start_) + request.offset();
     switch (request.kind()) {
       case HeapObjectRequest::kHeapNumber: {
-        object = isolate->factory()->NewHeapNumber<AllocationType::kOld>(
-            request.heap_number());
+        object = isolate->factory()->NewHeapNumber(request.heap_number(),
+                                                   AllocationType::kOld);
         set_target_address_at(pc, kNullAddress, object.address(),
                               SKIP_ICACHE_FLUSH);
         break;
@@ -375,7 +351,7 @@ void Assembler::AllocateAndInstallRequestedHeapObjects(Isolate* isolate) {
 
 Assembler::Assembler(const AssemblerOptions& options,
                      std::unique_ptr<AssemblerBuffer> buffer)
-    : AssemblerBase(options, std::move(buffer)), scratch_register_list_({ip}) {
+    : AssemblerBase(options, std::move(buffer)) {
   reloc_info_writer.Reposition(buffer_start_ + buffer_->size(), pc_);
   last_bound_pos_ = 0;
   relocations_.reserve(128);
@@ -384,15 +360,6 @@ Assembler::Assembler(const AssemblerOptions& options,
 void Assembler::GetCode(Isolate* isolate, CodeDesc* desc,
                         SafepointTableBuilder* safepoint_table_builder,
                         int handler_table_offset) {
-  // As a crutch to avoid having to add manual Align calls wherever we use a
-  // raw workflow to create Code objects (mostly in tests), add another Align
-  // call here. It does no harm - the end of the Code object is aligned to the
-  // (larger) kCodeAlignment anyways.
-  // TODO(jgruber): Consider moving responsibility for proper alignment to
-  // metadata table builders (safepoint, handler, constant pool, code
-  // comments).
-  DataAlign(Code::kMetadataAlignment);
-
   EmitRelocations();
 
   int code_comments_size = WriteCodeComments();
@@ -413,7 +380,7 @@ void Assembler::GetCode(Isolate* isolate, CodeDesc* desc,
   const int safepoint_table_offset =
       (safepoint_table_builder == kNoSafepointTable)
           ? handler_table_offset2
-          : safepoint_table_builder->safepoint_table_offset();
+          : safepoint_table_builder->GetCodeOffset();
   const int reloc_info_offset =
       static_cast<int>(reloc_info_writer.pos() - buffer_->start());
   CodeDesc::Initialize(desc, this, safepoint_table_offset,
@@ -439,6 +406,7 @@ Condition Assembler::GetCondition(Instr instr) {
     default:
       UNIMPLEMENTED();
   }
+  return al;
 }
 
 #if V8_TARGET_ARCH_S390X
@@ -482,7 +450,7 @@ int Assembler::target_at(int pos) {
     if (imm16 == 0) return kEndOfChain;
     return pos + imm16;
   } else if (LLILF == opcode || BRCL == opcode || LARL == opcode ||
-             BRASL == opcode || LGRL == opcode) {
+             BRASL == opcode) {
     int32_t imm32 =
         static_cast<int32_t>(instr & (static_cast<uint64_t>(0xFFFFFFFF)));
     if (LLILF != opcode)
@@ -520,8 +488,7 @@ void Assembler::target_at_put(int pos, int target_pos, bool* is_branch) {
     DCHECK(is_int16(imm16));
     instr_at_put<FourByteInstr>(pos, instr | (imm16 >> 1));
     return;
-  } else if (BRCL == opcode || LARL == opcode || BRASL == opcode ||
-             LGRL == opcode) {
+  } else if (BRCL == opcode || LARL == opcode || BRASL == opcode) {
     // Immediate is in # of halfwords
     int32_t imm32 = target_pos - pos;
     instr &= (~static_cast<uint64_t>(0xFFFFFFFF));
@@ -557,7 +524,7 @@ int Assembler::max_reach_from(int pos) {
       BRXHG == opcode) {
     return 16;
   } else if (LLILF == opcode || BRCL == opcode || LARL == opcode ||
-             BRASL == opcode || LGRL == opcode) {
+             BRASL == opcode) {
     return 31;  // Using 31 as workaround instead of 32 as
                 // is_intn(x,32) doesn't work on 32-bit platforms.
                 // llilf: Emitted label constant, not part of
@@ -601,6 +568,16 @@ void Assembler::next(Label* L) {
     DCHECK_GE(link, 0);
     L->link_to(link);
   }
+}
+
+bool Assembler::is_near(Label* L, Condition cond) {
+  DCHECK(L->is_bound());
+  if (L->is_bound() == false) return false;
+
+  int maxReach = ((cond == al) ? 26 : 16);
+  int offset = L->pos() - pc_offset();
+
+  return is_intn(offset, maxReach);
 }
 
 int Assembler::link(Label* L) {
@@ -647,10 +624,9 @@ void Assembler::load_label_offset(Register r1, Label* L) {
 }
 
 // Pseudo op - branch on condition
-void Assembler::branchOnCond(Condition c, int branch_offset, bool is_bound,
-                             bool force_long_branch) {
+void Assembler::branchOnCond(Condition c, int branch_offset, bool is_bound) {
   int offset_in_halfwords = branch_offset / 2;
-  if (is_bound && is_int16(offset_in_halfwords) && !force_long_branch) {
+  if (is_bound && is_int16(offset_in_halfwords)) {
     brc(c, Operand(offset_in_halfwords));  // short jump
   } else {
     brcl(c, Operand(offset_in_halfwords));  // long jump
@@ -660,7 +636,8 @@ void Assembler::branchOnCond(Condition c, int branch_offset, bool is_bound,
 // Exception-generating instructions and debugging support.
 // Stops with a non-negative code less than kNumOfWatchedStops support
 // enabling/disabling and a counter feature. See simulator-s390.h .
-void Assembler::stop(Condition cond, int32_t code, CRegister cr) {
+void Assembler::stop(const char* msg, Condition cond, int32_t code,
+                     CRegister cr) {
   if (cond != al) {
     Label skip;
     b(NegateCondition(cond), &skip, Label::kNear);
@@ -697,10 +674,6 @@ void Assembler::nop(int type) {
 // Load Address Relative Long
 void Assembler::larl(Register r1, Label* l) {
   larl(r1, Operand(branch_offset(l)));
-}
-
-void Assembler::lgrl(Register r1, Label* l) {
-  lgrl(r1, Operand(branch_offset(l)));
 }
 
 void Assembler::EnsureSpaceFor(int space_needed) {
@@ -799,35 +772,20 @@ void Assembler::db(uint8_t data) {
   pc_ += sizeof(uint8_t);
 }
 
-void Assembler::dd(uint32_t data, RelocInfo::Mode rmode) {
+void Assembler::dd(uint32_t data) {
   CheckBuffer();
-  if (!RelocInfo::IsNoInfo(rmode)) {
-    DCHECK(RelocInfo::IsDataEmbeddedObject(rmode) ||
-           RelocInfo::IsLiteralConstant(rmode));
-    RecordRelocInfo(rmode);
-  }
   *reinterpret_cast<uint32_t*>(pc_) = data;
   pc_ += sizeof(uint32_t);
 }
 
-void Assembler::dq(uint64_t value, RelocInfo::Mode rmode) {
+void Assembler::dq(uint64_t value) {
   CheckBuffer();
-  if (!RelocInfo::IsNoInfo(rmode)) {
-    DCHECK(RelocInfo::IsDataEmbeddedObject(rmode) ||
-           RelocInfo::IsLiteralConstant(rmode));
-    RecordRelocInfo(rmode);
-  }
   *reinterpret_cast<uint64_t*>(pc_) = value;
   pc_ += sizeof(uint64_t);
 }
 
-void Assembler::dp(uintptr_t data, RelocInfo::Mode rmode) {
+void Assembler::dp(uintptr_t data) {
   CheckBuffer();
-  if (!RelocInfo::IsNoInfo(rmode)) {
-    DCHECK(RelocInfo::IsDataEmbeddedObject(rmode) ||
-           RelocInfo::IsLiteralConstant(rmode));
-    RecordRelocInfo(rmode);
-  }
   *reinterpret_cast<uintptr_t*>(pc_) = data;
   pc_ += sizeof(uintptr_t);
 }
@@ -873,19 +831,6 @@ void Assembler::EmitRelocations() {
   }
 }
 
-UseScratchRegisterScope::UseScratchRegisterScope(Assembler* assembler)
-    : assembler_(assembler),
-      old_available_(*assembler->GetScratchRegisterList()) {}
-
-UseScratchRegisterScope::~UseScratchRegisterScope() {
-  *assembler_->GetScratchRegisterList() = old_available_;
-}
-
-Register UseScratchRegisterScope::Acquire() {
-  RegList* available = assembler_->GetScratchRegisterList();
-  DCHECK_NOT_NULL(available);
-  return available->PopFirst();
-}
 }  // namespace internal
 }  // namespace v8
 #endif  // V8_TARGET_ARCH_S390

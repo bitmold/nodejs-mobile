@@ -29,9 +29,6 @@ function TestMapConstructorEntrySideEffect(ctor) {
 }
 
 %PrepareFunctionForOptimization(TestMapConstructorEntrySideEffect);
-%EnsureFeedbackVectorForFunction(assertTrue);
-%EnsureFeedbackVectorForFunction(assertFalse);
-%EnsureFeedbackVectorForFunction(assertEquals);
 TestMapConstructorEntrySideEffect(Map);
 TestMapConstructorEntrySideEffect(Map);
 TestMapConstructorEntrySideEffect(Map);

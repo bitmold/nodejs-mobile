@@ -21,6 +21,7 @@ A.prototype = proto;
 function foo(o) {
   return o.a0;
 }
+%EnsureFeedbackVectorForFunction(foo);
 
 // Ensure |proto| is in old space.
 gc();
@@ -29,13 +30,10 @@ gc();
 
 // Ensure |proto| is marked as "should be fast".
 var o = new A();
-%EnsureFeedbackVectorForFunction(foo);
 foo(o);
 foo(o);
 foo(o);
-assertEquals(!%IsDictPropertyConstTrackingEnabled(),
-             %HasFastProperties(proto));
-
+assertTrue(%HasFastProperties(proto));
 
 // Contruct a double value that looks like a tagged pointer.
 var buffer = new ArrayBuffer(8);
@@ -51,8 +49,7 @@ proto.a4 = {a: 0};
 delete proto.a4;
 
 // |proto| must sill be fast.
-assertEquals(!%IsDictPropertyConstTrackingEnabled(),
-             %HasFastProperties(proto));
+assertTrue(%HasFastProperties(proto));
 
 // Add a double field instead of deleted a4 that looks like a tagged pointer.
 proto.boom = boom;

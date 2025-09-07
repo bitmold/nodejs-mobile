@@ -7,7 +7,6 @@
 
 #include "src/objects/descriptor-array-inl.h"
 #include "src/objects/field-index.h"
-#include "src/objects/map-inl.h"
 #include "src/objects/objects-inl.h"
 
 namespace v8 {
@@ -20,7 +19,7 @@ FieldIndex FieldIndex::ForInObjectOffset(int offset, Encoding encoding) {
   return FieldIndex(true, offset, encoding, 0, 0);
 }
 
-FieldIndex FieldIndex::ForPropertyIndex(Map map, int property_index,
+FieldIndex FieldIndex::ForPropertyIndex(const Map map, int property_index,
                                         Representation representation) {
   DCHECK(map.instance_type() >= FIRST_NONSTRING_TYPE);
   int inobject_properties = map.GetInObjectProperties();
@@ -40,7 +39,7 @@ FieldIndex FieldIndex::ForPropertyIndex(Map map, int property_index,
                     first_inobject_offset);
 }
 
-// Returns the index format accepted by the LoadFieldByIndex instruction.
+// Returns the index format accepted by the HLoadFieldByIndex instruction.
 // (In-object: zero-based from (object start + JSObject::kHeaderSize),
 // out-of-object: zero-based from FixedArray::kHeaderSize.)
 int FieldIndex::GetLoadByFieldIndex() const {
@@ -61,15 +60,9 @@ int FieldIndex::GetLoadByFieldIndex() const {
   return is_double() ? (result | 1) : result;
 }
 
-FieldIndex FieldIndex::ForDescriptor(Map map, InternalIndex descriptor_index) {
-  PtrComprCageBase cage_base = GetPtrComprCageBase(map);
-  return ForDescriptor(cage_base, map, descriptor_index);
-}
-
-FieldIndex FieldIndex::ForDescriptor(PtrComprCageBase cage_base, Map map,
-                                     InternalIndex descriptor_index) {
-  PropertyDetails details = map.instance_descriptors(cage_base, kRelaxedLoad)
-                                .GetDetails(descriptor_index);
+FieldIndex FieldIndex::ForDescriptor(const Map map, int descriptor_index) {
+  PropertyDetails details =
+      map.instance_descriptors().GetDetails(descriptor_index);
   int field_index = details.field_index();
   return ForPropertyIndex(map, field_index, details.representation());
 }

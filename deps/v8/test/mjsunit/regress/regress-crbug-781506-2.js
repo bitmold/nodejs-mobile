@@ -4,10 +4,8 @@
 
 // Flags: --allow-natives-syntax
 
-function foo(o) {
-  return o[0];
-};
-%PrepareFunctionForOptimization(foo);
+function foo(o) { return o[0]; }
+
 assertEquals(undefined, foo({}));
 Array.prototype[0] = 0;
 assertEquals(undefined, foo({}));

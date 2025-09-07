@@ -3,10 +3,7 @@
 // found in the LICENSE file.
 
 // Flags: --allow-natives-syntax --no-always-opt --opt
-// Flags: --no-stress-flush-code
-// Flags: --no-stress-incremental-marking
-// Flags: --no-concurrent-recompilation
-// Flags: --no-maglev
+// Flags: --no-stress-flush-bytecode
 
 var source =
 `

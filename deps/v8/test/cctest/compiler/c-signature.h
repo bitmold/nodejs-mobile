@@ -5,10 +5,6 @@
 #ifndef V8_COMPILER_C_SIGNATURE_H_
 #define V8_COMPILER_C_SIGNATURE_H_
 
-#ifdef V8_USE_SIMULATOR_WITH_GENERIC_C_CALLS
-#include "include/v8-fast-api-calls.h"
-#endif  // V8_USE_SIMULATOR_WITH_GENERIC_C_CALLS
-
 #include "src/codegen/machine-type.h"
 
 namespace v8 {
@@ -46,12 +42,6 @@ inline constexpr MachineType MachineTypeForC() {
 FOREACH_CTYPE_MACHINE_TYPE_MAPPING(DECLARE_TEMPLATE_SPECIALIZATION)
 #undef DECLARE_TEMPLATE_SPECIALIZATION
 
-#ifdef V8_USE_SIMULATOR_WITH_GENERIC_C_CALLS
-template <>
-inline MachineType constexpr MachineTypeForC<v8::AnyCType>() {
-  return MachineType::Int64();
-}
-#endif  // V8_USE_SIMULATOR_WITH_GENERIC_C_CALLS
 // Helper for building machine signatures from C types.
 class CSignature : public MachineSignature {
  protected:
@@ -59,8 +49,6 @@ class CSignature : public MachineSignature {
       : MachineSignature(return_count, parameter_count, reps) {}
 
  public:
-  friend Zone;
-
   template <typename... Params>
   static void VerifyParams(MachineSignature* sig) {
     // Verifies the C signature against the machine types.
@@ -95,7 +83,7 @@ class CSignature : public MachineSignature {
       buffer[pos++] = p;
     }
     DCHECK_EQ(buffer_size, pos);
-    return zone->New<CSignature>(return_count, param_count, buffer);
+    return new (zone) CSignature(return_count, param_count, buffer);
   }
 };
 
@@ -110,17 +98,8 @@ class CSignatureOf : public CSignature {
     static_assert(
         std::is_same<decltype(*reps_), decltype(*param_types.data())>::value,
         "type mismatch, cannot memcpy");
-    if (kParamCount > 0) {
-#if V8_CC_GNU
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wnonnull"
-#endif
-      memcpy(storage_ + kReturnCount, param_types.data(),
-             sizeof(*storage_) * kParamCount);
-#if V8_CC_GNU
-#pragma GCC diagnostic pop
-#endif
-    }
+    memcpy(storage_ + kReturnCount, param_types.data(),
+           sizeof(*storage_) * kParamCount);
   }
 
  private:

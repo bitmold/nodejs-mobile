@@ -2,7 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
+load("test/mjsunit/wasm/wasm-module-builder.js");
+
+// Non-standard opcodes.
+let kSig_s_v = makeSig([], [kWasmS128]);
+let kExprS128LoadMem = 0xc0;
 
 (function() {
 "use asm";
@@ -16,7 +20,7 @@ d8.file.execute("test/mjsunit/wasm/wasm-module-builder.js");
         kExprMemoryGrow, 0x00,
         kExprMemoryGrow, 0x00,
         kExprMemoryGrow, 0x00,
-        kExprLocalSet, 0x00,
+        kExprSetLocal, 0x00,
         kExprMemoryGrow, 0x00,
         kExprMemoryGrow, 0x00,
         kExprMemoryGrow, 0x00,

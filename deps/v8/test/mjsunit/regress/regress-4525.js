@@ -25,7 +25,6 @@ function check(x, value, type) {
 }
 
 var o = construct(receiver);
-%PrepareFunctionForOptimization(o.bar);
 check(o.bar.call(123), Object(123), Number);
 check(o.bar.call("a"), Object("a"), String);
 check(o.bar.call(undefined), this, Object);

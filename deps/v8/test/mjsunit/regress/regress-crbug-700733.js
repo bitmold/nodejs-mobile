@@ -27,7 +27,6 @@
   var obj = {};
   obj.load_boom = smi_arr;
 
-  %PrepareFunctionForOptimization(do_keyed_load);
   do_keyed_load(arrs);
   do_keyed_load(arrs);
   %OptimizeFunctionOnNextCall(do_keyed_load);
@@ -58,7 +57,6 @@
   var obj = {};
   obj.store_boom = smi_arr;
 
-  %PrepareFunctionForOptimization(do_keyed_store);
   do_keyed_store(arrs);
   do_keyed_store(arrs);
   %OptimizeFunctionOnNextCall(do_keyed_store);

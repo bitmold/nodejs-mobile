@@ -5,25 +5,26 @@
 #include "src/compiler/map-inference.h"
 
 #include "src/compiler/compilation-dependencies.h"
-#include "src/compiler/feedback-source.h"
 #include "src/compiler/js-graph.h"
 #include "src/compiler/simplified-operator.h"
+#include "src/compiler/vector-slot-pair.h"
 #include "src/objects/map-inl.h"
+#include "src/zone/zone-handle-set.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
 
-MapInference::MapInference(JSHeapBroker* broker, Node* object, Effect effect)
-    : broker_(broker), object_(object), maps_(broker->zone()) {
-  ZoneRefUnorderedSet<MapRef> maps(broker->zone());
+MapInference::MapInference(JSHeapBroker* broker, Node* object, Node* effect)
+    : broker_(broker), object_(object) {
+  ZoneHandleSet<Map> maps;
   auto result =
-      NodeProperties::InferMapsUnsafe(broker_, object_, effect, &maps);
+      NodeProperties::InferReceiverMaps(broker_, object_, effect, &maps);
   maps_.insert(maps_.end(), maps.begin(), maps.end());
-  maps_state_ = (result == NodeProperties::kUnreliableMaps)
+  maps_state_ = (result == NodeProperties::kUnreliableReceiverMaps)
                     ? kUnreliableDontNeedGuard
                     : kReliableOrGuarded;
-  DCHECK_EQ(maps_.empty(), result == NodeProperties::kNoMaps);
+  DCHECK_EQ(maps_.empty(), result == NodeProperties::kNoReceiverMaps);
 }
 
 MapInference::~MapInference() { CHECK(Safe()); }
@@ -64,46 +65,35 @@ bool MapInference::AllOfInstanceTypes(std::function<bool(InstanceType)> f) {
 
 bool MapInference::AllOfInstanceTypesUnsafe(
     std::function<bool(InstanceType)> f) const {
+  // TODO(neis): Brokerize the MapInference.
+  AllowHandleDereference allow_handle_deref;
   CHECK(HaveMaps());
 
-  auto instance_type = [f](const MapRef& map) {
-    return f(map.instance_type());
-  };
-  return std::all_of(maps_.begin(), maps_.end(), instance_type);
+  return std::all_of(maps_.begin(), maps_.end(),
+                     [f](Handle<Map> map) { return f(map->instance_type()); });
 }
 
 bool MapInference::AnyOfInstanceTypesUnsafe(
     std::function<bool(InstanceType)> f) const {
+  AllowHandleDereference allow_handle_deref;
   CHECK(HaveMaps());
 
-  auto instance_type = [f](const MapRef& map) {
-    return f(map.instance_type());
-  };
-
-  return std::any_of(maps_.begin(), maps_.end(), instance_type);
+  return std::any_of(maps_.begin(), maps_.end(),
+                     [f](Handle<Map> map) { return f(map->instance_type()); });
 }
 
-ZoneVector<MapRef> const& MapInference::GetMaps() {
+MapHandles const& MapInference::GetMaps() {
   SetNeedGuardIfUnreliable();
   return maps_;
 }
 
-bool MapInference::Is(const MapRef& expected_map) {
-  if (!HaveMaps()) return false;
-  const ZoneVector<MapRef>& maps = GetMaps();
-  if (maps.size() != 1) return false;
-  return maps[0].equals(expected_map);
-}
-
-void MapInference::InsertMapChecks(JSGraph* jsgraph, Effect* effect,
-                                   Control control,
-                                   const FeedbackSource& feedback) {
+void MapInference::InsertMapChecks(JSGraph* jsgraph, Node** effect,
+                                   Node* control,
+                                   const VectorSlotPair& feedback) {
   CHECK(HaveMaps());
   CHECK(feedback.IsValid());
   ZoneHandleSet<Map> maps;
-  for (const MapRef& map : maps_) {
-    maps.insert(map.object(), jsgraph->graph()->zone());
-  }
+  for (Handle<Map> map : maps_) maps.insert(map, jsgraph->graph()->zone());
   *effect = jsgraph->graph()->NewNode(
       jsgraph->simplified()->CheckMaps(CheckMapsFlag::kNone, maps, feedback),
       object_, *effect, control);
@@ -113,12 +103,12 @@ void MapInference::InsertMapChecks(JSGraph* jsgraph, Effect* effect,
 bool MapInference::RelyOnMapsViaStability(
     CompilationDependencies* dependencies) {
   CHECK(HaveMaps());
-  return RelyOnMapsHelper(dependencies, nullptr, nullptr, Control{nullptr}, {});
+  return RelyOnMapsHelper(dependencies, nullptr, nullptr, nullptr, {});
 }
 
 bool MapInference::RelyOnMapsPreferStability(
-    CompilationDependencies* dependencies, JSGraph* jsgraph, Effect* effect,
-    Control control, const FeedbackSource& feedback) {
+    CompilationDependencies* dependencies, JSGraph* jsgraph, Node** effect,
+    Node* control, const VectorSlotPair& feedback) {
   CHECK(HaveMaps());
   if (Safe()) return false;
   if (RelyOnMapsViaStability(dependencies)) return true;
@@ -127,16 +117,16 @@ bool MapInference::RelyOnMapsPreferStability(
 }
 
 bool MapInference::RelyOnMapsHelper(CompilationDependencies* dependencies,
-                                    JSGraph* jsgraph, Effect* effect,
-                                    Control control,
-                                    const FeedbackSource& feedback) {
+                                    JSGraph* jsgraph, Node** effect,
+                                    Node* control,
+                                    const VectorSlotPair& feedback) {
   if (Safe()) return true;
 
-  auto is_stable = [](const MapRef& map) { return map.is_stable(); };
+  auto is_stable = [](Handle<Map> map) { return map->is_stable(); };
   if (dependencies != nullptr &&
       std::all_of(maps_.cbegin(), maps_.cend(), is_stable)) {
-    for (const MapRef& map : maps_) {
-      dependencies->DependOnStableMap(map);
+    for (Handle<Map> map : maps_) {
+      dependencies->DependOnStableMap(MapRef(broker_, map));
     }
     SetGuarded();
     return true;

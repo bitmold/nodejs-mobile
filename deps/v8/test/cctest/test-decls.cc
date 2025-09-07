@@ -27,10 +27,8 @@
 
 #include <stdlib.h>
 
-#include "include/v8-external.h"
-#include "include/v8-initialization.h"
-#include "include/v8-template.h"
 #include "src/init/v8.h"
+
 #include "test/cctest/cctest.h"
 
 namespace v8 {
@@ -149,7 +147,9 @@ void DeclarationContext::Check(const char* source, int get, int set, int query,
   catcher.SetVerbose(true);
   Local<Context> context = CcTest::isolate()->GetCurrentContext();
   MaybeLocal<Script> script = Script::Compile(
-      context, String::NewFromUtf8(CcTest::isolate(), source).ToLocalChecked());
+      context,
+      String::NewFromUtf8(CcTest::isolate(), source, v8::NewStringType::kNormal)
+          .ToLocalChecked());
   if (expectations == EXPECT_ERROR) {
     CHECK(script.IsEmpty());
     return;
@@ -227,6 +227,7 @@ v8::Local<Integer> DeclarationContext::Query(Local<Name> key) {
 // about and doesn't handle.
 TEST(Unknown) {
   HandleScope scope(CcTest::isolate());
+  v8::V8::Initialize();
 
   { DeclarationContext context;
     context.Check("var x; x",
@@ -259,6 +260,7 @@ class AbsentPropertyContext: public DeclarationContext {
 
 TEST(Absent) {
   v8::Isolate* isolate = CcTest::isolate();
+  v8::V8::Initialize();
   HandleScope scope(isolate);
 
   { AbsentPropertyContext context;
@@ -324,7 +326,9 @@ class AppearingPropertyContext: public DeclarationContext {
   State state_;
 };
 
+
 TEST(Appearing) {
+  v8::V8::Initialize();
   HandleScope scope(CcTest::isolate());
 
   { AppearingPropertyContext context;
@@ -346,6 +350,8 @@ TEST(Appearing) {
                   1, 1, EXPECT_RESULT);
   }
 }
+
+
 
 class ExistsInPrototypeContext: public DeclarationContext {
  public:
@@ -405,7 +411,9 @@ class AbsentInPrototypeContext: public DeclarationContext {
   }
 };
 
+
 TEST(AbsentInPrototype) {
+  v8::V8::Initialize();
   HandleScope scope(CcTest::isolate());
 
   { AbsentInPrototypeContext context;
@@ -416,6 +424,8 @@ TEST(AbsentInPrototype) {
                   EXPECT_RESULT, Undefined(CcTest::isolate()));
   }
 }
+
+
 
 class SimpleContext {
  public:
@@ -435,8 +445,9 @@ class SimpleContext {
     TryCatch catcher(context_->GetIsolate());
     catcher.SetVerbose(true);
     MaybeLocal<Script> script = Script::Compile(
-        context_,
-        String::NewFromUtf8(context_->GetIsolate(), source).ToLocalChecked());
+        context_, String::NewFromUtf8(context_->GetIsolate(), source,
+                                      v8::NewStringType::kNormal)
+                      .ToLocalChecked());
     if (expectations == EXPECT_ERROR) {
       CHECK(script.IsEmpty());
       return;
@@ -737,10 +748,14 @@ TEST(CrossScriptDynamicLookup) {
 
   {
     SimpleContext context;
-    Local<String> undefined_string = String::NewFromUtf8Literal(
-        CcTest::isolate(), "undefined", v8::NewStringType::kInternalized);
-    Local<String> number_string = String::NewFromUtf8Literal(
-        CcTest::isolate(), "number", v8::NewStringType::kInternalized);
+    Local<String> undefined_string =
+        String::NewFromUtf8(CcTest::isolate(), "undefined",
+                            v8::NewStringType::kInternalized)
+            .ToLocalChecked();
+    Local<String> number_string =
+        String::NewFromUtf8(CcTest::isolate(), "number",
+                            v8::NewStringType::kInternalized)
+            .ToLocalChecked();
 
     context.Check(
         "function f(o) { with(o) { return x; } }"
@@ -810,10 +825,14 @@ TEST(CrossScriptStaticLookupUndeclared) {
 
   {
     SimpleContext context;
-    Local<String> undefined_string = String::NewFromUtf8Literal(
-        CcTest::isolate(), "undefined", v8::NewStringType::kInternalized);
-    Local<String> number_string = String::NewFromUtf8Literal(
-        CcTest::isolate(), "number", v8::NewStringType::kInternalized);
+    Local<String> undefined_string =
+        String::NewFromUtf8(CcTest::isolate(), "undefined",
+                            v8::NewStringType::kInternalized)
+            .ToLocalChecked();
+    Local<String> number_string =
+        String::NewFromUtf8(CcTest::isolate(), "number",
+                            v8::NewStringType::kInternalized)
+            .ToLocalChecked();
 
     context.Check(
         "function f(o) { return x; }"

@@ -4,15 +4,15 @@
 
 // Flags: --experimental-wasm-compilation-hints
 
-d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
+load('test/mjsunit/wasm/wasm-module-builder.js');
 
 (function testDecodeCompilationHintsSectionNoDowngrade() {
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addImport('mod', 'pow', kSig_i_ii);
   builder.addFunction('upow', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprCallFunction, 0])
          .setCompilationHint(kCompilationHintStrategyLazy,
                              kCompilationHintTierOptimized,
@@ -20,7 +20,7 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
          .exportFunc();
   assertThrows(() => builder.instantiate({mod: {pow: Math.pow}}),
                WebAssembly.CompileError,
-               "WebAssembly.Module(): Invalid compilation hint 0x19 " +
+               "WebAssembly.Module(): Invalid compilation hint 0x2d " +
                "(forbidden downgrade) @+70");
 })();
 
@@ -29,20 +29,20 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   let builder = new WasmModuleBuilder();
   builder.addImport('mod', 'pow', kSig_i_ii);
   builder.addFunction('upow', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprCallFunction, 0])
          .setCompilationHint(kCompilationHintStrategyDefault,
-                             kCompilationHintTierBaseline,
-                             kCompilationHintTierBaseline)
+                             kCompilationHintTierInterpreter,
+                             kCompilationHintTierInterpreter)
          .exportFunc();
   builder.addFunction('upow2', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprCallFunction, 0])
   builder.addFunction('upow3', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprCallFunction, 0])
   let instance = builder.instantiate({mod: {pow: Math.pow}});
   assertEquals(27, instance.exports.upow(3))
@@ -53,16 +53,16 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   let builder = new WasmModuleBuilder();
   builder.addImport('mod', 'pow', kSig_i_ii);
   builder.addFunction('upow2', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprCallFunction, 0])
   builder.addFunction('upow3', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprCallFunction, 0])
   builder.addFunction('upow', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprCallFunction, 0])
          .setCompilationHint(kCompilationHintStrategyEager,
                              kCompilationHintTierBaseline,
@@ -76,8 +76,8 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('sq', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprI32Mul])
          .setCompilationHint(kCompilationHintStrategyEager,
                              kCompilationHintTierDefault,
@@ -91,12 +91,12 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('sq', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprI32Mul])
          .setCompilationHint(kCompilationHintStrategyEager,
                              kCompilationHintTierDefault,
-                             kCompilationHintTierOptimized);
+                             kCompilationHintTierOptimized)
   builder.instantiate();
 })();
 
@@ -104,8 +104,8 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('sq', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprI32Mul])
          .setCompilationHint(kCompilationHintStrategyEager,
                              kCompilationHintTierOptimized,
@@ -119,44 +119,12 @@ d8.file.execute('test/mjsunit/wasm/wasm-module-builder.js');
   print(arguments.callee.name);
   let builder = new WasmModuleBuilder();
   builder.addFunction('sq', kSig_i_i)
-         .addBody([kExprLocalGet, 0,
-                   kExprLocalGet, 0,
+         .addBody([kExprGetLocal, 0,
+                   kExprGetLocal, 0,
                    kExprI32Mul])
          .setCompilationHint(kCompilationHintStrategyLazyBaselineEagerTopTier,
                              kCompilationHintTierOptimized,
                              kCompilationHintTierDefault)
          .exportFunc();
   builder.instantiate();
-})();
-
-(function testDecodeIllegalCompilationHintBaselineTier() {
-  print(arguments.callee.name);
-  let builder = new WasmModuleBuilder();
-  let kIllegalHintTier = 0x03;
-  builder.addFunction('func', kSig_i_i)
-      .addBody([kExprUnreachable])
-      .setCompilationHint(
-          kCompilationHintStrategyDefault, kIllegalHintTier,
-          kCompilationHintTierDefault);
-  assertThrows(
-      () => builder.instantiate(), WebAssembly.CompileError,
-      new RegExp(
-          'WebAssembly.Module\\(\\): Invalid compilation hint 0x0c ' +
-          '\\(invalid tier 0x03\\)'));
-})();
-
-(function testDecodeIllegalCompilationHintTopTier() {
-  print(arguments.callee.name);
-  let builder = new WasmModuleBuilder();
-  let kIllegalHintTier = 0x03;
-  builder.addFunction('func', kSig_i_i)
-      .addBody([kExprUnreachable])
-      .setCompilationHint(
-          kCompilationHintStrategyDefault, kCompilationHintTierDefault,
-          kIllegalHintTier);
-  assertThrows(
-      () => builder.instantiate(), WebAssembly.CompileError,
-      new RegExp(
-          'WebAssembly.Module\\(\\): Invalid compilation hint 0x30 ' +
-          '\\(invalid tier 0x03\\)'));
 })();

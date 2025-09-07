@@ -5,10 +5,7 @@
 // Flags: --allow-natives-syntax
 
 (function TestNonCallableForEach() {
-  function foo() {
-    [].forEach(undefined);
-  };
-  %PrepareFunctionForOptimization(foo);
+  function foo() { [].forEach(undefined) }
   assertThrows(foo, TypeError);
   assertThrows(foo, TypeError);
   %OptimizeFunctionOnNextCall(foo);
@@ -16,14 +13,7 @@
 })();
 
 (function TestNonCallableForEachCaught() {
-  function foo() {
-    try {
-      [].forEach(undefined);
-    } catch (e) {
-      return e;
-    }
-  };
-  %PrepareFunctionForOptimization(foo);
+  function foo() { try { [].forEach(undefined) } catch(e) { return e } }
   assertInstanceof(foo(), TypeError);
   assertInstanceof(foo(), TypeError);
   %OptimizeFunctionOnNextCall(foo);
@@ -31,10 +21,7 @@
 })();
 
 (function TestNonCallableMap() {
-  function foo() {
-    [].map(undefined);
-  };
-  %PrepareFunctionForOptimization(foo);
+  function foo() { [].map(undefined); }
   assertThrows(foo, TypeError);
   assertThrows(foo, TypeError);
   %OptimizeFunctionOnNextCall(foo);
@@ -42,14 +29,7 @@
 })();
 
 (function TestNonCallableMapCaught() {
-  function foo() {
-    try {
-      [].map(undefined);
-    } catch (e) {
-      return e;
-    }
-  };
-  %PrepareFunctionForOptimization(foo);
+  function foo() { try { [].map(undefined) } catch(e) { return e } }
   assertInstanceof(foo(), TypeError);
   assertInstanceof(foo(), TypeError);
   %OptimizeFunctionOnNextCall(foo);
@@ -57,10 +37,7 @@
 })();
 
 (function TestNonCallableFilter() {
-  function foo() {
-    [].filter(undefined);
-  };
-  %PrepareFunctionForOptimization(foo);
+  function foo() { [].filter(undefined); }
   assertThrows(foo, TypeError);
   assertThrows(foo, TypeError);
   %OptimizeFunctionOnNextCall(foo);
@@ -68,14 +45,7 @@
 })();
 
 (function TestNonCallableFilterCaught() {
-  function foo() {
-    try {
-      [].filter(undefined);
-    } catch (e) {
-      return e;
-    }
-  };
-  %PrepareFunctionForOptimization(foo);
+  function foo() { try { [].filter(undefined) } catch(e) { return e } }
   assertInstanceof(foo(), TypeError);
   assertInstanceof(foo(), TypeError);
   %OptimizeFunctionOnNextCall(foo);

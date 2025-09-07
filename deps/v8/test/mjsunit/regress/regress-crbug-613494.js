@@ -6,11 +6,8 @@
 
 function f() {
   var bound = 0;
-  function g() {
-    return bound;
-  }
-};
-%PrepareFunctionForOptimization(f);
+  function g() { return bound }
+}
 f();
 f();
 %OptimizeFunctionOnNextCall(f);

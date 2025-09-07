@@ -33,9 +33,9 @@
 // either enhance the gap resolver or make sure that such moves don't happen.
 
 function foo(x) {
-  return (x ? NaN : 0.2) + 0.1;
-};
-%PrepareFunctionForOptimization(foo);
+ return (x ? NaN : 0.2) + 0.1;
+}
+
 foo(false);
 foo(false);
 %OptimizeFunctionOnNextCall(foo);

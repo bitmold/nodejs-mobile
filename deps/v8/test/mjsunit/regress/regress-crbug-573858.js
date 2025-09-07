@@ -4,24 +4,13 @@
 
 // Flags: --allow-natives-syntax
 
-var throw_type_error = Object
-                           .getOwnPropertyDescriptor(
-                               function() {
-                                 'use strict';
-                               }.__proto__,
-                               'caller')
-                           .get;
+var throw_type_error = Object.getOwnPropertyDescriptor(
+    (function() {"use strict"}).__proto__, "caller").get;
 
-function create_initial_map() {
-  this instanceof throw_type_error;
-};
-%PrepareFunctionForOptimization(create_initial_map);
+function create_initial_map() { this instanceof throw_type_error }
 %OptimizeFunctionOnNextCall(create_initial_map);
 assertThrows(create_initial_map);
 
-function test() {
-  new throw_type_error();
-};
-%PrepareFunctionForOptimization(test);
+function test() { new throw_type_error }
 %OptimizeFunctionOnNextCall(test);
 assertThrows(test);

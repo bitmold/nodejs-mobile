@@ -14,14 +14,12 @@ namespace compiler {
 
 class TestCode : public HandleAndZoneScope {
  public:
-  explicit TestCode(size_t block_count)
+  TestCode()
       : HandleAndZoneScope(),
         blocks_(main_zone()),
         sequence_(main_isolate(), main_zone(), &blocks_),
         rpo_number_(RpoNumber::FromInt(0)),
-        current_(nullptr) {
-    sequence_.IncreaseRpoForTesting(block_count);
-  }
+        current_(nullptr) {}
 
   ZoneVector<InstructionBlock*> blocks_;
   InstructionSequence sequence_;
@@ -48,15 +46,6 @@ class TestCode : public HandleAndZoneScope {
                            FlagsConditionField::encode(kEqual);
     sequence_.AddInstruction(
         Instruction::New(main_zone(), code, 0, nullptr, 2, ops, 0, nullptr));
-    int pos = static_cast<int>(sequence_.instructions().size() - 1);
-    End();
-    return pos;
-  }
-  int Return(int size, bool defer = false, bool deconstruct_frame = false) {
-    Start(defer, deconstruct_frame);
-    InstructionOperand ops[] = {Immediate(size)};
-    sequence_.AddInstruction(Instruction::New(main_zone(), kArchRet, 0, nullptr,
-                                              1, ops, 0, nullptr));
     int pos = static_cast<int>(sequence_.instructions().size() - 1);
     End();
     return pos;
@@ -99,17 +88,11 @@ class TestCode : public HandleAndZoneScope {
   InstructionOperand UseRpo(int num) {
     return sequence_.AddImmediate(Constant(RpoNumber::FromInt(num)));
   }
-  InstructionOperand Immediate(int num) {
-    return sequence_.AddImmediate(Constant(num));
-  }
-  void Start(bool deferred = false, bool deconstruct_frame = false) {
+  void Start(bool deferred = false) {
     if (current_ == nullptr) {
-      current_ = main_zone()->New<InstructionBlock>(
-          main_zone(), rpo_number_, RpoNumber::Invalid(), RpoNumber::Invalid(),
-          RpoNumber::Invalid(), deferred, false);
-      if (deconstruct_frame) {
-        current_->mark_must_deconstruct_frame();
-      }
+      current_ = new (main_zone())
+          InstructionBlock(main_zone(), rpo_number_, RpoNumber::Invalid(),
+                           RpoNumber::Invalid(), deferred, false);
       blocks_.push_back(current_);
       sequence_.StartBlock(rpo_number_);
     }
@@ -126,22 +109,22 @@ class TestCode : public HandleAndZoneScope {
   }
 };
 
-void VerifyForwarding(TestCode* code, int count, int* expected) {
+
+void VerifyForwarding(TestCode& code, int count, int* expected) {
   v8::internal::AccountingAllocator allocator;
   Zone local_zone(&allocator, ZONE_NAME);
   ZoneVector<RpoNumber> result(&local_zone);
-  JumpThreading::ComputeForwarding(&local_zone, &result, &code->sequence_,
-                                   true);
+  JumpThreading::ComputeForwarding(&local_zone, result, &code.sequence_, true);
 
   CHECK(count == static_cast<int>(result.size()));
   for (int i = 0; i < count; i++) {
-    CHECK_EQ(expected[i], result[i].ToInt());
+    CHECK(expected[i] == result[i].ToInt());
   }
 }
 
+
 TEST(FwEmpty1) {
-  constexpr size_t kBlockCount = 3;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Jump(1);
@@ -151,14 +134,13 @@ TEST(FwEmpty1) {
   code.End();
 
   static int expected[] = {2, 2, 2};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 3, expected);
 }
 
 
 TEST(FwEmptyN) {
-  constexpr size_t kBlockCount = 3;
   for (int i = 0; i < 9; i++) {
-    TestCode code(kBlockCount);
+    TestCode code;
 
     // B0
     code.Jump(1);
@@ -169,39 +151,36 @@ TEST(FwEmptyN) {
     code.End();
 
     static int expected[] = {2, 2, 2};
-    VerifyForwarding(&code, kBlockCount, expected);
+    VerifyForwarding(code, 3, expected);
   }
 }
 
 
 TEST(FwNone1) {
-  constexpr size_t kBlockCount = 1;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.End();
 
   static int expected[] = {0};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 1, expected);
 }
 
 
 TEST(FwMoves1) {
-  constexpr size_t kBlockCount = 1;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.RedundantMoves();
   code.End();
 
   static int expected[] = {0};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 1, expected);
 }
 
 
 TEST(FwMoves2) {
-  constexpr size_t kBlockCount = 2;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.RedundantMoves();
@@ -210,13 +189,12 @@ TEST(FwMoves2) {
   code.End();
 
   static int expected[] = {1, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 2, expected);
 }
 
 
 TEST(FwMoves2b) {
-  constexpr size_t kBlockCount = 2;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.NonRedundantMoves();
@@ -225,13 +203,12 @@ TEST(FwMoves2b) {
   code.End();
 
   static int expected[] = {0, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 2, expected);
 }
 
 
 TEST(FwOther2) {
-  constexpr size_t kBlockCount = 2;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Other();
@@ -240,13 +217,12 @@ TEST(FwOther2) {
   code.End();
 
   static int expected[] = {0, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 2, expected);
 }
 
 
 TEST(FwNone2a) {
-  constexpr size_t kBlockCount = 2;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -254,13 +230,12 @@ TEST(FwNone2a) {
   code.End();
 
   static int expected[] = {1, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 2, expected);
 }
 
 
 TEST(FwNone2b) {
-  constexpr size_t kBlockCount = 2;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Jump(1);
@@ -268,25 +243,23 @@ TEST(FwNone2b) {
   code.End();
 
   static int expected[] = {1, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 2, expected);
 }
 
 
 TEST(FwLoop1) {
-  constexpr size_t kBlockCount = 1;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Jump(0);
 
   static int expected[] = {0};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 1, expected);
 }
 
 
 TEST(FwLoop2) {
-  constexpr size_t kBlockCount = 2;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -294,13 +267,12 @@ TEST(FwLoop2) {
   code.Jump(0);
 
   static int expected[] = {0, 0};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 2, expected);
 }
 
 
 TEST(FwLoop3) {
-  constexpr size_t kBlockCount = 3;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -310,13 +282,12 @@ TEST(FwLoop3) {
   code.Jump(0);
 
   static int expected[] = {0, 0, 0};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 3, expected);
 }
 
 
 TEST(FwLoop1b) {
-  constexpr size_t kBlockCount = 2;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -324,13 +295,12 @@ TEST(FwLoop1b) {
   code.Jump(1);
 
   static int expected[] = {1, 1};
-  VerifyForwarding(&code, 2, expected);
+  VerifyForwarding(code, 2, expected);
 }
 
 
 TEST(FwLoop2b) {
-  constexpr size_t kBlockCount = 3;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -340,13 +310,12 @@ TEST(FwLoop2b) {
   code.Jump(1);
 
   static int expected[] = {1, 1, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 3, expected);
 }
 
 
 TEST(FwLoop3b) {
-  constexpr size_t kBlockCount = 4;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -358,13 +327,12 @@ TEST(FwLoop3b) {
   code.Jump(1);
 
   static int expected[] = {1, 1, 1, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 4, expected);
 }
 
 
 TEST(FwLoop2_1a) {
-  constexpr size_t kBlockCount = 5;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -378,13 +346,12 @@ TEST(FwLoop2_1a) {
   code.Jump(2);
 
   static int expected[] = {1, 1, 1, 1, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 5, expected);
 }
 
 
 TEST(FwLoop2_1b) {
-  constexpr size_t kBlockCount = 5;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -398,13 +365,12 @@ TEST(FwLoop2_1b) {
   code.Jump(2);
 
   static int expected[] = {2, 2, 2, 2, 2};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 5, expected);
 }
 
 
 TEST(FwLoop2_1c) {
-  constexpr size_t kBlockCount = 5;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -418,13 +384,12 @@ TEST(FwLoop2_1c) {
   code.Jump(1);
 
   static int expected[] = {1, 1, 1, 1, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 5, expected);
 }
 
 
 TEST(FwLoop2_1d) {
-  constexpr size_t kBlockCount = 5;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -438,13 +403,12 @@ TEST(FwLoop2_1d) {
   code.Jump(1);
 
   static int expected[] = {1, 1, 1, 1, 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 5, expected);
 }
 
 
 TEST(FwLoop3_1a) {
-  constexpr size_t kBlockCount = 6;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Fallthru();
@@ -460,16 +424,14 @@ TEST(FwLoop3_1a) {
   code.Jump(0);
 
   static int expected[] = {2, 2, 2, 2, 2, 2};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 6, expected);
 }
 
 
 TEST(FwDiamonds) {
-  constexpr size_t kBlockCount = 4;
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 2; j++) {
-      TestCode code(kBlockCount);
-
+      TestCode code;
       // B0
       code.Branch(1, 2);
       // B1
@@ -482,18 +444,17 @@ TEST(FwDiamonds) {
       code.End();
 
       int expected[] = {0, i ? 1 : 3, j ? 2 : 3, 3};
-      VerifyForwarding(&code, kBlockCount, expected);
+      VerifyForwarding(code, 4, expected);
     }
   }
 }
 
 
 TEST(FwDiamonds2) {
-  constexpr size_t kBlockCount = 5;
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 2; j++) {
       for (int k = 0; k < 2; k++) {
-        TestCode code(kBlockCount);
+        TestCode code;
         // B0
         code.Branch(1, 2);
         // B1
@@ -510,7 +471,7 @@ TEST(FwDiamonds2) {
 
         int merge = k ? 3 : 4;
         int expected[] = {0, i ? 1 : merge, j ? 2 : merge, merge, 4};
-        VerifyForwarding(&code, kBlockCount, expected);
+        VerifyForwarding(code, 5, expected);
       }
     }
   }
@@ -518,12 +479,11 @@ TEST(FwDiamonds2) {
 
 
 TEST(FwDoubleDiamonds) {
-  constexpr size_t kBlockCount = 7;
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 2; j++) {
       for (int x = 0; x < 2; x++) {
         for (int y = 0; y < 2; y++) {
-          TestCode code(kBlockCount);
+          TestCode code;
           // B0
           code.Branch(1, 2);
           // B1
@@ -545,7 +505,7 @@ TEST(FwDoubleDiamonds) {
 
           int expected[] = {0,         i ? 1 : 3, j ? 2 : 3, 3,
                             x ? 4 : 6, y ? 5 : 6, 6};
-          VerifyForwarding(&code, kBlockCount, expected);
+          VerifyForwarding(code, 7, expected);
         }
       }
     }
@@ -598,8 +558,7 @@ int find(int x, int* permutation, int size) {
 
 
 void RunPermutedChain(int* permutation, int size) {
-  const int kBlockCount = size + 2;
-  TestCode code(kBlockCount);
+  TestCode code;
   int cur = -1;
   for (int i = 0; i < size; i++) {
     code.Jump(find(cur + 1, permutation, size) + 1);
@@ -610,7 +569,7 @@ void RunPermutedChain(int* permutation, int size) {
 
   int expected[] = {size + 1, size + 1, size + 1, size + 1,
                     size + 1, size + 1, size + 1};
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, size + 2, expected);
 }
 
 
@@ -622,8 +581,7 @@ TEST(FwPermuted_chain) {
 
 
 void RunPermutedDiamond(int* permutation, int size) {
-  constexpr size_t kBlockCount = 6;
-  TestCode code(kBlockCount);
+  TestCode code;
   int br = 1 + find(0, permutation, size);
   code.Jump(br);
   for (int i = 0; i < size; i++) {
@@ -647,65 +605,62 @@ void RunPermutedDiamond(int* permutation, int size) {
 
   int expected[] = {br, 5, 5, 5, 5, 5};
   expected[br] = br;
-  VerifyForwarding(&code, kBlockCount, expected);
+  VerifyForwarding(code, 6, expected);
 }
 
 
 TEST(FwPermuted_diamond) { RunAllPermutations<4>(RunPermutedDiamond); }
 
-void ApplyForwarding(TestCode* code, int size, int* forward) {
-  code->sequence_.RecomputeAssemblyOrderForTesting();
-  ZoneVector<RpoNumber> vector(code->main_zone());
+
+void ApplyForwarding(TestCode& code, int size, int* forward) {
+  code.sequence_.RecomputeAssemblyOrderForTesting();
+  ZoneVector<RpoNumber> vector(code.main_zone());
   for (int i = 0; i < size; i++) {
     vector.push_back(RpoNumber::FromInt(forward[i]));
   }
-  JumpThreading::ApplyForwarding(code->main_zone(), vector, &code->sequence_);
+  JumpThreading::ApplyForwarding(code.main_zone(), vector, &code.sequence_);
 }
 
-void CheckJump(TestCode* code, int pos, int target) {
-  Instruction* instr = code->sequence_.InstructionAt(pos);
+
+void CheckJump(TestCode& code, int pos, int target) {
+  Instruction* instr = code.sequence_.InstructionAt(pos);
   CHECK_EQ(kArchJmp, instr->arch_opcode());
   CHECK_EQ(1, static_cast<int>(instr->InputCount()));
   CHECK_EQ(0, static_cast<int>(instr->OutputCount()));
   CHECK_EQ(0, static_cast<int>(instr->TempCount()));
-  CHECK_EQ(target, code->sequence_.InputRpo(instr, 0).ToInt());
+  CHECK_EQ(target, code.sequence_.InputRpo(instr, 0).ToInt());
 }
 
-void CheckRet(TestCode* code, int pos) {
-  Instruction* instr = code->sequence_.InstructionAt(pos);
-  CHECK_EQ(kArchRet, instr->arch_opcode());
-  CHECK_EQ(1, static_cast<int>(instr->InputCount()));
-  CHECK_EQ(0, static_cast<int>(instr->OutputCount()));
-  CHECK_EQ(0, static_cast<int>(instr->TempCount()));
-}
 
-void CheckNop(TestCode* code, int pos) {
-  Instruction* instr = code->sequence_.InstructionAt(pos);
+void CheckNop(TestCode& code, int pos) {
+  Instruction* instr = code.sequence_.InstructionAt(pos);
   CHECK_EQ(kArchNop, instr->arch_opcode());
   CHECK_EQ(0, static_cast<int>(instr->InputCount()));
   CHECK_EQ(0, static_cast<int>(instr->OutputCount()));
   CHECK_EQ(0, static_cast<int>(instr->TempCount()));
 }
 
-void CheckBranch(TestCode* code, int pos, int t1, int t2) {
-  Instruction* instr = code->sequence_.InstructionAt(pos);
+
+void CheckBranch(TestCode& code, int pos, int t1, int t2) {
+  Instruction* instr = code.sequence_.InstructionAt(pos);
   CHECK_EQ(2, static_cast<int>(instr->InputCount()));
   CHECK_EQ(0, static_cast<int>(instr->OutputCount()));
   CHECK_EQ(0, static_cast<int>(instr->TempCount()));
-  CHECK_EQ(t1, code->sequence_.InputRpo(instr, 0).ToInt());
-  CHECK_EQ(t2, code->sequence_.InputRpo(instr, 1).ToInt());
+  CHECK_EQ(t1, code.sequence_.InputRpo(instr, 0).ToInt());
+  CHECK_EQ(t2, code.sequence_.InputRpo(instr, 1).ToInt());
 }
 
-void CheckAssemblyOrder(TestCode* code, int size, int* expected) {
+
+void CheckAssemblyOrder(TestCode& code, int size, int* expected) {
   int i = 0;
-  for (auto const block : code->sequence_.instruction_blocks()) {
+  for (auto const block : code.sequence_.instruction_blocks()) {
     CHECK_EQ(expected[i++], block->ao_number().ToInt());
   }
 }
 
+
 TEST(Rewire1) {
-  constexpr size_t kBlockCount = 3;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   int j1 = code.Jump(1);
@@ -715,18 +670,17 @@ TEST(Rewire1) {
   code.End();
 
   static int forward[] = {2, 2, 2};
-  ApplyForwarding(&code, kBlockCount, forward);
-  CheckJump(&code, j1, 2);
-  CheckNop(&code, j2);
+  ApplyForwarding(code, 3, forward);
+  CheckJump(code, j1, 2);
+  CheckNop(code, j2);
 
   static int assembly[] = {0, 1, 1};
-  CheckAssemblyOrder(&code, kBlockCount, assembly);
+  CheckAssemblyOrder(code, 3, assembly);
 }
 
 
 TEST(Rewire1_deferred) {
-  constexpr size_t kBlockCount = 4;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   int j1 = code.Jump(1);
@@ -736,22 +690,21 @@ TEST(Rewire1_deferred) {
   code.Defer();
   int j3 = code.Jump(3);
   // B3
-  code.Return(0);
+  code.End();
 
   static int forward[] = {3, 3, 3, 3};
-  ApplyForwarding(&code, kBlockCount, forward);
-  CheckJump(&code, j1, 3);
-  CheckNop(&code, j2);
-  CheckNop(&code, j3);
+  ApplyForwarding(code, 4, forward);
+  CheckJump(code, j1, 3);
+  CheckNop(code, j2);
+  CheckNop(code, j3);
 
   static int assembly[] = {0, 1, 2, 1};
-  CheckAssemblyOrder(&code, kBlockCount, assembly);
+  CheckAssemblyOrder(code, 4, assembly);
 }
 
 
 TEST(Rewire2_deferred) {
-  constexpr size_t kBlockCount = 4;
-  TestCode code(kBlockCount);
+  TestCode code;
 
   // B0
   code.Other();
@@ -766,43 +719,19 @@ TEST(Rewire2_deferred) {
   code.End();
 
   static int forward[] = {0, 1, 2, 3};
-  ApplyForwarding(&code, kBlockCount, forward);
-  CheckJump(&code, j1, 1);
-  CheckJump(&code, j2, 3);
+  ApplyForwarding(code, 4, forward);
+  CheckJump(code, j1, 1);
+  CheckJump(code, j2, 3);
 
   static int assembly[] = {0, 2, 3, 1};
-  CheckAssemblyOrder(&code, kBlockCount, assembly);
+  CheckAssemblyOrder(code, 4, assembly);
 }
 
-TEST(Rewire_deferred_diamond) {
-  constexpr size_t kBlockCount = 4;
-  TestCode code(kBlockCount);
-
-  // B0
-  int b1 = code.Branch(1, 2);
-  // B1
-  code.Fallthru();  // To B3
-  // B2
-  code.Defer();
-  int j1 = code.Jump(3);
-  // B3
-  code.Return(0);
-
-  static int forward[] = {0, 3, 3, 3};
-  VerifyForwarding(&code, kBlockCount, forward);
-  ApplyForwarding(&code, kBlockCount, forward);
-  CheckBranch(&code, b1, 3, 3);
-  CheckNop(&code, j1);
-
-  static int assembly[] = {0, 1, 2, 1};
-  CheckAssemblyOrder(&code, kBlockCount, assembly);
-}
 
 TEST(Rewire_diamond) {
-  constexpr size_t kBlockCount = 5;
   for (int i = 0; i < 2; i++) {
     for (int j = 0; j < 2; j++) {
-      TestCode code(kBlockCount);
+      TestCode code;
       // B0
       int j1 = code.Jump(1);
       // B1
@@ -815,18 +744,18 @@ TEST(Rewire_diamond) {
       code.End();
 
       int forward[] = {0, 1, i ? 4 : 2, j ? 4 : 3, 4};
-      ApplyForwarding(&code, kBlockCount, forward);
-      CheckJump(&code, j1, 1);
-      CheckBranch(&code, b1, i ? 4 : 2, j ? 4 : 3);
+      ApplyForwarding(code, 5, forward);
+      CheckJump(code, j1, 1);
+      CheckBranch(code, b1, i ? 4 : 2, j ? 4 : 3);
       if (i) {
-        CheckNop(&code, j2);
+        CheckNop(code, j2);
       } else {
-        CheckJump(&code, j2, 4);
+        CheckJump(code, j2, 4);
       }
       if (j) {
-        CheckNop(&code, j3);
+        CheckNop(code, j3);
       } else {
-        CheckJump(&code, j3, 4);
+        CheckJump(code, j3, 4);
       }
 
       int assembly[] = {0, 1, 2, 3, 4};
@@ -836,93 +765,9 @@ TEST(Rewire_diamond) {
       if (j) {
         for (int k = 4; k < 5; k++) assembly[k]--;
       }
-      CheckAssemblyOrder(&code, kBlockCount, assembly);
+      CheckAssemblyOrder(code, 5, assembly);
     }
   }
-}
-
-TEST(RewireRet) {
-  constexpr size_t kBlockCount = 4;
-  TestCode code(kBlockCount);
-
-  // B0
-  code.Branch(1, 2);
-  // B1
-  int j1 = code.Return(0);
-  // B2
-  int j2 = code.Return(0);
-  // B3
-  code.End();
-
-  int forward[] = {0, 1, 1, 3};
-  VerifyForwarding(&code, 4, forward);
-  ApplyForwarding(&code, 4, forward);
-
-  CheckRet(&code, j1);
-  CheckNop(&code, j2);
-}
-
-TEST(RewireRet1) {
-  constexpr size_t kBlockCount = 4;
-  TestCode code(kBlockCount);
-
-  // B0
-  code.Branch(1, 2);
-  // B1
-  int j1 = code.Return(0);
-  // B2
-  int j2 = code.Return(0, true, true);
-  // B3
-  code.End();
-
-  int forward[] = {0, 1, 2, 3};
-  VerifyForwarding(&code, kBlockCount, forward);
-  ApplyForwarding(&code, kBlockCount, forward);
-
-  CheckRet(&code, j1);
-  CheckRet(&code, j2);
-}
-
-TEST(RewireRet2) {
-  constexpr size_t kBlockCount = 4;
-  TestCode code(kBlockCount);
-
-  // B0
-  code.Branch(1, 2);
-  // B1
-  int j1 = code.Return(0, true, true);
-  // B2
-  int j2 = code.Return(0, true, true);
-  // B3
-  code.End();
-
-  int forward[] = {0, 1, 1, 3};
-  VerifyForwarding(&code, kBlockCount, forward);
-  ApplyForwarding(&code, kBlockCount, forward);
-
-  CheckRet(&code, j1);
-  CheckNop(&code, j2);
-}
-
-TEST(DifferentSizeRet) {
-  constexpr size_t kBlockCount = 4;
-  TestCode code(kBlockCount);
-
-  // B0
-  code.Branch(1, 2);
-  // B1
-  int j1 = code.Return(0);
-  // B2
-  int j2 = code.Return(1);
-  // B3
-  code.End();
-
-  int forward[] = {0, 1, 2, 3};
-  VerifyForwarding(&code, kBlockCount, forward);
-  ApplyForwarding(&code, kBlockCount, forward);
-
-  CheckRet(&code, j1);
-  CheckRet(&code, j2);
 }
 
 }  // namespace compiler

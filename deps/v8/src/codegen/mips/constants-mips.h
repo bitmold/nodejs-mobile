@@ -89,18 +89,15 @@ const uint32_t kHoleNanLower32Offset = 4;
 #error Unknown endianness
 #endif
 
-constexpr bool IsFp64Mode() { return kFpuMode == kFP64; }
-constexpr bool IsFp32Mode() { return kFpuMode == kFP32; }
-constexpr bool IsFpxxMode() { return kFpuMode == kFPXX; }
+#define IsFp64Mode() (kFpuMode == kFP64)
+#define IsFp32Mode() (kFpuMode == kFP32)
+#define IsFpxxMode() (kFpuMode == kFPXX)
 
 #ifndef _MIPS_ARCH_MIPS32RX
-constexpr bool IsMipsArchVariant(const ArchVariants check) {
-  return kArchVariant == check;
-}
+#define IsMipsArchVariant(check) (kArchVariant == check)
 #else
-bool IsMipsArchVariant(const ArchVariants check) {
-  return CpuFeatures::IsSupported(static_cast<CpuFeature>(check));
-}
+#define IsMipsArchVariant(check) \
+  (CpuFeatures::IsSupported(static_cast<CpuFeature>(check)))
 #endif
 
 #if defined(V8_TARGET_LITTLE_ENDIAN)
@@ -202,26 +199,6 @@ const uint32_t kFCSRFlagMask =
     kFCSRDivideByZeroFlagMask | kFCSRInvalidOpFlagMask;
 
 const uint32_t kFCSRExceptionFlagMask = kFCSRFlagMask ^ kFCSRInexactFlagMask;
-
-const uint32_t kFCSRInexactCauseBit = 12;
-const uint32_t kFCSRUnderflowCauseBit = 13;
-const uint32_t kFCSROverflowCauseBit = 14;
-const uint32_t kFCSRDivideByZeroCauseBit = 15;
-const uint32_t kFCSRInvalidOpCauseBit = 16;
-const uint32_t kFCSRUnimplementedOpCauseBit = 17;
-
-const uint32_t kFCSRInexactCauseMask = 1 << kFCSRInexactCauseBit;
-const uint32_t kFCSRUnderflowCauseMask = 1 << kFCSRUnderflowCauseBit;
-const uint32_t kFCSROverflowCauseMask = 1 << kFCSROverflowCauseBit;
-const uint32_t kFCSRDivideByZeroCauseMask = 1 << kFCSRDivideByZeroCauseBit;
-const uint32_t kFCSRInvalidOpCauseMask = 1 << kFCSRInvalidOpCauseBit;
-const uint32_t kFCSRUnimplementedOpCauseMask = 1
-                                               << kFCSRUnimplementedOpCauseBit;
-
-const uint32_t kFCSRCauseMask =
-    kFCSRInexactCauseMask | kFCSRUnderflowCauseMask | kFCSROverflowCauseMask |
-    kFCSRDivideByZeroCauseMask | kFCSRInvalidOpCauseMask |
-    kFCSRUnimplementedOpCauseBit;
 
 // 'pref' instruction hints
 const int32_t kPrefHintLoad = 0;

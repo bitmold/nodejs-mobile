@@ -4,13 +4,11 @@
 
 #include "src/utils/allocation.h"
 
-#include "test/unittests/test-utils.h"
-
 #if V8_OS_POSIX
 #include <setjmp.h>
 #include <signal.h>
-#include <unistd.h>
-#endif  // V8_OS_POSIX
+#include <unistd.h>  // NOLINT
+#endif               // V8_OS_POSIX
 
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -31,13 +29,13 @@ namespace {
 // We don't test the execution permission because to do so we'd have to
 // dynamically generate code and test if we can execute it.
 
-class MemoryAllocationPermissionsTest : public TestWithPlatform {
+class MemoryAllocationPermissionsTest : public ::testing::Test {
   static void SignalHandler(int signal, siginfo_t* info, void*) {
     siglongjmp(continuation_, 1);
   }
   struct sigaction old_action_;
 // On Mac, sometimes we get SIGBUS instead of SIGSEGV.
-#if V8_OS_DARWIN
+#if V8_OS_MACOSX
   struct sigaction old_bus_action_;
 #endif
 
@@ -48,7 +46,7 @@ class MemoryAllocationPermissionsTest : public TestWithPlatform {
     sigemptyset(&action.sa_mask);
     action.sa_flags = SA_SIGINFO;
     sigaction(SIGSEGV, &action, &old_action_);
-#if V8_OS_DARWIN
+#if V8_OS_MACOSX
     sigaction(SIGBUS, &action, &old_bus_action_);
 #endif
   }
@@ -56,7 +54,7 @@ class MemoryAllocationPermissionsTest : public TestWithPlatform {
   void TearDown() override {
     // Be a good citizen and restore the old signal handler.
     sigaction(SIGSEGV, &old_action_, nullptr);
-#if V8_OS_DARWIN
+#if V8_OS_MACOSX
     sigaction(SIGBUS, &old_bus_action_, nullptr);
 #endif
   }
@@ -104,7 +102,7 @@ class MemoryAllocationPermissionsTest : public TestWithPlatform {
         page_allocator, nullptr, page_size, page_size, permission));
     ProbeMemory(buffer, MemoryAction::kRead, can_read);
     ProbeMemory(buffer, MemoryAction::kWrite, can_write);
-    FreePages(page_allocator, buffer, page_size);
+    CHECK(FreePages(page_allocator, buffer, page_size));
   }
 };
 
@@ -112,10 +110,6 @@ sigjmp_buf MemoryAllocationPermissionsTest::continuation_;
 
 }  // namespace
 
-// TODO(almuthanna): This test was skipped because it causes a crash when it is
-// ran on Fuchsia. This issue should be solved later on
-// Ticket: https://crbug.com/1028617
-#if !defined(V8_TARGET_OS_FUCHSIA)
 TEST_F(MemoryAllocationPermissionsTest, DoTest) {
   TestPermissions(PageAllocator::Permission::kNoAccess, false, false);
   TestPermissions(PageAllocator::Permission::kRead, true, false);
@@ -123,15 +117,13 @@ TEST_F(MemoryAllocationPermissionsTest, DoTest) {
   TestPermissions(PageAllocator::Permission::kReadWriteExecute, true, true);
   TestPermissions(PageAllocator::Permission::kReadExecute, true, false);
 }
-#endif
-
 #endif  // V8_OS_POSIX
 
 // Basic tests of allocation.
 
-class AllocationTest : public TestWithPlatform {};
+class AllocationTest : public ::testing::Test {};
 
-TEST_F(AllocationTest, AllocateAndFree) {
+TEST(AllocationTest, AllocateAndFree) {
   size_t page_size = v8::internal::AllocatePageSize();
   CHECK_NE(0, page_size);
 
@@ -143,7 +135,7 @@ TEST_F(AllocationTest, AllocateAndFree) {
       page_allocator, page_allocator->GetRandomMmapAddr(), kAllocationSize,
       page_size, PageAllocator::Permission::kReadWrite);
   CHECK_NOT_NULL(mem_addr);
-  v8::internal::FreePages(page_allocator, mem_addr, kAllocationSize);
+  CHECK(v8::internal::FreePages(page_allocator, mem_addr, kAllocationSize));
 
   // A large allocation, aligned significantly beyond native granularity.
   const size_t kBigAlignment = 64 * v8::internal::MB;
@@ -153,10 +145,11 @@ TEST_F(AllocationTest, AllocateAndFree) {
       kAllocationSize, kBigAlignment, PageAllocator::Permission::kReadWrite);
   CHECK_NOT_NULL(aligned_mem_addr);
   CHECK_EQ(aligned_mem_addr, AlignedAddress(aligned_mem_addr, kBigAlignment));
-  v8::internal::FreePages(page_allocator, aligned_mem_addr, kAllocationSize);
+  CHECK(v8::internal::FreePages(page_allocator, aligned_mem_addr,
+                                kAllocationSize));
 }
 
-TEST_F(AllocationTest, ReserveMemory) {
+TEST(AllocationTest, ReserveMemory) {
   v8::PageAllocator* page_allocator = v8::internal::GetPlatformPageAllocator();
   size_t page_size = v8::internal::AllocatePageSize();
   const size_t kAllocationSize = 1 * v8::internal::MB;
@@ -173,7 +166,7 @@ TEST_F(AllocationTest, ReserveMemory) {
   addr[v8::internal::KB - 1] = 2;
   CHECK(v8::internal::SetPermissions(page_allocator, mem_addr, commit_size,
                                      PageAllocator::Permission::kNoAccess));
-  v8::internal::FreePages(page_allocator, mem_addr, kAllocationSize);
+  CHECK(v8::internal::FreePages(page_allocator, mem_addr, kAllocationSize));
 }
 
 }  // namespace internal

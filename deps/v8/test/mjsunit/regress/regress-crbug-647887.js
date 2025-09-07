@@ -10,6 +10,5 @@ function f(obj) {
   return key === undefined;
 }
 
-%PrepareFunctionForOptimization(f);
 %OptimizeFunctionOnNextCall(f);
 assertFalse(f({ foo:0 }));

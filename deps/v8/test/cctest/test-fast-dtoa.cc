@@ -27,17 +27,18 @@
 
 #include <stdlib.h>
 
-#include "src/base/numbers/diy-fp.h"
-#include "src/base/numbers/double.h"
-#include "src/base/numbers/fast-dtoa.h"
-#include "src/base/platform/platform.h"
 #include "src/init/v8.h"
+
+#include "src/base/platform/platform.h"
+#include "src/numbers/diy-fp.h"
+#include "src/numbers/double.h"
+#include "src/numbers/fast-dtoa.h"
 #include "test/cctest/cctest.h"
 #include "test/cctest/gay-precision.h"
 #include "test/cctest/gay-shortest.h"
 
 namespace v8 {
-namespace base {
+namespace internal {
 namespace test_fast_dtoa {
 
 static const int kBufferSize = 100;
@@ -102,7 +103,7 @@ TEST(FastDtoaShortestVariousDoubles) {
     CHECK_EQ(299, point);
   }
 
-  uint64_t smallest_normal64 = 0x0010'0000'0000'0000;
+  uint64_t smallest_normal64 = V8_2PART_UINT64_C(0x00100000, 00000000);
   double v = Double(smallest_normal64).value();
   status = FastDtoa(v, FAST_DTOA_SHORTEST, 0, buffer, &length, &point);
   if (status) {
@@ -110,7 +111,7 @@ TEST(FastDtoaShortestVariousDoubles) {
     CHECK_EQ(-307, point);
   }
 
-  uint64_t largest_denormal64 = 0x000F'FFFF'FFFF'FFFF;
+  uint64_t largest_denormal64 = V8_2PART_UINT64_C(0x000FFFFF, FFFFFFFF);
   v = Double(largest_denormal64).value();
   status = FastDtoa(v, FAST_DTOA_SHORTEST, 0, buffer, &length, &point);
   if (status) {
@@ -191,14 +192,14 @@ TEST(FastDtoaPrecisionVariousDoubles) {
   CHECK_EQ(0, strcmp("35844466", buffer.begin()));
   CHECK_EQ(299, point);
 
-  uint64_t smallest_normal64 = 0x0010'0000'0000'0000;
+  uint64_t smallest_normal64 = V8_2PART_UINT64_C(0x00100000, 00000000);
   double v = Double(smallest_normal64).value();
   status = FastDtoa(v, FAST_DTOA_PRECISION, 17, buffer, &length, &point);
   CHECK(status);
   CHECK_EQ(0, strcmp("22250738585072014", buffer.begin()));
   CHECK_EQ(-307, point);
 
-  uint64_t largest_denormal64 = 0x000F'FFFF'FFFF'FFFF;
+  uint64_t largest_denormal64 = V8_2PART_UINT64_C(0x000FFFFF, FFFFFFFF);
   v = Double(largest_denormal64).value();
   status = FastDtoa(v, FAST_DTOA_PRECISION, 17, buffer, &length, &point);
   CHECK(status);
@@ -290,5 +291,5 @@ TEST(FastDtoaGayPrecision) {
 }
 
 }  // namespace test_fast_dtoa
-}  // namespace base
+}  // namespace internal
 }  // namespace v8

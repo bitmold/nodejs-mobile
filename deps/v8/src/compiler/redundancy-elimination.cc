@@ -19,9 +19,7 @@ RedundancyElimination::~RedundancyElimination() = default;
 Reduction RedundancyElimination::Reduce(Node* node) {
   if (node_checks_.Get(node)) return NoChange();
   switch (node->opcode()) {
-    case IrOpcode::kCheckBigInt:
     case IrOpcode::kCheckBounds:
-    case IrOpcode::kCheckClosure:
     case IrOpcode::kCheckEqualsInternalizedString:
     case IrOpcode::kCheckEqualsSymbol:
     case IrOpcode::kCheckFloat64Hole:
@@ -65,13 +63,13 @@ Reduction RedundancyElimination::Reduce(Node* node) {
 RedundancyElimination::EffectPathChecks*
 RedundancyElimination::EffectPathChecks::Copy(Zone* zone,
                                               EffectPathChecks const* checks) {
-  return zone->New<EffectPathChecks>(*checks);
+  return new (zone->New(sizeof(EffectPathChecks))) EffectPathChecks(*checks);
 }
 
 // static
 RedundancyElimination::EffectPathChecks const*
 RedundancyElimination::EffectPathChecks::Empty(Zone* zone) {
-  return zone->New<EffectPathChecks>(nullptr, 0);
+  return new (zone->New(sizeof(EffectPathChecks))) EffectPathChecks(nullptr, 0);
 }
 
 bool RedundancyElimination::EffectPathChecks::Equals(
@@ -119,8 +117,9 @@ void RedundancyElimination::EffectPathChecks::Merge(
 RedundancyElimination::EffectPathChecks const*
 RedundancyElimination::EffectPathChecks::AddCheck(Zone* zone,
                                                   Node* node) const {
-  Check* head = zone->New<Check>(node, head_);
-  return zone->New<EffectPathChecks>(head, size_ + 1);
+  Check* head = new (zone->New(sizeof(Check))) Check(node, head_);
+  return new (zone->New(sizeof(EffectPathChecks)))
+      EffectPathChecks(head, size_ + 1);
 }
 
 namespace {
@@ -137,13 +136,6 @@ bool CheckSubsumes(Node const* a, Node const* b) {
     } else if (a->opcode() == IrOpcode::kCheckedTaggedSignedToInt32 &&
                b->opcode() == IrOpcode::kCheckedTaggedToInt32) {
       // CheckedTaggedSignedToInt32(node) implies CheckedTaggedToInt32(node)
-    } else if (a->opcode() == IrOpcode::kCheckedTaggedSignedToInt32 &&
-               b->opcode() == IrOpcode::kCheckedTaggedToArrayIndex) {
-      // CheckedTaggedSignedToInt32(node) implies
-      // CheckedTaggedToArrayIndex(node)
-    } else if (a->opcode() == IrOpcode::kCheckedTaggedToInt32 &&
-               b->opcode() == IrOpcode::kCheckedTaggedToArrayIndex) {
-      // CheckedTaggedToInt32(node) implies CheckedTaggedToArrayIndex(node)
     } else if (a->opcode() == IrOpcode::kCheckReceiver &&
                b->opcode() == IrOpcode::kCheckReceiverOrNullOrUndefined) {
       // CheckReceiver(node) implies CheckReceiverOrNullOrUndefined(node)
@@ -155,7 +147,6 @@ bool CheckSubsumes(Node const* a, Node const* b) {
         case IrOpcode::kCheckSmi:
         case IrOpcode::kCheckString:
         case IrOpcode::kCheckNumber:
-        case IrOpcode::kCheckBigInt:
           break;
         case IrOpcode::kCheckedInt32ToTaggedSigned:
         case IrOpcode::kCheckedInt64ToInt32:
@@ -163,7 +154,10 @@ bool CheckSubsumes(Node const* a, Node const* b) {
         case IrOpcode::kCheckedTaggedSignedToInt32:
         case IrOpcode::kCheckedTaggedToTaggedPointer:
         case IrOpcode::kCheckedTaggedToTaggedSigned:
-        case IrOpcode::kCheckedTaggedToArrayIndex:
+        case IrOpcode::kCheckedCompressedToTaggedPointer:
+        case IrOpcode::kCheckedCompressedToTaggedSigned:
+        case IrOpcode::kCheckedTaggedToCompressedPointer:
+        case IrOpcode::kCheckedTaggedToCompressedSigned:
         case IrOpcode::kCheckedUint32Bounds:
         case IrOpcode::kCheckedUint32ToInt32:
         case IrOpcode::kCheckedUint32ToTaggedSigned:
@@ -237,9 +231,7 @@ Node* RedundancyElimination::EffectPathChecks::LookupBoundsCheckFor(
     Node* node) const {
   for (Check const* check = head_; check != nullptr; check = check->next) {
     if (check->node->opcode() == IrOpcode::kCheckBounds &&
-        check->node->InputAt(0) == node && TypeSubsumes(node, check->node) &&
-        !(CheckBoundsParametersOf(check->node->op()).flags() &
-          CheckBoundsFlag::kConvertStringAndMinusZero)) {
+        check->node->InputAt(0) == node) {
       return check->node;
     }
   }
@@ -334,8 +326,8 @@ Reduction RedundancyElimination::ReduceSpeculativeNumberComparison(Node* node) {
           // the regular Number comparisons in JavaScript also identify
           // 0 and -0 (unlike special comparisons as Object.is).
           NodeProperties::ReplaceValueInput(node, check, 0);
-          return Changed(node).FollowedBy(
-              ReduceSpeculativeNumberComparison(node));
+          Reduction const reduction = ReduceSpeculativeNumberComparison(node);
+          return reduction.Changed() ? reduction : Changed(node);
         }
       }
     }
@@ -352,8 +344,8 @@ Reduction RedundancyElimination::ReduceSpeculativeNumberComparison(Node* node) {
           // the regular Number comparisons in JavaScript also identify
           // 0 and -0 (unlike special comparisons as Object.is).
           NodeProperties::ReplaceValueInput(node, check, 1);
-          return Changed(node).FollowedBy(
-              ReduceSpeculativeNumberComparison(node));
+          Reduction const reduction = ReduceSpeculativeNumberComparison(node);
+          return reduction.Changed() ? reduction : Changed(node);
         }
       }
     }

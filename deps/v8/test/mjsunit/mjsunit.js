@@ -25,34 +25,18 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-var MjsUnitAssertionError = class MjsUnitAssertionError {
-  #cached_message = undefined;
-  #message_func = undefined;
-
-  constructor(message_func) {
-    this.#message_func = message_func;
-    // Temporarily install a custom stack trace formatter and restore the
-    // previous value.
-    let prevPrepareStackTrace = Error.prepareStackTrace;
-    try {
-      Error.prepareStackTrace = MjsUnitAssertionError.prepareStackTrace;
-      // This allows fetching the stack trace using TryCatch::StackTrace.
-      this.stack = new Error("MjsUnitAssertionError").stack;
-    } finally {
-      Error.prepareStackTrace = prevPrepareStackTrace;
-    }
+function MjsUnitAssertionError(message) {
+  this.message = message;
+  // Temporarily install a custom stack trace formatter and restore the
+  // previous value.
+  let prevPrepareStackTrace = Error.prepareStackTrace;
+  try {
+    Error.prepareStackTrace = MjsUnitAssertionError.prepareStackTrace;
+    // This allows fetching the stack trace using TryCatch::StackTrace.
+    this.stack = new Error("MjsUnitAssertionError").stack;
+  } finally {
+    Error.prepareStackTrace = prevPrepareStackTrace;
   }
-
-  get message() {
-    if (this.#cached_message === undefined) {
-      this.#cached_message = this.#message_func();
-    }
-    return this.#cached_message
-  }
-
-  toString() {
-    return this.message + "\n\nStack: " + this.stack;
-  };
 }
 
 /*
@@ -60,6 +44,11 @@ var MjsUnitAssertionError = class MjsUnitAssertionError {
  * framework expects lines that signal failed tests to start with
  * the f-word and ignore all other lines.
  */
+
+MjsUnitAssertionError.prototype.toString = function () {
+  return this.message + "\n\nStack: " + this.stack;
+};
+
 
 // Expected and found values the same objects, or the same primitive
 // values.
@@ -143,7 +132,9 @@ var assertInstanceof;
 // Assert that this code is never executed (i.e., always fails if executed).
 var assertUnreachable;
 
-// Assert that the function code is (not) optimized.
+// Assert that the function code is (not) optimized.  If "no sync" is passed
+// as second argument, we do not wait for the concurrent optimization thread to
+// finish when polling for optimization status.
 // Only works with --allow-natives-syntax.
 var assertOptimized;
 var assertUnoptimized;
@@ -175,19 +166,14 @@ var V8OptimizationStatus = {
   kAlwaysOptimize: 1 << 2,
   kMaybeDeopted: 1 << 3,
   kOptimized: 1 << 4,
-  kMaglevved: 1 << 5,
-  kTurboFanned: 1 << 6,
-  kInterpreted: 1 << 7,
-  kMarkedForOptimization: 1 << 8,
-  kMarkedForConcurrentOptimization: 1 << 9,
-  kOptimizingConcurrently: 1 << 10,
-  kIsExecuting: 1 << 11,
-  kTopmostFrameIsTurboFanned: 1 << 12,
-  kLiteMode: 1 << 13,
-  kMarkedForDeoptimization: 1 << 14,
-  kBaseline: 1 << 15,
-  kTopmostFrameIsInterpreted: 1 << 16,
-  kTopmostFrameIsBaseline: 1 << 17,
+  kTurboFanned: 1 << 5,
+  kInterpreted: 1 << 6,
+  kMarkedForOptimization: 1 << 7,
+  kMarkedForConcurrentOptimization: 1 << 8,
+  kOptimizingConcurrently: 1 << 9,
+  kIsExecuting: 1 << 10,
+  kTopmostFrameIsTurboFanned: 1 << 11,
+  kLiteMode: 1 << 12,
 };
 
 // Returns true if --lite-mode is on and we can't ever turn on optimization.
@@ -202,17 +188,8 @@ var isAlwaysOptimize;
 // Returns true if given function in interpreted.
 var isInterpreted;
 
-// Returns true if given function in baseline.
-var isBaseline;
-
-// Returns true if given function in unoptimized (interpreted or baseline).
-var isUnoptimized;
-
 // Returns true if given function is optimized.
 var isOptimized;
-
-// Returns true if given function is compiled by Maglev.
-var isMaglevved;
 
 // Returns true if given function is compiled by TurboFan.
 var isTurboFanned;
@@ -238,7 +215,6 @@ var prettyPrinted;
   var ArrayPrototypeJoin = Array.prototype.join;
   var ArrayPrototypeMap = Array.prototype.map;
   var ArrayPrototypePush = Array.prototype.push;
-  var JSONStringify = JSON.stringify;
 
   var BigIntPrototypeValueOf;
   // TODO(neis): Remove try-catch once BigInts are enabled by default.
@@ -273,82 +249,69 @@ var prettyPrinted;
 
 
   prettyPrinted = function prettyPrinted(value) {
-    let visited = new Set();
-    function prettyPrint(value) {
-      try {
-        switch (typeof value) {
-          case "string":
-            return JSONStringify(value);
-          case "bigint":
-            return String(value) + "n";
-          case "number":
-            if (value === 0 && (1 / value) < 0) return "-0";
-            // FALLTHROUGH.
-          case "boolean":
-          case "undefined":
-          case "function":
-          case "symbol":
-            return String(value);
-          case "object":
-            if (value === null) return "null";
-            // Guard against re-visiting.
-            if (visited.has(value)) return "<...>";
-            visited.add(value);
-            var objectClass = classOf(value);
-            switch (objectClass) {
-              case "Number":
-              case "BigInt":
-              case "String":
-              case "Boolean":
-              case "Date":
-                return objectClass + "(" + prettyPrint(ValueOf(value)) + ")";
-              case "RegExp":
-                return RegExpPrototypeToString.call(value);
-              case "Array":
-                var mapped = ArrayPrototypeMap.call(
-                    value, (v,i,array)=>{
-                      if (v === undefined && !(i in array)) return "";
-                      return prettyPrint(v, visited);
-                    });
-                var joined = ArrayPrototypeJoin.call(mapped, ",");
-                return "[" + joined + "]";
-              case "Uint8Array":
-              case "Int8Array":
-              case "Int16Array":
-              case "Uint16Array":
-              case "Uint32Array":
-              case "Int32Array":
-              case "Float32Array":
-              case "Float64Array":
-                var joined = ArrayPrototypeJoin.call(value, ",");
-                return objectClass + "([" + joined + "])";
-              case "Object":
-                break;
-              default:
-                return objectClass + "(" + String(value) + ")";
-            }
-            // classOf() returned "Object".
-            var name = value.constructor?.name ?? "Object";
-            var pretty_properties = [];
-            for (let [k,v] of Object.entries(value)) {
-              ArrayPrototypePush.call(
-                  pretty_properties, `${k}:${prettyPrint(v, visited)}`);
-            }
-            var joined = ArrayPrototypeJoin.call(pretty_properties, ",");
-            return `${name}({${joined}})`;
+    switch (typeof value) {
+      case "string":
+        return JSON.stringify(value);
+      case "bigint":
+        return String(value) + "n";
+      case "number":
+        if (value === 0 && (1 / value) < 0) return "-0";
+        // FALLTHROUGH.
+      case "boolean":
+      case "undefined":
+      case "function":
+      case "symbol":
+        return String(value);
+      case "object":
+        if (value === null) return "null";
+        var objectClass = classOf(value);
+        switch (objectClass) {
+          case "Number":
+          case "BigInt":
+          case "String":
+          case "Boolean":
+          case "Date":
+            return objectClass + "(" + prettyPrinted(ValueOf(value)) + ")";
+          case "RegExp":
+            return RegExpPrototypeToString.call(value);
+          case "Array":
+            var mapped = ArrayPrototypeMap.call(
+                value, prettyPrintedArrayElement);
+            var joined = ArrayPrototypeJoin.call(mapped, ",");
+            return "[" + joined + "]";
+          case "Uint8Array":
+          case "Int8Array":
+          case "Int16Array":
+          case "Uint16Array":
+          case "Uint32Array":
+          case "Int32Array":
+          case "Float32Array":
+          case "Float64Array":
+            var joined = ArrayPrototypeJoin.call(value, ",");
+            return objectClass + "([" + joined + "])";
+          case "Object":
+            break;
           default:
-            return "-- unknown value --";
+            return objectClass + "(" + String(value) + ")";
         }
-      } catch (e) {
-        // Guard against general exceptions (especially stack overflows).
-        return "<error>"
-      }
+        // [[Class]] is "Object".
+        var name = value.constructor.name;
+        if (name) return name + "()";
+        return "Object()";
+      default:
+        return "-- unknown value --";
     }
-    return prettyPrint(value);
   }
 
+
+  function prettyPrintedArrayElement(value, index, array) {
+    if (value === undefined && !(index in array)) return "";
+    return prettyPrinted(value);
+  }
+
+
   failWithMessage = function failWithMessage(message) {
-    throw new MjsUnitAssertionError(()=>message);
+    throw new MjsUnitAssertionError(message);
   }
 
   formatFailureText = function(expectedText, found, name_opt) {
@@ -368,8 +331,7 @@ var prettyPrinted;
   }
 
   function fail(expectedText, found, name_opt) {
-    throw new MjsUnitAssertionError(
-        ()=>formatFailureText(expectedText, found, name_opt));
+    return failWithMessage(formatFailureText(expectedText, found, name_opt));
   }
 
 
@@ -428,13 +390,25 @@ var prettyPrinted;
   }
 
   assertSame = function assertSame(expected, found, name_opt) {
-    if (Object.is(expected, found)) return;
+    // TODO(mstarzinger): We should think about using Harmony's egal operator
+    // or the function equivalent Object.is() here.
+    if (found === expected) {
+      if (expected !== 0 || (1 / expected) === (1 / found)) return;
+    } else if ((expected !== expected) && (found !== found)) {
+      return;
+    }
     fail(prettyPrinted(expected), found, name_opt);
   };
 
   assertNotSame = function assertNotSame(expected, found, name_opt) {
-    if (!Object.is(expected, found)) return;
-    fail("not same as " + prettyPrinted(expected), found, name_opt);
+    // TODO(mstarzinger): We should think about using Harmony's egal operator
+    // or the function equivalent Object.is() here.
+    if (found !== expected) {
+      if (expected === 0 || (1 / expected) !== (1 / found)) return;
+    } else if (!((expected !== expected) && (found !== found))) {
+      return;
+    }
+    fail(prettyPrinted(expected), found, name_opt);
   }
 
   assertEquals = function assertEquals(expected, found, name_opt) {
@@ -585,14 +559,13 @@ var prettyPrinted;
   assertInstanceof = function assertInstanceof(obj, type) {
     if (!(obj instanceof type)) {
       var actualTypeName = null;
-      var actualConstructor = obj && Object.getPrototypeOf(obj).constructor;
-      if (typeof actualConstructor === 'function') {
+      var actualConstructor = Object.getPrototypeOf(obj).constructor;
+      if (typeof actualConstructor === "function") {
         actualTypeName = actualConstructor.name || String(actualConstructor);
       }
-      failWithMessage(
-          'Object <' + prettyPrinted(obj) + '> is not an instance of <' +
-          (type.name || type) + '>' +
-          (actualTypeName ? ' but of <' + actualTypeName + '>' : ''));
+      failWithMessage("Object <" + prettyPrinted(obj) + "> is not an instance of <" +
+               (type.name || type) + ">" +
+               (actualTypeName ? " but of <" + actualTypeName + ">" : ""));
     }
   };
 
@@ -684,21 +657,22 @@ var prettyPrinted;
 
   var OptimizationStatusImpl = undefined;
 
-  var OptimizationStatus = function(fun) {
+  var OptimizationStatus = function(fun, sync_opt) {
     if (OptimizationStatusImpl === undefined) {
       try {
         OptimizationStatusImpl = new Function(
-            "fun", "return %GetOptimizationStatus(fun);");
+            "fun", "sync", "return %GetOptimizationStatus(fun, sync);");
       } catch (e) {
         throw new Error("natives syntax not allowed");
       }
     }
-    return OptimizationStatusImpl(fun);
+    return OptimizationStatusImpl(fun, sync_opt);
   }
 
   assertUnoptimized = function assertUnoptimized(
-      fun, name_opt, skip_if_maybe_deopted = true) {
-    var opt_status = OptimizationStatus(fun);
+      fun, sync_opt, name_opt, skip_if_maybe_deopted = true) {
+    if (sync_opt === undefined) sync_opt = "";
+    var opt_status = OptimizationStatus(fun, sync_opt);
     // Tests that use assertUnoptimized() do not make sense if --always-opt
     // option is provided. Such tests must add --no-always-opt to flags comment.
     assertFalse((opt_status & V8OptimizationStatus.kAlwaysOptimize) !== 0,
@@ -711,13 +685,13 @@ var prettyPrinted;
       // to stress test the deoptimizer.
       return;
     }
-    var is_optimized = (opt_status & V8OptimizationStatus.kOptimized) !== 0;
-    assertFalse(is_optimized, name_opt);
+    assertFalse((opt_status & V8OptimizationStatus.kOptimized) !== 0, name_opt);
   }
 
   assertOptimized = function assertOptimized(
-      fun, name_opt, skip_if_maybe_deopted = true) {
-    var opt_status = OptimizationStatus(fun);
+      fun, sync_opt, name_opt, skip_if_maybe_deopted = true) {
+    if (sync_opt === undefined) sync_opt = "";
+    var opt_status = OptimizationStatus(fun, sync_opt);
     // Tests that use assertOptimized() do not make sense for Lite mode where
     // optimization is always disabled, explicitly exit the test with a warning.
     if (opt_status & V8OptimizationStatus.kLiteMode) {
@@ -766,31 +740,11 @@ var prettyPrinted;
            (opt_status & V8OptimizationStatus.kInterpreted) !== 0;
   }
 
-  isBaseline = function isBaseline(fun) {
-    var opt_status = OptimizationStatus(fun, "");
-    assertTrue((opt_status & V8OptimizationStatus.kIsFunction) !== 0,
-               "not a function");
-    return (opt_status & V8OptimizationStatus.kOptimized) === 0 &&
-           (opt_status & V8OptimizationStatus.kBaseline) !== 0;
-  }
-
-  isUnoptimized = function isUnoptimized(fun) {
-    return isInterpreted(fun) || isBaseline(fun);
-  }
-
   isOptimized = function isOptimized(fun) {
     var opt_status = OptimizationStatus(fun, "");
     assertTrue((opt_status & V8OptimizationStatus.kIsFunction) !== 0,
                "not a function");
     return (opt_status & V8OptimizationStatus.kOptimized) !== 0;
-  }
-
-  isMaglevved = function isMaglevved(fun) {
-    var opt_status = OptimizationStatus(fun, "");
-    assertTrue((opt_status & V8OptimizationStatus.kIsFunction) !== 0,
-               "not a function");
-    return (opt_status & V8OptimizationStatus.kOptimized) !== 0 &&
-           (opt_status & V8OptimizationStatus.kMaglevved) !== 0;
   }
 
   isTurboFanned = function isTurboFanned(fun) {

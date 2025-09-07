@@ -1804,7 +1804,6 @@ $L$SEH_begin_sha256_block_data_order_shaext:
 
 
 _shaext_shortcut:
-
 	lea	rsp,[((-88))+rsp]
 	movaps	XMMWORD[(-8-80)+rax],xmm6
 	movaps	XMMWORD[(-8-64)+rax],xmm7
@@ -2023,7 +2022,6 @@ $L$epilogue_shaext:
 	mov	rdi,QWORD[8+rsp]	;WIN64 epilogue
 	mov	rsi,QWORD[16+rsp]
 	DB	0F3h,0C3h		;repret
-
 $L$SEH_end_sha256_block_data_order_shaext:
 
 ALIGN	64
@@ -5478,8 +5476,6 @@ $L$ower_avx2:
 
 	lea	rsp,[448+rsp]
 
-
-
 	add	eax,DWORD[rdi]
 	add	ebx,DWORD[4+rdi]
 	add	ecx,DWORD[8+rdi]
@@ -5505,17 +5501,15 @@ $L$ower_avx2:
 	jbe	NEAR $L$oop_avx2
 	lea	rbp,[rsp]
 
-
-
-
 $L$done_avx2:
-	mov	rsi,QWORD[88+rbp]
+	lea	rsp,[rbp]
+	mov	rsi,QWORD[88+rsp]
 
 	vzeroupper
-	movaps	xmm6,XMMWORD[((64+32))+rbp]
-	movaps	xmm7,XMMWORD[((64+48))+rbp]
-	movaps	xmm8,XMMWORD[((64+64))+rbp]
-	movaps	xmm9,XMMWORD[((64+80))+rbp]
+	movaps	xmm6,XMMWORD[((64+32))+rsp]
+	movaps	xmm7,XMMWORD[((64+48))+rsp]
+	movaps	xmm8,XMMWORD[((64+64))+rsp]
+	movaps	xmm9,XMMWORD[((64+80))+rsp]
 	mov	r15,QWORD[((-48))+rsi]
 
 	mov	r14,QWORD[((-40))+rsi]

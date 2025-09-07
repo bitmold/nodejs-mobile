@@ -11,6 +11,7 @@
 #include "src/objects/objects-inl.h"
 #include "src/objects/oddball.h"
 #include "src/roots/roots-inl.h"
+#include "torque-generated/class-definitions-tq-inl.h"
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -18,15 +19,28 @@
 namespace v8 {
 namespace internal {
 
-#include "torque-generated/src/objects/struct-tq-inl.inc"
-
 TQ_OBJECT_CONSTRUCTORS_IMPL(Struct)
 TQ_OBJECT_CONSTRUCTORS_IMPL(Tuple2)
-TQ_OBJECT_CONSTRUCTORS_IMPL(AccessorPair)
+TQ_OBJECT_CONSTRUCTORS_IMPL(Tuple3)
+OBJECT_CONSTRUCTORS_IMPL(AccessorPair, Struct)
 
-NEVER_READ_ONLY_SPACE_IMPL(AccessorPair)
+OBJECT_CONSTRUCTORS_IMPL(ClassPositions, Struct)
 
-TQ_OBJECT_CONSTRUCTORS_IMPL(ClassPositions)
+CAST_ACCESSOR(AccessorPair)
+CAST_ACCESSOR(ClassPositions)
+
+void Struct::InitializeBody(int object_size) {
+  Object value = GetReadOnlyRoots().undefined_value();
+  for (int offset = kHeaderSize; offset < object_size; offset += kTaggedSize) {
+    WRITE_FIELD(*this, offset, value);
+  }
+}
+
+ACCESSORS(AccessorPair, getter, Object, kGetterOffset)
+ACCESSORS(AccessorPair, setter, Object, kSetterOffset)
+
+SMI_ACCESSORS(ClassPositions, start, kStartOffset)
+SMI_ACCESSORS(ClassPositions, end, kEndOffset)
 
 Object AccessorPair::get(AccessorComponent component) {
   return component == ACCESSOR_GETTER ? getter() : setter();
@@ -39,18 +53,6 @@ void AccessorPair::set(AccessorComponent component, Object value) {
     set_setter(value);
   }
 }
-
-void AccessorPair::set(AccessorComponent component, Object value,
-                       ReleaseStoreTag tag) {
-  if (component == ACCESSOR_GETTER) {
-    set_getter(value, tag);
-  } else {
-    set_setter(value, tag);
-  }
-}
-
-RELEASE_ACQUIRE_ACCESSORS(AccessorPair, getter, Object, kGetterOffset)
-RELEASE_ACQUIRE_ACCESSORS(AccessorPair, setter, Object, kSetterOffset)
 
 void AccessorPair::SetComponents(Object getter, Object setter) {
   if (!getter.IsNull()) set_getter(getter);

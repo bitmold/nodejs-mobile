@@ -14,30 +14,35 @@
 namespace v8 {
 namespace internal {
 
-void ReadOnlyDeserializer::DeserializeIntoIsolate() {
-  HandleScope scope(isolate());
+void ReadOnlyDeserializer::DeserializeInto(Isolate* isolate) {
+  Initialize(isolate);
 
-  ReadOnlyHeap* ro_heap = isolate()->read_only_heap();
+  if (!allocator()->ReserveSpace()) {
+    V8::FatalProcessOutOfMemory(isolate, "ReadOnlyDeserializer");
+  }
+
+  ReadOnlyHeap* ro_heap = isolate->heap()->read_only_heap();
 
   // No active threads.
-  DCHECK_NULL(isolate()->thread_manager()->FirstThreadStateInUse());
+  DCHECK_NULL(isolate->thread_manager()->FirstThreadStateInUse());
   // No active handles.
-  DCHECK(isolate()->handle_scope_implementer()->blocks()->empty());
+  DCHECK(isolate->handle_scope_implementer()->blocks()->empty());
   // Read-only object cache is not yet populated.
   DCHECK(!ro_heap->read_only_object_cache_is_initialized());
-  // Startup object cache is not yet populated.
-  DCHECK(isolate()->startup_object_cache()->empty());
+  // Partial snapshot cache is not yet populated.
+  DCHECK(isolate->partial_snapshot_cache()->empty());
   // Builtins are not yet created.
-  DCHECK(!isolate()->builtins()->is_initialized());
+  DCHECK(!isolate->builtins()->is_initialized());
 
   {
-    ReadOnlyRoots roots(isolate());
+    DisallowHeapAllocation no_gc;
+    ReadOnlyRoots roots(isolate);
 
     roots.Iterate(this);
-    ro_heap->read_only_space()->RepairFreeSpacesAfterDeserialization();
+    ro_heap->read_only_space()->RepairFreeListsAfterDeserialization();
 
     // Deserialize the Read-only Object Cache.
-    for (;;) {
+    for (size_t i = 0;; ++i) {
       Object* object = ro_heap->ExtendReadOnlyObjectCache();
       // During deserialization, the visitor populates the read-only object
       // cache and eventually terminates the cache with undefined.
@@ -46,11 +51,10 @@ void ReadOnlyDeserializer::DeserializeIntoIsolate() {
       if (object->IsUndefined(roots)) break;
     }
     DeserializeDeferredObjects();
-    CheckNoArrayBufferBackingStores();
   }
 
-  if (should_rehash()) {
-    isolate()->heap()->InitializeHashSeed();
+  if (FLAG_rehash_snapshot && can_rehash()) {
+    isolate_->heap()->InitializeHashSeed();
     Rehash();
   }
 }

@@ -5,18 +5,12 @@
 // Flags: --allow-natives-syntax
 
 function foo() {}
-foo.__defineGetter__(undefined, function() {});
+foo.__defineGetter__(undefined, function() {})
 
 function bar() {}
-function baz(x) {
-  return x instanceof bar;
-};
-%PrepareFunctionForOptimization(baz);
-;
+function baz(x) { return x instanceof bar };
 %OptimizeFunctionOnNextCall(baz);
 baz();
 Object.setPrototypeOf(bar, null);
-bar[Symbol.hasInstance] = function() {
-  return true;
-};
+bar[Symbol.hasInstance] = function() { return true };
 assertTrue(baz());

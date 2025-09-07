@@ -5,20 +5,31 @@
 #include "src/execution/execution.h"
 
 #include "src/api/api-inl.h"
+#include "src/compiler-dispatcher/optimizing-compile-dispatcher.h"
 #include "src/debug/debug.h"
-#include "src/execution/frames.h"
 #include "src/execution/isolate-inl.h"
+#include "src/execution/runtime-profiler.h"
 #include "src/execution/vm-state-inl.h"
-#include "src/logging/runtime-call-stats-scope.h"
-
-#if V8_ENABLE_WEBASSEMBLY
-#include "src/compiler/wasm-compiler.h"  // Only for static asserts.
-#include "src/wasm/code-space-access.h"
+#include "src/init/bootstrapper.h"
+#include "src/logging/counters.h"
 #include "src/wasm/wasm-engine.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace v8 {
 namespace internal {
+
+void StackGuard::set_interrupt_limits(const ExecutionAccess& lock) {
+  DCHECK_NOT_NULL(isolate_);
+  thread_local_.set_jslimit(kInterruptLimit);
+  thread_local_.set_climit(kInterruptLimit);
+  isolate_->heap()->SetStackLimits();
+}
+
+void StackGuard::reset_limits(const ExecutionAccess& lock) {
+  DCHECK_NOT_NULL(isolate_);
+  thread_local_.set_jslimit(thread_local_.real_jslimit_);
+  thread_local_.set_climit(thread_local_.real_climit_);
+  isolate_->heap()->SetStackLimits();
+}
 
 namespace {
 
@@ -46,26 +57,11 @@ struct InvokeParams {
       Isolate* isolate, Handle<Object> callable, Handle<Object> receiver,
       int argc, Handle<Object>* argv,
       Execution::MessageHandling message_handling,
-      MaybeHandle<Object>* exception_out, bool reschedule_terminate);
+      MaybeHandle<Object>* exception_out);
 
   static InvokeParams SetUpForRunMicrotasks(Isolate* isolate,
                                             MicrotaskQueue* microtask_queue,
                                             MaybeHandle<Object>* exception_out);
-
-  bool IsScript() const {
-    if (!target->IsJSFunction()) return false;
-    Handle<JSFunction> function = Handle<JSFunction>::cast(target);
-    return function->shared().is_script();
-  }
-
-  Handle<FixedArray> GetAndResetHostDefinedOptions() {
-    DCHECK(IsScript());
-    DCHECK_EQ(argc, 1);
-    auto options = Handle<FixedArray>::cast(argv[0]);
-    argv = nullptr;
-    argc = 0;
-    return options;
-  }
 
   Handle<Object> target;
   Handle<Object> receiver;
@@ -80,7 +76,6 @@ struct InvokeParams {
 
   bool is_construct;
   Execution::Target execution_target;
-  bool reschedule_terminate;
 };
 
 // static
@@ -91,7 +86,6 @@ InvokeParams InvokeParams::SetUpForNew(Isolate* isolate,
   InvokeParams params;
   params.target = constructor;
   params.receiver = isolate->factory()->undefined_value();
-  DCHECK(!params.IsScript());
   params.argc = argc;
   params.argv = argv;
   params.new_target = new_target;
@@ -100,7 +94,6 @@ InvokeParams InvokeParams::SetUpForNew(Isolate* isolate,
   params.exception_out = nullptr;
   params.is_construct = true;
   params.execution_target = Execution::Target::kCallable;
-  params.reschedule_terminate = true;
   return params;
 }
 
@@ -112,9 +105,6 @@ InvokeParams InvokeParams::SetUpForCall(Isolate* isolate,
   InvokeParams params;
   params.target = callable;
   params.receiver = NormalizeReceiver(isolate, receiver);
-  // Check for host-defined options argument for scripts.
-  DCHECK_IMPLIES(params.IsScript(), argc == 1);
-  DCHECK_IMPLIES(params.IsScript(), argv[0]->IsFixedArray());
   params.argc = argc;
   params.argv = argv;
   params.new_target = isolate->factory()->undefined_value();
@@ -123,7 +113,6 @@ InvokeParams InvokeParams::SetUpForCall(Isolate* isolate,
   params.exception_out = nullptr;
   params.is_construct = false;
   params.execution_target = Execution::Target::kCallable;
-  params.reschedule_terminate = true;
   return params;
 }
 
@@ -131,13 +120,10 @@ InvokeParams InvokeParams::SetUpForCall(Isolate* isolate,
 InvokeParams InvokeParams::SetUpForTryCall(
     Isolate* isolate, Handle<Object> callable, Handle<Object> receiver,
     int argc, Handle<Object>* argv, Execution::MessageHandling message_handling,
-    MaybeHandle<Object>* exception_out, bool reschedule_terminate) {
+    MaybeHandle<Object>* exception_out) {
   InvokeParams params;
   params.target = callable;
   params.receiver = NormalizeReceiver(isolate, receiver);
-  // Check for host-defined options argument for scripts.
-  DCHECK_IMPLIES(params.IsScript(), argc == 1);
-  DCHECK_IMPLIES(params.IsScript(), argv[0]->IsFixedArray());
   params.argc = argc;
   params.argv = argv;
   params.new_target = isolate->factory()->undefined_value();
@@ -146,7 +132,6 @@ InvokeParams InvokeParams::SetUpForTryCall(
   params.exception_out = exception_out;
   params.is_construct = false;
   params.execution_target = Execution::Target::kCallable;
-  params.reschedule_terminate = reschedule_terminate;
   return params;
 }
 
@@ -166,12 +151,11 @@ InvokeParams InvokeParams::SetUpForRunMicrotasks(
   params.exception_out = exception_out;
   params.is_construct = false;
   params.execution_target = Execution::Target::kRunMicrotasks;
-  params.reschedule_terminate = true;
   return params;
 }
 
-Handle<CodeT> JSEntry(Isolate* isolate, Execution::Target execution_target,
-                      bool is_construct) {
+Handle<Code> JSEntry(Isolate* isolate, Execution::Target execution_target,
+                     bool is_construct) {
   if (is_construct) {
     DCHECK_EQ(Execution::Target::kCallable, execution_target);
     return BUILTIN_CODE(isolate, JSConstructEntry);
@@ -185,110 +169,11 @@ Handle<CodeT> JSEntry(Isolate* isolate, Execution::Target execution_target,
   UNREACHABLE();
 }
 
-MaybeHandle<Context> NewScriptContext(Isolate* isolate,
-                                      Handle<JSFunction> function,
-                                      Handle<FixedArray> host_defined_options) {
-  // TODO(cbruni, 1244145): Use passed in host_defined_options.
-  // Creating a script context is a side effect, so abort if that's not
-  // allowed.
-  if (isolate->debug_execution_mode() == DebugInfo::kSideEffects) {
-    isolate->Throw(*isolate->factory()->NewEvalError(
-        MessageTemplate::kNoSideEffectDebugEvaluate));
-    return MaybeHandle<Context>();
-  }
-  SaveAndSwitchContext save(isolate, function->context());
-  SharedFunctionInfo sfi = function->shared();
-  Handle<Script> script(Script::cast(sfi.script()), isolate);
-  Handle<ScopeInfo> scope_info(sfi.scope_info(), isolate);
-  Handle<NativeContext> native_context(NativeContext::cast(function->context()),
-                                       isolate);
-  Handle<JSGlobalObject> global_object(native_context->global_object(),
-                                       isolate);
-  Handle<ScriptContextTable> script_context(
-      native_context->script_context_table(), isolate);
-
-  // Find name clashes.
-  for (auto it : ScopeInfo::IterateLocalNames(scope_info)) {
-    Handle<String> name(it->name(), isolate);
-    VariableMode mode = scope_info->ContextLocalMode(it->index());
-    VariableLookupResult lookup;
-    if (script_context->Lookup(name, &lookup)) {
-      if (IsLexicalVariableMode(mode) || IsLexicalVariableMode(lookup.mode)) {
-        Handle<Context> context = ScriptContextTable::GetContext(
-            isolate, script_context, lookup.context_index);
-        // If we are trying to re-declare a REPL-mode let as a let or REPL-mode
-        // const as a const, allow it.
-        if (!(((mode == VariableMode::kLet &&
-                lookup.mode == VariableMode::kLet) ||
-               (mode == VariableMode::kConst &&
-                lookup.mode == VariableMode::kConst)) &&
-              scope_info->IsReplModeScope() &&
-              context->scope_info().IsReplModeScope())) {
-          // ES#sec-globaldeclarationinstantiation 5.b:
-          // If envRec.HasLexicalDeclaration(name) is true, throw a SyntaxError
-          // exception.
-          MessageLocation location(script, 0, 1);
-          return isolate->ThrowAt<Context>(
-              isolate->factory()->NewSyntaxError(
-                  MessageTemplate::kVarRedeclaration, name),
-              &location);
-        }
-      }
-    }
-
-    if (IsLexicalVariableMode(mode)) {
-      LookupIterator it(isolate, global_object, name, global_object,
-                        LookupIterator::OWN_SKIP_INTERCEPTOR);
-      Maybe<PropertyAttributes> maybe = JSReceiver::GetPropertyAttributes(&it);
-      // Can't fail since the we looking up own properties on the global object
-      // skipping interceptors.
-      CHECK(!maybe.IsNothing());
-      if ((maybe.FromJust() & DONT_DELETE) != 0) {
-        // ES#sec-globaldeclarationinstantiation 5.a:
-        // If envRec.HasVarDeclaration(name) is true, throw a SyntaxError
-        // exception.
-        // ES#sec-globaldeclarationinstantiation 5.d:
-        // If hasRestrictedGlobal is true, throw a SyntaxError exception.
-        MessageLocation location(script, 0, 1);
-        return isolate->ThrowAt<Context>(
-            isolate->factory()->NewSyntaxError(
-                MessageTemplate::kVarRedeclaration, name),
-            &location);
-      }
-
-      JSGlobalObject::InvalidatePropertyCell(global_object, name);
-    }
-  }
-
-  Handle<Context> result =
-      isolate->factory()->NewScriptContext(native_context, scope_info);
-
-  result->Initialize(isolate);
-  // In REPL mode, we are allowed to add/modify let/const variables.
-  // We use the previous defined script context for those.
-  const bool ignore_duplicates = scope_info->IsReplModeScope();
-  Handle<ScriptContextTable> new_script_context_table =
-      ScriptContextTable::Extend(isolate, script_context, result,
-                                 ignore_duplicates);
-  native_context->synchronized_set_script_context_table(
-      *new_script_context_table);
-  return result;
-}
-
 V8_WARN_UNUSED_RESULT MaybeHandle<Object> Invoke(Isolate* isolate,
                                                  const InvokeParams& params) {
-  RCS_SCOPE(isolate, RuntimeCallCounterId::kInvoke);
+  RuntimeCallTimerScope timer(isolate, RuntimeCallCounterId::kInvoke);
   DCHECK(!params.receiver->IsJSGlobalObject());
   DCHECK_LE(params.argc, FixedArray::kMaxLength);
-
-#if V8_ENABLE_WEBASSEMBLY
-  // When executing JS code, there should be no {CodeSpaceWriteScope} open.
-  DCHECK(!wasm::CodeSpaceWriteScope::IsInScope());
-  // If we have PKU support for Wasm, ensure that code is currently write
-  // protected for this thread.
-  DCHECK_IMPLIES(wasm::GetWasmCodeManager()->HasMemoryProtectionKeySupport(),
-                 !wasm::GetWasmCodeManager()->MemoryProtectionKeyWritable());
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 #ifdef USE_SIMULATOR
   // Simulators use separate stacks for C++ and JS. JS stack overflow checks
@@ -333,34 +218,6 @@ V8_WARN_UNUSED_RESULT MaybeHandle<Object> Invoke(Isolate* isolate,
       }
       return value;
     }
-#ifdef DEBUG
-    if (function->shared().is_script()) {
-      DCHECK(params.IsScript());
-      DCHECK(params.receiver->IsJSGlobalProxy());
-      DCHECK_EQ(params.argc, 1);
-      DCHECK(params.argv[0]->IsFixedArray());
-    } else {
-      DCHECK(!params.IsScript());
-    }
-#endif
-    // Set up a ScriptContext when running scripts that need it.
-    if (function->shared().needs_script_context()) {
-      Handle<Context> context;
-      Handle<FixedArray> host_defined_options =
-          const_cast<InvokeParams&>(params).GetAndResetHostDefinedOptions();
-      if (!NewScriptContext(isolate, function, host_defined_options)
-               .ToHandle(&context)) {
-        if (params.message_handling == Execution::MessageHandling::kReport) {
-          isolate->ReportPendingMessages();
-        }
-        return MaybeHandle<Object>();
-      }
-
-      // We mutate the context if we allocate a script context. This is
-      // guaranteed to only happen once in a native context since scripts will
-      // always produce name clashes with themselves.
-      function->set_context(*context);
-    }
   }
 
   // Entering JavaScript.
@@ -378,25 +235,10 @@ V8_WARN_UNUSED_RESULT MaybeHandle<Object> Invoke(Isolate* isolate,
     return isolate->factory()->undefined_value();
   }
 
-  if (params.execution_target == Execution::Target::kCallable) {
-    Handle<Context> context = isolate->native_context();
-    if (!context->script_execution_callback().IsUndefined(isolate)) {
-      v8::Context::AbortScriptExecutionCallback callback =
-          v8::ToCData<v8::Context::AbortScriptExecutionCallback>(
-              context->script_execution_callback());
-      v8::Isolate* api_isolate = reinterpret_cast<v8::Isolate*>(isolate);
-      v8::Local<v8::Context> api_context = v8::Utils::ToLocal(context);
-      callback(api_isolate, api_context);
-      DCHECK(!isolate->has_scheduled_exception());
-      // Always throw an exception to abort execution, if callback exists.
-      isolate->ThrowIllegalOperation();
-      return MaybeHandle<Object>();
-    }
-  }
-
   // Placeholder for return value.
   Object value;
-  Handle<CodeT> code =
+
+  Handle<Code> code =
       JSEntry(isolate, params.execution_target, params.is_construct);
   {
     // Save and restore context around invocation and block the
@@ -421,10 +263,9 @@ V8_WARN_UNUSED_RESULT MaybeHandle<Object> Invoke(Isolate* isolate,
       Address func = params.target->ptr();
       Address recv = params.receiver->ptr();
       Address** argv = reinterpret_cast<Address**>(params.argv);
-      RCS_SCOPE(isolate, RuntimeCallCounterId::kJS_Execution);
+      RuntimeCallTimerScope timer(isolate, RuntimeCallCounterId::kJS_Execution);
       value = Object(stub_entry.Call(isolate->isolate_data()->isolate_root(),
-                                     orig_func, func, recv,
-                                     JSParameterCount(params.argc), argv));
+                                     orig_func, func, recv, params.argc, argv));
     } else {
       DCHECK_EQ(Execution::Target::kRunMicrotasks, params.execution_target);
 
@@ -437,7 +278,7 @@ V8_WARN_UNUSED_RESULT MaybeHandle<Object> Invoke(Isolate* isolate,
       JSEntryFunction stub_entry =
           JSEntryFunction::FromAddress(isolate, code->InstructionStart());
 
-      RCS_SCOPE(isolate, RuntimeCallCounterId::kJS_Execution);
+      RuntimeCallTimerScope timer(isolate, RuntimeCallCounterId::kJS_Execution);
       value = Object(stub_entry.Call(isolate->isolate_data()->isolate_root(),
                                      params.microtask_queue));
     }
@@ -496,17 +337,15 @@ MaybeHandle<Object> InvokeWithTryCatch(Isolate* isolate,
           DCHECK(isolate->external_caught_exception());
           *params.exception_out = v8::Utils::OpenHandle(*catcher.Exception());
         }
-        if (params.message_handling == Execution::MessageHandling::kReport) {
-          isolate->OptionalRescheduleException(true);
-        }
+      }
+      if (params.message_handling == Execution::MessageHandling::kReport) {
+        isolate->OptionalRescheduleException(true);
       }
     }
   }
 
-  if (is_termination && params.reschedule_terminate) {
-    // Reschedule terminate execution exception.
-    isolate->OptionalRescheduleException(false);
-  }
+  // Re-request terminate execution interrupt to trigger later.
+  if (is_termination) isolate->stack_guard()->RequestTerminateExecution();
 
   return maybe_result;
 }
@@ -517,23 +356,8 @@ MaybeHandle<Object> InvokeWithTryCatch(Isolate* isolate,
 MaybeHandle<Object> Execution::Call(Isolate* isolate, Handle<Object> callable,
                                     Handle<Object> receiver, int argc,
                                     Handle<Object> argv[]) {
-  // Use Execution::CallScript instead for scripts:
-  DCHECK_IMPLIES(callable->IsJSFunction(),
-                 !JSFunction::cast(*callable).shared().is_script());
   return Invoke(isolate, InvokeParams::SetUpForCall(isolate, callable, receiver,
                                                     argc, argv));
-}
-
-// static
-MaybeHandle<Object> Execution::CallScript(Isolate* isolate,
-                                          Handle<JSFunction> script_function,
-                                          Handle<Object> receiver,
-                                          Handle<Object> host_defined_options) {
-  DCHECK(script_function->shared().is_script());
-  DCHECK(receiver->IsJSGlobalProxy() || receiver->IsJSGlobalObject());
-  return Invoke(
-      isolate, InvokeParams::SetUpForCall(isolate, script_function, receiver, 1,
-                                          &host_defined_options));
 }
 
 MaybeHandle<Object> Execution::CallBuiltin(Isolate* isolate,
@@ -561,32 +385,16 @@ MaybeHandle<Object> Execution::New(Isolate* isolate, Handle<Object> constructor,
 }
 
 // static
-MaybeHandle<Object> Execution::TryCallScript(
-    Isolate* isolate, Handle<JSFunction> script_function,
-    Handle<Object> receiver, Handle<FixedArray> host_defined_options,
-    MessageHandling message_handling, MaybeHandle<Object>* exception_out,
-    bool reschedule_terminate) {
-  DCHECK(script_function->shared().is_script());
-  DCHECK(receiver->IsJSGlobalProxy() || receiver->IsJSGlobalObject());
-  Handle<Object> argument = host_defined_options;
+MaybeHandle<Object> Execution::TryCall(Isolate* isolate,
+                                       Handle<Object> callable,
+                                       Handle<Object> receiver, int argc,
+                                       Handle<Object> argv[],
+                                       MessageHandling message_handling,
+                                       MaybeHandle<Object>* exception_out) {
   return InvokeWithTryCatch(
-      isolate, InvokeParams::SetUpForTryCall(
-                   isolate, script_function, receiver, 1, &argument,
-                   message_handling, exception_out, reschedule_terminate));
-}
-
-// static
-MaybeHandle<Object> Execution::TryCall(
-    Isolate* isolate, Handle<Object> callable, Handle<Object> receiver,
-    int argc, Handle<Object> argv[], MessageHandling message_handling,
-    MaybeHandle<Object>* exception_out, bool reschedule_terminate) {
-  // Use Execution::TryCallScript instead for scripts:
-  DCHECK_IMPLIES(callable->IsJSFunction(),
-                 !JSFunction::cast(*callable).shared().is_script());
-  return InvokeWithTryCatch(
-      isolate, InvokeParams::SetUpForTryCall(
-                   isolate, callable, receiver, argc, argv, message_handling,
-                   exception_out, reschedule_terminate));
+      isolate,
+      InvokeParams::SetUpForTryCall(isolate, callable, receiver, argc, argv,
+                                    message_handling, exception_out));
 }
 
 // static
@@ -598,71 +406,272 @@ MaybeHandle<Object> Execution::TryRunMicrotasks(
                                                    exception_out));
 }
 
-struct StackHandlerMarker {
-  Address next;
-  Address padding;
-};
-STATIC_ASSERT(offsetof(StackHandlerMarker, next) ==
-              StackHandlerConstants::kNextOffset);
-STATIC_ASSERT(offsetof(StackHandlerMarker, padding) ==
-              StackHandlerConstants::kPaddingOffset);
-STATIC_ASSERT(sizeof(StackHandlerMarker) == StackHandlerConstants::kSize);
-
-#if V8_ENABLE_WEBASSEMBLY
-void Execution::CallWasm(Isolate* isolate, Handle<CodeT> wrapper_code,
-                         Address wasm_call_target, Handle<Object> object_ref,
-                         Address packed_args) {
-  using WasmEntryStub = GeneratedCode<Address(
-      Address target, Address object_ref, Address argv, Address c_entry_fp)>;
-  WasmEntryStub stub_entry =
-      WasmEntryStub::FromAddress(isolate, wrapper_code->InstructionStart());
-
-  // Save and restore context around invocation and block the
-  // allocation of handles without explicit handle scopes.
-  SaveContext save(isolate);
-  SealHandleScope shs(isolate);
-
-  Address saved_c_entry_fp = *isolate->c_entry_fp_address();
-  Address saved_js_entry_sp = *isolate->js_entry_sp_address();
-  if (saved_js_entry_sp == kNullAddress) {
-    *isolate->js_entry_sp_address() = GetCurrentStackPosition();
+void StackGuard::SetStackLimit(uintptr_t limit) {
+  ExecutionAccess access(isolate_);
+  // If the current limits are special (e.g. due to a pending interrupt) then
+  // leave them alone.
+  uintptr_t jslimit = SimulatorStack::JsLimitFromCLimit(isolate_, limit);
+  if (thread_local_.jslimit() == thread_local_.real_jslimit_) {
+    thread_local_.set_jslimit(jslimit);
   }
-  StackHandlerMarker stack_handler;
-  stack_handler.next = isolate->thread_local_top()->handler_;
-#ifdef V8_USE_ADDRESS_SANITIZER
-  stack_handler.padding = GetCurrentStackPosition();
-#else
-  stack_handler.padding = 0;
-#endif
-  isolate->thread_local_top()->handler_ =
-      reinterpret_cast<Address>(&stack_handler);
-  trap_handler::SetThreadInWasm();
+  if (thread_local_.climit() == thread_local_.real_climit_) {
+    thread_local_.set_climit(limit);
+  }
+  thread_local_.real_climit_ = limit;
+  thread_local_.real_jslimit_ = jslimit;
+}
 
-  {
-    RCS_SCOPE(isolate, RuntimeCallCounterId::kJS_Execution);
-    STATIC_ASSERT(compiler::CWasmEntryParameters::kCodeEntry == 0);
-    STATIC_ASSERT(compiler::CWasmEntryParameters::kObjectRef == 1);
-    STATIC_ASSERT(compiler::CWasmEntryParameters::kArgumentsBuffer == 2);
-    STATIC_ASSERT(compiler::CWasmEntryParameters::kCEntryFp == 3);
-    Address result = stub_entry.Call(wasm_call_target, object_ref->ptr(),
-                                     packed_args, saved_c_entry_fp);
-    if (result != kNullAddress) {
-      isolate->set_pending_exception(Object(result));
+void StackGuard::AdjustStackLimitForSimulator() {
+  ExecutionAccess access(isolate_);
+  uintptr_t climit = thread_local_.real_climit_;
+  // If the current limits are special (e.g. due to a pending interrupt) then
+  // leave them alone.
+  uintptr_t jslimit = SimulatorStack::JsLimitFromCLimit(isolate_, climit);
+  if (thread_local_.jslimit() == thread_local_.real_jslimit_) {
+    thread_local_.set_jslimit(jslimit);
+    isolate_->heap()->SetStackLimits();
+  }
+}
+
+void StackGuard::EnableInterrupts() {
+  ExecutionAccess access(isolate_);
+  if (has_pending_interrupts(access)) {
+    set_interrupt_limits(access);
+  }
+}
+
+void StackGuard::DisableInterrupts() {
+  ExecutionAccess access(isolate_);
+  reset_limits(access);
+}
+
+void StackGuard::PushInterruptsScope(InterruptsScope* scope) {
+  ExecutionAccess access(isolate_);
+  DCHECK_NE(scope->mode_, InterruptsScope::kNoop);
+  if (scope->mode_ == InterruptsScope::kPostponeInterrupts) {
+    // Intercept already requested interrupts.
+    int intercepted = thread_local_.interrupt_flags_ & scope->intercept_mask_;
+    scope->intercepted_flags_ = intercepted;
+    thread_local_.interrupt_flags_ &= ~intercepted;
+  } else {
+    DCHECK_EQ(scope->mode_, InterruptsScope::kRunInterrupts);
+    // Restore postponed interrupts.
+    int restored_flags = 0;
+    for (InterruptsScope* current = thread_local_.interrupt_scopes_;
+         current != nullptr; current = current->prev_) {
+      restored_flags |= (current->intercepted_flags_ & scope->intercept_mask_);
+      current->intercepted_flags_ &= ~scope->intercept_mask_;
+    }
+    thread_local_.interrupt_flags_ |= restored_flags;
+  }
+  if (!has_pending_interrupts(access)) reset_limits(access);
+  // Add scope to the chain.
+  scope->prev_ = thread_local_.interrupt_scopes_;
+  thread_local_.interrupt_scopes_ = scope;
+}
+
+void StackGuard::PopInterruptsScope() {
+  ExecutionAccess access(isolate_);
+  InterruptsScope* top = thread_local_.interrupt_scopes_;
+  DCHECK_NE(top->mode_, InterruptsScope::kNoop);
+  if (top->mode_ == InterruptsScope::kPostponeInterrupts) {
+    // Make intercepted interrupts active.
+    DCHECK_EQ(thread_local_.interrupt_flags_ & top->intercept_mask_, 0);
+    thread_local_.interrupt_flags_ |= top->intercepted_flags_;
+  } else {
+    DCHECK_EQ(top->mode_, InterruptsScope::kRunInterrupts);
+    // Postpone existing interupts if needed.
+    if (top->prev_) {
+      for (int interrupt = 1; interrupt < ALL_INTERRUPTS;
+           interrupt = interrupt << 1) {
+        InterruptFlag flag = static_cast<InterruptFlag>(interrupt);
+        if ((thread_local_.interrupt_flags_ & flag) &&
+            top->prev_->Intercept(flag)) {
+          thread_local_.interrupt_flags_ &= ~flag;
+        }
+      }
     }
   }
-
-  // If there was an exception, then the thread-in-wasm flag is cleared
-  // already.
-  if (trap_handler::IsThreadInWasm()) {
-    trap_handler::ClearThreadInWasm();
-  }
-  isolate->thread_local_top()->handler_ = stack_handler.next;
-  if (saved_js_entry_sp == kNullAddress) {
-    *isolate->js_entry_sp_address() = saved_js_entry_sp;
-  }
-  *isolate->c_entry_fp_address() = saved_c_entry_fp;
+  if (has_pending_interrupts(access)) set_interrupt_limits(access);
+  // Remove scope from chain.
+  thread_local_.interrupt_scopes_ = top->prev_;
 }
-#endif  // V8_ENABLE_WEBASSEMBLY
+
+bool StackGuard::CheckInterrupt(InterruptFlag flag) {
+  ExecutionAccess access(isolate_);
+  return thread_local_.interrupt_flags_ & flag;
+}
+
+void StackGuard::RequestInterrupt(InterruptFlag flag) {
+  ExecutionAccess access(isolate_);
+  // Check the chain of InterruptsScope for interception.
+  if (thread_local_.interrupt_scopes_ &&
+      thread_local_.interrupt_scopes_->Intercept(flag)) {
+    return;
+  }
+
+  // Not intercepted.  Set as active interrupt flag.
+  thread_local_.interrupt_flags_ |= flag;
+  set_interrupt_limits(access);
+
+  // If this isolate is waiting in a futex, notify it to wake up.
+  isolate_->futex_wait_list_node()->NotifyWake();
+}
+
+void StackGuard::ClearInterrupt(InterruptFlag flag) {
+  ExecutionAccess access(isolate_);
+  // Clear the interrupt flag from the chain of InterruptsScope.
+  for (InterruptsScope* current = thread_local_.interrupt_scopes_;
+       current != nullptr; current = current->prev_) {
+    current->intercepted_flags_ &= ~flag;
+  }
+
+  // Clear the interrupt flag from the active interrupt flags.
+  thread_local_.interrupt_flags_ &= ~flag;
+  if (!has_pending_interrupts(access)) reset_limits(access);
+}
+
+bool StackGuard::CheckAndClearInterrupt(InterruptFlag flag) {
+  ExecutionAccess access(isolate_);
+  bool result = (thread_local_.interrupt_flags_ & flag);
+  thread_local_.interrupt_flags_ &= ~flag;
+  if (!has_pending_interrupts(access)) reset_limits(access);
+  return result;
+}
+
+char* StackGuard::ArchiveStackGuard(char* to) {
+  ExecutionAccess access(isolate_);
+  MemCopy(to, reinterpret_cast<char*>(&thread_local_), sizeof(ThreadLocal));
+  ThreadLocal blank;
+
+  // Set the stack limits using the old thread_local_.
+  // TODO(isolates): This was the old semantics of constructing a ThreadLocal
+  //                 (as the ctor called SetStackLimits, which looked at the
+  //                 current thread_local_ from StackGuard)-- but is this
+  //                 really what was intended?
+  isolate_->heap()->SetStackLimits();
+  thread_local_ = blank;
+
+  return to + sizeof(ThreadLocal);
+}
+
+char* StackGuard::RestoreStackGuard(char* from) {
+  ExecutionAccess access(isolate_);
+  MemCopy(reinterpret_cast<char*>(&thread_local_), from, sizeof(ThreadLocal));
+  isolate_->heap()->SetStackLimits();
+  return from + sizeof(ThreadLocal);
+}
+
+void StackGuard::FreeThreadResources() {
+  Isolate::PerIsolateThreadData* per_thread =
+      isolate_->FindOrAllocatePerThreadDataForThisThread();
+  per_thread->set_stack_limit(thread_local_.real_climit_);
+}
+
+void StackGuard::ThreadLocal::Clear() {
+  real_jslimit_ = kIllegalLimit;
+  set_jslimit(kIllegalLimit);
+  real_climit_ = kIllegalLimit;
+  set_climit(kIllegalLimit);
+  interrupt_scopes_ = nullptr;
+  interrupt_flags_ = 0;
+}
+
+bool StackGuard::ThreadLocal::Initialize(Isolate* isolate) {
+  bool should_set_stack_limits = false;
+  if (real_climit_ == kIllegalLimit) {
+    const uintptr_t kLimitSize = FLAG_stack_size * KB;
+    DCHECK_GT(GetCurrentStackPosition(), kLimitSize);
+    uintptr_t limit = GetCurrentStackPosition() - kLimitSize;
+    real_jslimit_ = SimulatorStack::JsLimitFromCLimit(isolate, limit);
+    set_jslimit(SimulatorStack::JsLimitFromCLimit(isolate, limit));
+    real_climit_ = limit;
+    set_climit(limit);
+    should_set_stack_limits = true;
+  }
+  interrupt_scopes_ = nullptr;
+  interrupt_flags_ = 0;
+  return should_set_stack_limits;
+}
+
+void StackGuard::ClearThread(const ExecutionAccess& lock) {
+  thread_local_.Clear();
+  isolate_->heap()->SetStackLimits();
+}
+
+void StackGuard::InitThread(const ExecutionAccess& lock) {
+  if (thread_local_.Initialize(isolate_)) isolate_->heap()->SetStackLimits();
+  Isolate::PerIsolateThreadData* per_thread =
+      isolate_->FindOrAllocatePerThreadDataForThisThread();
+  uintptr_t stored_limit = per_thread->stack_limit();
+  // You should hold the ExecutionAccess lock when you call this.
+  if (stored_limit != 0) {
+    SetStackLimit(stored_limit);
+  }
+}
+
+// --- C a l l s   t o   n a t i v e s ---
+
+Object StackGuard::HandleInterrupts() {
+  TRACE_EVENT0("v8.execute", "V8.HandleInterrupts");
+
+  if (FLAG_verify_predictable) {
+    // Advance synthetic time by making a time request.
+    isolate_->heap()->MonotonicallyIncreasingTimeInMs();
+  }
+
+  if (CheckAndClearInterrupt(GC_REQUEST)) {
+    TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.gc"), "V8.GCHandleGCRequest");
+    isolate_->heap()->HandleGCRequest();
+  }
+
+  if (CheckAndClearInterrupt(GROW_SHARED_MEMORY)) {
+    TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.wasm"),
+                 "V8.WasmGrowSharedMemory");
+    isolate_->wasm_engine()->memory_tracker()->UpdateSharedMemoryInstances(
+        isolate_);
+  }
+
+  if (CheckAndClearInterrupt(TERMINATE_EXECUTION)) {
+    TRACE_EVENT0("v8.execute", "V8.TerminateExecution");
+    return isolate_->TerminateExecution();
+  }
+
+  if (CheckAndClearInterrupt(DEOPT_MARKED_ALLOCATION_SITES)) {
+    TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.gc"),
+                 "V8.GCDeoptMarkedAllocationSites");
+    isolate_->heap()->DeoptMarkedAllocationSites();
+  }
+
+  if (CheckAndClearInterrupt(INSTALL_CODE)) {
+    TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.compile"),
+                 "V8.InstallOptimizedFunctions");
+    DCHECK(isolate_->concurrent_recompilation_enabled());
+    isolate_->optimizing_compile_dispatcher()->InstallOptimizedFunctions();
+  }
+
+  if (CheckAndClearInterrupt(API_INTERRUPT)) {
+    TRACE_EVENT0("v8.execute", "V8.InvokeApiInterruptCallbacks");
+    // Callbacks must be invoked outside of ExecutionAccess lock.
+    isolate_->InvokeApiInterruptCallbacks();
+  }
+
+  if (CheckAndClearInterrupt(LOG_WASM_CODE)) {
+    TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.wasm"), "LogCode");
+    isolate_->wasm_engine()->LogOutstandingCodesForIsolate(isolate_);
+  }
+
+  if (CheckAndClearInterrupt(WASM_CODE_GC)) {
+    TRACE_EVENT0(TRACE_DISABLED_BY_DEFAULT("v8.wasm"), "WasmCodeGC");
+    isolate_->wasm_engine()->ReportLiveCodeFromStackForGC(isolate_);
+  }
+
+  isolate_->counters()->stack_interrupts()->Increment();
+  isolate_->counters()->runtime_profiler_ticks()->Increment();
+  isolate_->runtime_profiler()->MarkCandidatesForOptimization();
+
+  return ReadOnlyRoots(isolate_).undefined_value();
+}
 
 }  // namespace internal
 }  // namespace v8

@@ -36,7 +36,6 @@
   }
 
   var y = invoker(m, selfOf);
-  %PrepareFunctionForOptimization(y);
 
   function selfOf(c) {
     var sssss = c.self_;
@@ -68,7 +67,6 @@
     return f.apply(deopt(), arguments);
   };
 
-  %PrepareFunctionForOptimization(XXXXX);
   XXXXX();
   XXXXX();
   XXXXX();

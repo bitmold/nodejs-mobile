@@ -15,7 +15,6 @@ function foo(c) {
   for (var p in c) { s++; }
   return s;
 }
-%PrepareFunctionForOptimization(foo);
 
 assertEquals(2, foo(a));
 assertEquals(1, foo(b));

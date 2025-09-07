@@ -12,7 +12,6 @@
 
 .p2align	5
 _poly1305_init:
-
 	xorq	%rax,%rax
 	movq	%rax,0(%rdi)
 	movq	%rax,8(%rdi)
@@ -43,7 +42,6 @@ _poly1305_init:
 	movl	$1,%eax
 L$no_key:
 	.byte	0xf3,0xc3
-
 
 
 
@@ -158,7 +156,6 @@ L$blocks_epilogue:
 
 .p2align	5
 _poly1305_emit:
-
 L$emit:
 	movq	0(%rdi),%r8
 	movq	8(%rdi),%r9
@@ -181,10 +178,8 @@ L$emit:
 	.byte	0xf3,0xc3
 
 
-
 .p2align	5
 __poly1305_block:
-
 	mulq	%r14
 	movq	%rax,%r9
 	movq	%r11,%rax
@@ -227,10 +222,8 @@ __poly1305_block:
 
 
 
-
 .p2align	5
 __poly1305_init_avx:
-
 	movq	%r11,%r14
 	movq	%r12,%rbx
 	xorq	%rbp,%rbp
@@ -388,7 +381,6 @@ __poly1305_init_avx:
 
 	leaq	-48-64(%rdi),%rdi
 	.byte	0xf3,0xc3
-
 
 
 
@@ -1217,7 +1209,6 @@ L$short_tail_avx:
 
 .p2align	5
 poly1305_emit_avx:
-
 	cmpl	$0,20(%rdi)
 	je	L$emit
 
@@ -1268,7 +1259,6 @@ poly1305_emit_avx:
 	movq	%rcx,8(%rsi)
 
 	.byte	0xf3,0xc3
-
 
 
 .p2align	5
@@ -1939,7 +1929,6 @@ L$x_mask42:
 
 .p2align	4
 _xor128_encrypt_n_pad:
-
 	subq	%rdx,%rsi
 	subq	%rdx,%rdi
 	movq	%rcx,%r10
@@ -1983,12 +1972,10 @@ L$done_enc:
 	.byte	0xf3,0xc3
 
 
-
 .globl	_xor128_decrypt_n_pad
 
 .p2align	4
 _xor128_decrypt_n_pad:
-
 	subq	%rdx,%rsi
 	subq	%rdx,%rdi
 	movq	%rcx,%r10
@@ -2034,5 +2021,4 @@ L$oop_dec_pad:
 L$done_dec:
 	movq	%rdx,%rax
 	.byte	0xf3,0xc3
-
 

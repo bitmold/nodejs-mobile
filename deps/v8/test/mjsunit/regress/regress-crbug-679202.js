@@ -6,10 +6,8 @@
 
 var x = Object.prototype;
 
-function f() {
-  return x <= x;
-};
-%PrepareFunctionForOptimization(f);
+function f() { return x <= x; }
+
 f();
 f();
 %OptimizeFunctionOnNextCall(f);

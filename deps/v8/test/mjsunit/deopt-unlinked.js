@@ -5,10 +5,10 @@
 // Flags: --allow-natives-syntax --opt --no-always-opt
 // The deopt count is stored in the feedback vector which gets cleared when
 // bytecode is flushed, which --gc-interval can cause in stress modes.
-// Flags: --no-flush-bytecode --no-stress-flush-code
+// Flags: --noflush-bytecode --nostress-flush-bytecode
 
-function foo() {};
-%PrepareFunctionForOptimization(foo);
+function foo() {}
+
 foo();
 foo();
 %OptimizeFunctionOnNextCall(foo);

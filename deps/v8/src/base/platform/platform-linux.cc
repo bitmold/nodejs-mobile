@@ -22,7 +22,7 @@
 #include <fcntl.h>  // open
 #include <stdarg.h>
 #include <strings.h>    // index
-#include <sys/mman.h>   // mmap & munmap & mremap
+#include <sys/mman.h>   // mmap & munmap
 #include <sys/stat.h>   // open
 #include <sys/types.h>  // mmap & munmap
 #include <unistd.h>     // sysconf
@@ -38,6 +38,48 @@
 
 namespace v8 {
 namespace base {
+
+#ifdef __arm__
+
+bool OS::ArmUsingHardFloat() {
+// GCC versions 4.6 and above define __ARM_PCS or __ARM_PCS_VFP to specify
+// the Floating Point ABI used (PCS stands for Procedure Call Standard).
+// We use these as well as a couple of other defines to statically determine
+// what FP ABI used.
+// GCC versions 4.4 and below don't support hard-fp.
+// GCC versions 4.5 may support hard-fp without defining __ARM_PCS or
+// __ARM_PCS_VFP.
+
+#define GCC_VERSION \
+  (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
+#if GCC_VERSION >= 40600 && !defined(__clang__)
+#if defined(__ARM_PCS_VFP)
+  return true;
+#else
+  return false;
+#endif
+
+#elif GCC_VERSION < 40500 && !defined(__clang__)
+  return false;
+
+#else
+#if defined(__ARM_PCS_VFP)
+  return true;
+#elif defined(__ARM_PCS) || defined(__SOFTFP__) || defined(__SOFTFP) || \
+    !defined(__VFP_FP__)
+  return false;
+#else
+#error \
+    "Your version of compiler does not report the FP ABI compiled for."     \
+       "Please report it on this issue"                                        \
+       "http://code.google.com/p/v8/issues/detail?id=2140"
+
+#endif
+#endif
+#undef GCC_VERSION
+}
+
+#endif  // def __arm__
 
 TimezoneCache* OS::CreateTimezoneCache() {
   return new PosixDefaultTimezoneCache();
@@ -138,73 +180,11 @@ void OS::SignalCodeMovingGC() {
   void* addr = mmap(OS::GetRandomMmapAddr(), size, PROT_READ | PROT_EXEC,
                     MAP_PRIVATE, fileno(f), 0);
   DCHECK_NE(MAP_FAILED, addr);
-  Free(addr, size);
+  CHECK(Free(addr, size));
   fclose(f);
 }
 
 void OS::AdjustSchedulingParams() {}
-
-void* OS::RemapShared(void* old_address, void* new_address, size_t size) {
-  void* result =
-      mremap(old_address, 0, size, MREMAP_FIXED | MREMAP_MAYMOVE, new_address);
-
-  if (result == MAP_FAILED) {
-    return nullptr;
-  }
-  DCHECK(result == new_address);
-  return result;
-}
-
-std::vector<OS::MemoryRange> OS::GetFreeMemoryRangesWithin(
-    OS::Address boundary_start, OS::Address boundary_end, size_t minimum_size,
-    size_t alignment) {
-  std::vector<OS::MemoryRange> result = {};
-  // This function assumes that the layout of the file is as follows:
-  // hex_start_addr-hex_end_addr rwxp <unused data> [binary_file_name]
-  // and the lines are arranged in increasing order of address.
-  // If we encounter an unexpected situation we abort scanning further entries.
-  FILE* fp = fopen("/proc/self/maps", "r");
-  if (fp == nullptr) return {};
-
-  // Search for the gaps between existing virtual memory (vm) areas. If the gap
-  // contains enough space for the requested-size range that is within the
-  // boundary, push the overlapped memory range to the vector.
-  uintptr_t gap_start = 0, gap_end = 0;
-  // This loop will terminate once the scanning hits an EOF or reaches the gap
-  // at the higher address to the end of boundary.
-  uintptr_t vm_start;
-  uintptr_t vm_end;
-  while (fscanf(fp, "%" V8PRIxPTR "-%" V8PRIxPTR, &vm_start, &vm_end) == 2 &&
-         gap_start < boundary_end) {
-    // Visit the gap at the lower address to this vm.
-    gap_end = vm_start;
-    // Skip the gaps at the lower address to the start of boundary.
-    if (gap_end > boundary_start) {
-      // The available area is the overlap of the gap and boundary. Push
-      // the overlapped memory range to the vector if there is enough space.
-      const uintptr_t overlap_start =
-          RoundUp(std::max(gap_start, boundary_start), alignment);
-      const uintptr_t overlap_end =
-          RoundDown(std::min(gap_end, boundary_end), alignment);
-      if (overlap_start < overlap_end &&
-          overlap_end - overlap_start >= minimum_size) {
-        result.push_back({overlap_start, overlap_end});
-      }
-    }
-    // Continue to visit the next gap.
-    gap_start = vm_end;
-
-    int c;
-    // Skip characters until we reach the end of the line or EOF.
-    do {
-      c = getc(fp);
-    } while ((c != EOF) && (c != '\n'));
-    if (c == EOF) break;
-  }
-
-  fclose(fp);
-  return result;
-}
 
 }  // namespace base
 }  // namespace v8

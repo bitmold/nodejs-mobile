@@ -10,7 +10,7 @@ namespace internal {
 namespace wasm {
 namespace test_run_wasm_atomics {
 
-void RunU32BinOp(TestExecutionTier execution_tier, WasmOpcode wasm_op,
+void RunU32BinOp(ExecutionTier execution_tier, WasmOpcode wasm_op,
                  Uint32BinOp expected_op) {
   EXPERIMENTAL_FLAG_SCOPE(threads);
   WasmRunner<uint32_t, uint32_t> r(execution_tier);
@@ -18,7 +18,7 @@ void RunU32BinOp(TestExecutionTier execution_tier, WasmOpcode wasm_op,
       r.builder().AddMemoryElems<uint32_t>(kWasmPageSize / sizeof(uint32_t));
   r.builder().SetHasSharedMemory();
 
-  BUILD(r, WASM_ATOMICS_BINOP(wasm_op, WASM_I32V_1(0), WASM_LOCAL_GET(0),
+  BUILD(r, WASM_ATOMICS_BINOP(wasm_op, WASM_I32V_1(0), WASM_GET_LOCAL(0),
                               MachineRepresentation::kWord32));
 
   FOR_UINT32_INPUTS(i) {
@@ -36,10 +36,10 @@ void RunU32BinOp(TestExecutionTier execution_tier, WasmOpcode wasm_op,
   WASM_EXEC_TEST(I32Atomic##Name) {                          \
     RunU32BinOp(execution_tier, kExprI32Atomic##Name, Name); \
   }
-WASM_ATOMIC_OPERATION_LIST(TEST_OPERATION)
+OPERATION_LIST(TEST_OPERATION)
 #undef TEST_OPERATION
 
-void RunU16BinOp(TestExecutionTier tier, WasmOpcode wasm_op,
+void RunU16BinOp(ExecutionTier tier, WasmOpcode wasm_op,
                  Uint16BinOp expected_op) {
   EXPERIMENTAL_FLAG_SCOPE(threads);
   WasmRunner<uint32_t, uint32_t> r(tier);
@@ -47,7 +47,7 @@ void RunU16BinOp(TestExecutionTier tier, WasmOpcode wasm_op,
   uint16_t* memory =
       r.builder().AddMemoryElems<uint16_t>(kWasmPageSize / sizeof(uint16_t));
 
-  BUILD(r, WASM_ATOMICS_BINOP(wasm_op, WASM_I32V_1(0), WASM_LOCAL_GET(0),
+  BUILD(r, WASM_ATOMICS_BINOP(wasm_op, WASM_I32V_1(0), WASM_GET_LOCAL(0),
                               MachineRepresentation::kWord16));
 
   FOR_UINT16_INPUTS(i) {
@@ -65,17 +65,17 @@ void RunU16BinOp(TestExecutionTier tier, WasmOpcode wasm_op,
   WASM_EXEC_TEST(I32Atomic##Name##16U) {                          \
     RunU16BinOp(execution_tier, kExprI32Atomic##Name##16U, Name); \
   }
-WASM_ATOMIC_OPERATION_LIST(TEST_OPERATION)
+OPERATION_LIST(TEST_OPERATION)
 #undef TEST_OPERATION
 
-void RunU8BinOp(TestExecutionTier execution_tier, WasmOpcode wasm_op,
+void RunU8BinOp(ExecutionTier execution_tier, WasmOpcode wasm_op,
                 Uint8BinOp expected_op) {
   EXPERIMENTAL_FLAG_SCOPE(threads);
   WasmRunner<uint32_t, uint32_t> r(execution_tier);
   r.builder().SetHasSharedMemory();
   uint8_t* memory = r.builder().AddMemoryElems<uint8_t>(kWasmPageSize);
 
-  BUILD(r, WASM_ATOMICS_BINOP(wasm_op, WASM_I32V_1(0), WASM_LOCAL_GET(0),
+  BUILD(r, WASM_ATOMICS_BINOP(wasm_op, WASM_I32V_1(0), WASM_GET_LOCAL(0),
                               MachineRepresentation::kWord8));
 
   FOR_UINT8_INPUTS(i) {
@@ -93,7 +93,7 @@ void RunU8BinOp(TestExecutionTier execution_tier, WasmOpcode wasm_op,
   WASM_EXEC_TEST(I32Atomic##Name##8U) {                         \
     RunU8BinOp(execution_tier, kExprI32Atomic##Name##8U, Name); \
   }
-WASM_ATOMIC_OPERATION_LIST(TEST_OPERATION)
+OPERATION_LIST(TEST_OPERATION)
 #undef TEST_OPERATION
 
 WASM_EXEC_TEST(I32AtomicCompareExchange) {
@@ -103,8 +103,8 @@ WASM_EXEC_TEST(I32AtomicCompareExchange) {
   uint32_t* memory =
       r.builder().AddMemoryElems<uint32_t>(kWasmPageSize / sizeof(uint32_t));
   BUILD(r, WASM_ATOMICS_TERNARY_OP(
-               kExprI32AtomicCompareExchange, WASM_I32V_1(0), WASM_LOCAL_GET(0),
-               WASM_LOCAL_GET(1), MachineRepresentation::kWord32));
+               kExprI32AtomicCompareExchange, WASM_I32V_1(0), WASM_GET_LOCAL(0),
+               WASM_GET_LOCAL(1), MachineRepresentation::kWord32));
 
   FOR_UINT32_INPUTS(i) {
     uint32_t initial = i;
@@ -124,8 +124,8 @@ WASM_EXEC_TEST(I32AtomicCompareExchange16U) {
   uint16_t* memory =
       r.builder().AddMemoryElems<uint16_t>(kWasmPageSize / sizeof(uint16_t));
   BUILD(r, WASM_ATOMICS_TERNARY_OP(kExprI32AtomicCompareExchange16U,
-                                   WASM_I32V_1(0), WASM_LOCAL_GET(0),
-                                   WASM_LOCAL_GET(1),
+                                   WASM_I32V_1(0), WASM_GET_LOCAL(0),
+                                   WASM_GET_LOCAL(1),
                                    MachineRepresentation::kWord16));
 
   FOR_UINT16_INPUTS(i) {
@@ -146,7 +146,7 @@ WASM_EXEC_TEST(I32AtomicCompareExchange8U) {
   uint8_t* memory = r.builder().AddMemoryElems<uint8_t>(kWasmPageSize);
   BUILD(r,
         WASM_ATOMICS_TERNARY_OP(kExprI32AtomicCompareExchange8U, WASM_I32V_1(0),
-                                WASM_LOCAL_GET(0), WASM_LOCAL_GET(1),
+                                WASM_GET_LOCAL(0), WASM_GET_LOCAL(1),
                                 MachineRepresentation::kWord8));
 
   FOR_UINT8_INPUTS(i) {
@@ -167,8 +167,8 @@ WASM_EXEC_TEST(I32AtomicCompareExchange_fail) {
   uint32_t* memory =
       r.builder().AddMemoryElems<uint32_t>(kWasmPageSize / sizeof(uint32_t));
   BUILD(r, WASM_ATOMICS_TERNARY_OP(
-               kExprI32AtomicCompareExchange, WASM_I32V_1(0), WASM_LOCAL_GET(0),
-               WASM_LOCAL_GET(1), MachineRepresentation::kWord32));
+               kExprI32AtomicCompareExchange, WASM_I32V_1(0), WASM_GET_LOCAL(0),
+               WASM_GET_LOCAL(1), MachineRepresentation::kWord32));
 
   // The original value at the memory location.
   uint32_t old_val = 4;
@@ -237,7 +237,7 @@ WASM_EXEC_TEST(I32AtomicStoreLoad) {
       r.builder().AddMemoryElems<uint32_t>(kWasmPageSize / sizeof(uint32_t));
 
   BUILD(r,
-        WASM_ATOMICS_STORE_OP(kExprI32AtomicStore, WASM_ZERO, WASM_LOCAL_GET(0),
+        WASM_ATOMICS_STORE_OP(kExprI32AtomicStore, WASM_ZERO, WASM_GET_LOCAL(0),
                               MachineRepresentation::kWord32),
         WASM_ATOMICS_LOAD_OP(kExprI32AtomicLoad, WASM_ZERO,
                              MachineRepresentation::kWord32));
@@ -259,7 +259,7 @@ WASM_EXEC_TEST(I32AtomicStoreLoad16U) {
   BUILD(
       r,
       WASM_ATOMICS_STORE_OP(kExprI32AtomicStore16U, WASM_ZERO,
-                            WASM_LOCAL_GET(0), MachineRepresentation::kWord16),
+                            WASM_GET_LOCAL(0), MachineRepresentation::kWord16),
       WASM_ATOMICS_LOAD_OP(kExprI32AtomicLoad16U, WASM_ZERO,
                            MachineRepresentation::kWord16));
 
@@ -278,7 +278,7 @@ WASM_EXEC_TEST(I32AtomicStoreLoad8U) {
 
   BUILD(r,
         WASM_ATOMICS_STORE_OP(kExprI32AtomicStore8U, WASM_ZERO,
-                              WASM_LOCAL_GET(0), MachineRepresentation::kWord8),
+                              WASM_GET_LOCAL(0), MachineRepresentation::kWord8),
         WASM_ATOMICS_LOAD_OP(kExprI32AtomicLoad8U, WASM_ZERO,
                              MachineRepresentation::kWord8));
 
@@ -297,77 +297,13 @@ WASM_EXEC_TEST(I32AtomicStoreParameter) {
   r.builder().SetHasSharedMemory();
 
   BUILD(r,
-        WASM_ATOMICS_STORE_OP(kExprI32AtomicStore, WASM_ZERO, WASM_LOCAL_GET(0),
+        WASM_ATOMICS_STORE_OP(kExprI32AtomicStore, WASM_ZERO, WASM_GET_LOCAL(0),
                               MachineRepresentation::kWord8),
-        WASM_ATOMICS_BINOP(kExprI32AtomicAdd, WASM_I32V_1(0), WASM_LOCAL_GET(0),
+        WASM_ATOMICS_BINOP(kExprI32AtomicAdd, WASM_I32V_1(0), WASM_GET_LOCAL(0),
                            MachineRepresentation::kWord32));
   CHECK_EQ(10, r.Call(10));
   CHECK_EQ(20, r.builder().ReadMemory(&memory[0]));
 }
-
-WASM_EXEC_TEST(AtomicFence) {
-  EXPERIMENTAL_FLAG_SCOPE(threads);
-  WasmRunner<uint32_t> r(execution_tier);
-  // Note that this test specifically doesn't use a shared memory, as the fence
-  // instruction does not target a particular linear memory. It may occur in
-  // modules which declare no memory, or a non-shared memory, without causing a
-  // validation error.
-
-  BUILD(r, WASM_ATOMICS_FENCE, WASM_ZERO);
-  CHECK_EQ(0, r.Call());
-}
-
-WASM_EXEC_TEST(AtomicStoreNoConsideredEffectful) {
-  EXPERIMENTAL_FLAG_SCOPE(threads);
-  // Use {Load} instead of {ProtectedLoad}.
-  FLAG_SCOPE(wasm_enforce_bounds_checks);
-  WasmRunner<uint32_t> r(execution_tier);
-  r.builder().AddMemoryElems<int32_t>(kWasmPageSize / sizeof(int32_t));
-  r.builder().SetHasSharedMemory();
-  BUILD(r, WASM_LOAD_MEM(MachineType::Int64(), WASM_ZERO),
-        WASM_ATOMICS_STORE_OP(kExprI32AtomicStore, WASM_ZERO, WASM_I32V_1(20),
-                              MachineRepresentation::kWord32),
-        kExprI64Eqz);
-  CHECK_EQ(1, r.Call());
-}
-
-void RunNoEffectTest(TestExecutionTier execution_tier, WasmOpcode wasm_op) {
-  EXPERIMENTAL_FLAG_SCOPE(threads);
-  // Use {Load} instead of {ProtectedLoad}.
-  FLAG_SCOPE(wasm_enforce_bounds_checks);
-  WasmRunner<uint32_t> r(execution_tier);
-  r.builder().AddMemoryElems<int32_t>(kWasmPageSize / sizeof(int32_t));
-  r.builder().SetHasSharedMemory();
-  BUILD(r, WASM_LOAD_MEM(MachineType::Int64(), WASM_ZERO),
-        WASM_ATOMICS_BINOP(wasm_op, WASM_ZERO, WASM_I32V_1(20),
-                           MachineRepresentation::kWord32),
-        WASM_DROP, kExprI64Eqz);
-  CHECK_EQ(1, r.Call());
-}
-
-WASM_EXEC_TEST(AtomicAddNoConsideredEffectful) {
-  RunNoEffectTest(execution_tier, kExprI32AtomicAdd);
-}
-
-WASM_EXEC_TEST(AtomicExchangeNoConsideredEffectful) {
-  RunNoEffectTest(execution_tier, kExprI32AtomicExchange);
-}
-
-WASM_EXEC_TEST(AtomicCompareExchangeNoConsideredEffectful) {
-  EXPERIMENTAL_FLAG_SCOPE(threads);
-  // Use {Load} instead of {ProtectedLoad}.
-  FLAG_SCOPE(wasm_enforce_bounds_checks);
-  WasmRunner<uint32_t> r(execution_tier);
-  r.builder().AddMemoryElems<int32_t>(kWasmPageSize / sizeof(int32_t));
-  r.builder().SetHasSharedMemory();
-  BUILD(r, WASM_LOAD_MEM(MachineType::Int32(), WASM_ZERO),
-        WASM_ATOMICS_TERNARY_OP(kExprI32AtomicCompareExchange, WASM_ZERO,
-                                WASM_ZERO, WASM_I32V_1(30),
-                                MachineRepresentation::kWord32),
-        WASM_DROP, kExprI32Eqz);
-  CHECK_EQ(1, r.Call());
-}
-
 }  // namespace test_run_wasm_atomics
 }  // namespace wasm
 }  // namespace internal

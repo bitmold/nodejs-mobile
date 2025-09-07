@@ -65,9 +65,9 @@
 # include "uv/bsd.h"
 #elif defined(__CYGWIN__) || \
       defined(__MSYS__)   || \
-      defined(__HAIKU__)  || \
-      defined(__QNX__)    || \
       defined(__GNU__)
+# include "uv/posix.h"
+#elif defined(__HAIKU__)
 # include "uv/posix.h"
 #endif
 
@@ -405,25 +405,11 @@ typedef struct {
 #else
 # define UV_FS_O_CREAT        0
 #endif
-
-#if defined(__linux__) && defined(__arm__)
-# define UV_FS_O_DIRECT       0x10000
-#elif defined(__linux__) && defined(__m68k__)
-# define UV_FS_O_DIRECT       0x10000
-#elif defined(__linux__) && defined(__mips__)
-# define UV_FS_O_DIRECT       0x08000
-#elif defined(__linux__) && defined(__powerpc__)
-# define UV_FS_O_DIRECT       0x20000
-#elif defined(__linux__) && defined(__s390x__)
-# define UV_FS_O_DIRECT       0x04000
-#elif defined(__linux__) && defined(__x86_64__)
-# define UV_FS_O_DIRECT       0x04000
-#elif defined(O_DIRECT)
+#if defined(O_DIRECT)
 # define UV_FS_O_DIRECT       O_DIRECT
 #else
 # define UV_FS_O_DIRECT       0
 #endif
-
 #if defined(O_DIRECTORY)
 # define UV_FS_O_DIRECTORY    O_DIRECTORY
 #else

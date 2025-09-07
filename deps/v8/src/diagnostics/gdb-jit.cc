@@ -4,27 +4,21 @@
 
 #include "src/diagnostics/gdb-jit.h"
 
-#include <iterator>
-#include <map>
 #include <memory>
 #include <vector>
 
-#include "include/v8-callbacks.h"
 #include "src/api/api-inl.h"
-#include "src/base/address-region.h"
 #include "src/base/bits.h"
-#include "src/base/hashmap.h"
-#include "src/base/memory.h"
 #include "src/base/platform/platform.h"
-#include "src/base/platform/wrappers.h"
-#include "src/base/strings.h"
-#include "src/base/vector.h"
 #include "src/execution/frames-inl.h"
 #include "src/execution/frames.h"
 #include "src/handles/global-handles.h"
 #include "src/init/bootstrapper.h"
 #include "src/objects/objects.h"
+#include "src/snapshot/natives.h"
 #include "src/utils/ostreams.h"
+#include "src/utils/splay-tree-inl.h"
+#include "src/utils/vector.h"
 #include "src/zone/zone-chunk-list.h"
 
 namespace v8 {
@@ -53,9 +47,9 @@ class Writer {
       : debug_object_(debug_object),
         position_(0),
         capacity_(1024),
-        buffer_(reinterpret_cast<byte*>(base::Malloc(capacity_))) {}
+        buffer_(reinterpret_cast<byte*>(malloc(capacity_))) {}
 
-  ~Writer() { base::Free(buffer_); }
+  ~Writer() { free(buffer_); }
 
   uintptr_t position() const { return position_; }
 
@@ -66,9 +60,7 @@ class Writer {
 
     T* operator->() { return w_->RawSlotAt<T>(offset_); }
 
-    void set(const T& value) {
-      base::WriteUnalignedValue(w_->AddressAt<T>(offset_), value);
-    }
+    void set(const T& value) { *w_->RawSlotAt<T>(offset_) = value; }
 
     Slot<T> at(int i) { return Slot<T>(w_, offset_ + sizeof(T) * i); }
 
@@ -80,7 +72,7 @@ class Writer {
   template <typename T>
   void Write(const T& val) {
     Ensure(position_ + sizeof(T));
-    base::WriteUnalignedValue(AddressAt<T>(position_), val);
+    *RawSlotAt<T>(position_) = val;
     position_ += sizeof(T);
   }
 
@@ -106,7 +98,7 @@ class Writer {
   void Ensure(uintptr_t pos) {
     if (capacity_ < pos) {
       while (capacity_ < pos) capacity_ *= 2;
-      buffer_ = reinterpret_cast<byte*>(base::Realloc(buffer_, capacity_));
+      buffer_ = reinterpret_cast<byte*>(realloc(buffer_, capacity_));
     }
   }
 
@@ -157,12 +149,6 @@ class Writer {
  private:
   template <typename T>
   friend class Slot;
-
-  template <typename T>
-  Address AddressAt(uintptr_t offset) {
-    DCHECK(offset < capacity_ && offset + sizeof(T) <= capacity_);
-    return reinterpret_cast<Address>(&buffer_[offset]);
-  }
 
   template <typename T>
   T* RawSlotAt(uintptr_t offset) {
@@ -234,7 +220,7 @@ class MachOSection : public DebugSectionBase<MachOSectionHeader> {
       : name_(name), segment_(segment), align_(align), flags_(flags) {
     if (align_ != 0) {
       DCHECK(base::bits::IsPowerOfTwo(align));
-      align_ = base::bits::WhichPowerOfTwo(align_);
+      align_ = WhichPowerOf2(align_);
     }
   }
 
@@ -584,8 +570,8 @@ class MachO {
 class ELF {
  public:
   explicit ELF(Zone* zone) : sections_(zone) {
-    sections_.push_back(zone->New<ELFSection>("", ELFSection::TYPE_NULL, 0));
-    sections_.push_back(zone->New<ELFStringTable>(".shstrtab"));
+    sections_.push_back(new (zone) ELFSection("", ELFSection::TYPE_NULL, 0));
+    sections_.push_back(new (zone) ELFStringTable(".shstrtab"));
   }
 
   void Write(Writer* w) {
@@ -907,20 +893,18 @@ class CodeDescription {
   };
 #endif
 
-  CodeDescription(const char* name, base::AddressRegion region,
-                  SharedFunctionInfo shared, LineInfo* lineinfo,
-                  bool is_function)
-      : name_(name),
-        shared_info_(shared),
-        lineinfo_(lineinfo),
-        is_function_(is_function),
-        code_region_(region) {}
+  CodeDescription(const char* name, Code code, SharedFunctionInfo shared,
+                  LineInfo* lineinfo)
+      : name_(name), code_(code), shared_info_(shared), lineinfo_(lineinfo) {}
 
   const char* name() const { return name_; }
 
   LineInfo* lineinfo() const { return lineinfo_; }
 
-  bool is_function() const { return is_function_; }
+  bool is_function() const {
+    Code::Kind kind = code_.kind();
+    return kind == Code::OPTIMIZED_FUNCTION;
+  }
 
   bool has_scope_info() const { return !shared_info_.is_null(); }
 
@@ -929,11 +913,15 @@ class CodeDescription {
     return shared_info_.scope_info();
   }
 
-  uintptr_t CodeStart() const { return code_region_.begin(); }
+  uintptr_t CodeStart() const {
+    return static_cast<uintptr_t>(code_.InstructionStart());
+  }
 
-  uintptr_t CodeEnd() const { return code_region_.end(); }
+  uintptr_t CodeEnd() const {
+    return static_cast<uintptr_t>(code_.InstructionEnd());
+  }
 
-  uintptr_t CodeSize() const { return code_region_.size(); }
+  uintptr_t CodeSize() const { return CodeEnd() - CodeStart(); }
 
   bool has_script() {
     return !shared_info_.is_null() && shared_info_.script().IsScript();
@@ -942,8 +930,6 @@ class CodeDescription {
   Script script() { return Script::cast(shared_info_.script()); }
 
   bool IsLineInfoAvailable() { return lineinfo_ != nullptr; }
-
-  base::AddressRegion region() { return code_region_; }
 
 #if V8_TARGET_ARCH_X64
   uintptr_t GetStackStateStartAddress(StackState state) const {
@@ -958,7 +944,7 @@ class CodeDescription {
 #endif
 
   std::unique_ptr<char[]> GetFilename() {
-    if (!shared_info_.is_null() && script().name().IsString()) {
+    if (!shared_info_.is_null()) {
       return String::cast(script().name()).ToCString();
     } else {
       std::unique_ptr<char[]> result(new char[1]);
@@ -977,10 +963,9 @@ class CodeDescription {
 
  private:
   const char* name_;
+  Code code_;
   SharedFunctionInfo shared_info_;
   LineInfo* lineinfo_;
-  bool is_function_;
-  base::AddressRegion code_region_;
 #if V8_TARGET_ARCH_X64
   uintptr_t stack_state_start_addresses_[STACK_STATE_MAX];
 #endif
@@ -989,8 +974,8 @@ class CodeDescription {
 #if defined(__ELF)
 static void CreateSymbolsTable(CodeDescription* desc, Zone* zone, ELF* elf,
                                size_t text_section_index) {
-  ELFSymbolTable* symtab = zone->New<ELFSymbolTable>(".symtab", zone);
-  ELFStringTable* strtab = zone->New<ELFStringTable>(".strtab");
+  ELFSymbolTable* symtab = new (zone) ELFSymbolTable(".symtab", zone);
+  ELFStringTable* strtab = new (zone) ELFStringTable(".strtab");
 
   // Symbol table should be followed by the linked string table.
   elf->AddSection(symtab);
@@ -1093,8 +1078,6 @@ class DebugInfoSection : public DebugSection {
       UNIMPLEMENTED();
 #elif V8_TARGET_ARCH_MIPS64
       UNIMPLEMENTED();
-#elif V8_TARGET_ARCH_LOONG64
-      UNIMPLEMENTED();
 #elif V8_TARGET_ARCH_PPC64 && V8_OS_LINUX
       w->Write<uint8_t>(DW_OP_reg31);  // The frame pointer is here on PPC64.
 #elif V8_TARGET_ARCH_S390
@@ -1107,40 +1090,46 @@ class DebugInfoSection : public DebugSection {
       int params = scope.ParameterCount();
       int context_slots = scope.ContextLocalCount();
       // The real slot ID is internal_slots + context_slot_id.
-      int internal_slots = scope.ContextHeaderLength();
+      int internal_slots = Context::MIN_CONTEXT_SLOTS;
       int current_abbreviation = 4;
+
+      EmbeddedVector<char, 256> buffer;
+      StringBuilder builder(buffer.begin(), buffer.length());
 
       for (int param = 0; param < params; ++param) {
         w->WriteULEB128(current_abbreviation++);
-        w->WriteString("param");
-        w->Write(std::to_string(param).c_str());
+        builder.Reset();
+        builder.AddFormatted("param%d", param);
+        w->WriteString(builder.Finalize());
         w->Write<uint32_t>(ty_offset);
         Writer::Slot<uint32_t> block_size = w->CreateSlotHere<uint32_t>();
         uintptr_t block_start = w->position();
         w->Write<uint8_t>(DW_OP_fbreg);
-        w->WriteSLEB128(StandardFrameConstants::kFixedFrameSizeAboveFp +
+        w->WriteSLEB128(JavaScriptFrameConstants::kLastParameterOffset +
                         kSystemPointerSize * (params - param - 1));
         block_size.set(static_cast<uint32_t>(w->position() - block_start));
       }
 
       // See contexts.h for more information.
-      DCHECK(internal_slots == 2 || internal_slots == 3);
+      DCHECK_EQ(Context::MIN_CONTEXT_SLOTS, 4);
       DCHECK_EQ(Context::SCOPE_INFO_INDEX, 0);
       DCHECK_EQ(Context::PREVIOUS_INDEX, 1);
       DCHECK_EQ(Context::EXTENSION_INDEX, 2);
+      DCHECK_EQ(Context::NATIVE_CONTEXT_INDEX, 3);
       w->WriteULEB128(current_abbreviation++);
       w->WriteString(".scope_info");
       w->WriteULEB128(current_abbreviation++);
       w->WriteString(".previous");
-      if (internal_slots == 3) {
-        w->WriteULEB128(current_abbreviation++);
-        w->WriteString(".extension");
-      }
+      w->WriteULEB128(current_abbreviation++);
+      w->WriteString(".extension");
+      w->WriteULEB128(current_abbreviation++);
+      w->WriteString(".native_context");
 
       for (int context_slot = 0; context_slot < context_slots; ++context_slot) {
         w->WriteULEB128(current_abbreviation++);
-        w->WriteString("context_slot");
-        w->Write(std::to_string(context_slot + internal_slots).c_str());
+        builder.Reset();
+        builder.AddFormatted("context_slot%d", context_slot + internal_slots);
+        w->WriteString(builder.Finalize());
       }
 
       {
@@ -1150,7 +1139,7 @@ class DebugInfoSection : public DebugSection {
         Writer::Slot<uint32_t> block_size = w->CreateSlotHere<uint32_t>();
         uintptr_t block_start = w->position();
         w->Write<uint8_t>(DW_OP_fbreg);
-        w->WriteSLEB128(StandardFrameConstants::kFunctionOffset);
+        w->WriteSLEB128(JavaScriptFrameConstants::kFunctionOffset);
         block_size.set(static_cast<uint32_t>(w->position() - block_start));
       }
 
@@ -1706,12 +1695,12 @@ bool UnwindInfoSection::WriteBodyInternal(Writer* w) {
 static void CreateDWARFSections(CodeDescription* desc, Zone* zone,
                                 DebugObject* obj) {
   if (desc->IsLineInfoAvailable()) {
-    obj->AddSection(zone->New<DebugInfoSection>(desc));
-    obj->AddSection(zone->New<DebugAbbrevSection>(desc));
-    obj->AddSection(zone->New<DebugLineSection>(desc));
+    obj->AddSection(new (zone) DebugInfoSection(desc));
+    obj->AddSection(new (zone) DebugAbbrevSection(desc));
+    obj->AddSection(new (zone) DebugLineSection(desc));
   }
 #if V8_TARGET_ARCH_X64
-  obj->AddSection(zone->New<UnwindInfoSection>(desc));
+  obj->AddSection(new (zone) UnwindInfoSection(desc));
 #endif
 }
 
@@ -1756,8 +1745,8 @@ void __gdb_print_v8_object(Object object) {
 
 static JITCodeEntry* CreateCodeEntry(Address symfile_addr,
                                      uintptr_t symfile_size) {
-  JITCodeEntry* entry = static_cast<JITCodeEntry*>(
-      base::Malloc(sizeof(JITCodeEntry) + symfile_size));
+  JITCodeEntry* entry =
+      static_cast<JITCodeEntry*>(malloc(sizeof(JITCodeEntry) + symfile_size));
 
   entry->symfile_addr_ = reinterpret_cast<Address>(entry + 1);
   entry->symfile_size_ = symfile_size;
@@ -1769,7 +1758,7 @@ static JITCodeEntry* CreateCodeEntry(Address symfile_addr,
   return entry;
 }
 
-static void DestroyCodeEntry(JITCodeEntry* entry) { base::Free(entry); }
+static void DestroyCodeEntry(JITCodeEntry* entry) { free(entry); }
 
 static void RegisterCodeEntry(JITCodeEntry* entry) {
   entry->next_ = __jit_debug_descriptor.first_entry_;
@@ -1803,11 +1792,8 @@ static JITCodeEntry* CreateELFObject(CodeDescription* desc, Isolate* isolate) {
   MachO mach_o(&zone);
   Writer w(&mach_o);
 
-  const uint32_t code_alignment = static_cast<uint32_t>(kCodeAlignment);
-  static_assert(code_alignment == kCodeAlignment,
-                "Unsupported code alignment value");
-  mach_o.AddSection(zone.New<MachOTextSection>(
-      code_alignment, desc->CodeStart(), desc->CodeSize()));
+  mach_o.AddSection(new (&zone) MachOTextSection(
+      kCodeAlignment, desc->CodeStart(), desc->CodeSize()));
 
   CreateDWARFSections(desc, &zone, &mach_o);
 
@@ -1817,7 +1803,7 @@ static JITCodeEntry* CreateELFObject(CodeDescription* desc, Isolate* isolate) {
   ELF elf(&zone);
   Writer w(&elf);
 
-  size_t text_section_index = elf.AddSection(zone.New<FullHeaderELFSection>(
+  size_t text_section_index = elf.AddSection(new (&zone) FullHeaderELFSection(
       ".text", ELFSection::TYPE_NOBITS, kCodeAlignment, desc->CodeStart(), 0,
       desc->CodeSize(), ELFSection::FLAG_ALLOC | ELFSection::FLAG_EXEC));
 
@@ -1831,20 +1817,28 @@ static JITCodeEntry* CreateELFObject(CodeDescription* desc, Isolate* isolate) {
   return CreateCodeEntry(reinterpret_cast<Address>(w.buffer()), w.position());
 }
 
-// Like base::AddressRegion::StartAddressLess but also compares |end| when
-// |begin| is equal.
-struct AddressRegionLess {
-  bool operator()(const base::AddressRegion& a,
-                  const base::AddressRegion& b) const {
-    if (a.begin() == b.begin()) return a.end() < b.end();
-    return a.begin() < b.begin();
+struct AddressRange {
+  Address start;
+  Address end;
+};
+
+struct SplayTreeConfig {
+  using Key = AddressRange;
+  using Value = JITCodeEntry*;
+  static const AddressRange kNoKey;
+  static Value NoValue() { return nullptr; }
+  static int Compare(const AddressRange& a, const AddressRange& b) {
+    // ptrdiff_t probably doesn't fit in an int.
+    if (a.start < b.start) return -1;
+    if (a.start == b.start) return 0;
+    return 1;
   }
 };
 
-using CodeMap = std::map<base::AddressRegion, JITCodeEntry*, AddressRegionLess>;
+const AddressRange SplayTreeConfig::kNoKey = {0, 0};
+using CodeMap = SplayTree<SplayTreeConfig>;
 
 static CodeMap* GetCodeMap() {
-  // TODO(jgruber): Don't leak.
   static CodeMap* code_map = nullptr;
   if (code_map == nullptr) code_map = new CodeMap();
   return code_map;
@@ -1915,72 +1909,38 @@ static void AddUnwindInfo(CodeDescription* desc) {
 
 static base::LazyMutex mutex = LAZY_MUTEX_INITIALIZER;
 
-static base::Optional<std::pair<CodeMap::iterator, CodeMap::iterator>>
-GetOverlappingRegions(CodeMap* map, const base::AddressRegion region) {
-  DCHECK_LT(region.begin(), region.end());
-
-  if (map->empty()) return {};
-
-  // Find the first overlapping entry.
-
-  // If successful, points to the first element not less than `region`. The
-  // returned iterator has the key in `first` and the value in `second`.
-  auto it = map->lower_bound(region);
-  auto start_it = it;
-
-  if (it == map->end()) {
-    start_it = map->begin();
-    // Find the first overlapping entry.
-    for (; start_it != map->end(); ++start_it) {
-      if (start_it->first.end() > region.begin()) {
-        break;
-      }
-    }
-  } else if (it != map->begin()) {
-    for (--it; it != map->begin(); --it) {
-      if ((*it).first.end() <= region.begin()) break;
-      start_it = it;
-    }
-    if (it == map->begin() && it->first.end() > region.begin()) {
-      start_it = it;
-    }
-  }
-
-  if (start_it == map->end()) {
-    return {};
-  }
-
-  // Find the first non-overlapping entry after `region`.
-
-  const auto end_it = map->lower_bound({region.end(), 0});
-
-  // Return a range containing intersecting regions.
-
-  if (std::distance(start_it, end_it) < 1)
-    return {};  // No overlapping entries.
-
-  return {{start_it, end_it}};
-}
-
-// Remove entries from the map that intersect the given address region,
+// Remove entries from the splay tree that intersect the given address range,
 // and deregister them from GDB.
-static void RemoveJITCodeEntries(CodeMap* map,
-                                 const base::AddressRegion region) {
-  if (auto overlap = GetOverlappingRegions(map, region)) {
-    auto start_it = overlap->first;
-    auto end_it = overlap->second;
-    for (auto it = start_it; it != end_it; it++) {
-      JITCodeEntry* old_entry = (*it).second;
+static void RemoveJITCodeEntries(CodeMap* map, const AddressRange& range) {
+  DCHECK(range.start < range.end);
+  CodeMap::Locator cur;
+  if (map->FindGreatestLessThan(range, &cur) || map->FindLeast(&cur)) {
+    // Skip entries that are entirely less than the range of interest.
+    while (cur.key().end <= range.start) {
+      // CodeMap::FindLeastGreaterThan succeeds for entries whose key is greater
+      // than _or equal to_ the given key, so we have to advance our key to get
+      // the next one.
+      AddressRange new_key;
+      new_key.start = cur.key().end;
+      new_key.end = 0;
+      if (!map->FindLeastGreaterThan(new_key, &cur)) return;
+    }
+    // Evict intersecting ranges.
+    while (cur.key().start < range.end) {
+      AddressRange old_range = cur.key();
+      JITCodeEntry* old_entry = cur.value();
+
       UnregisterCodeEntry(old_entry);
       DestroyCodeEntry(old_entry);
-    }
 
-    map->erase(start_it, end_it);
+      CHECK(map->Remove(old_range));
+      if (!map->FindLeastGreaterThan(old_range, &cur)) return;
+    }
   }
 }
 
-// Insert the entry into the map and register it with GDB.
-static void AddJITCodeEntry(CodeMap* map, const base::AddressRegion region,
+// Insert the entry into the splay tree and register it with GDB.
+static void AddJITCodeEntry(CodeMap* map, const AddressRange& range,
                             JITCodeEntry* entry, bool dump_if_enabled,
                             const char* name_hint) {
 #if defined(DEBUG) && !V8_OS_WIN
@@ -1989,29 +1949,31 @@ static void AddJITCodeEntry(CodeMap* map, const base::AddressRegion region,
     static const int kMaxFileNameSize = 64;
     char file_name[64];
 
-    SNPrintF(base::Vector<char>(file_name, kMaxFileNameSize),
-             "/tmp/elfdump%s%d.o", (name_hint != nullptr) ? name_hint : "",
-             file_num++);
+    SNPrintF(Vector<char>(file_name, kMaxFileNameSize), "/tmp/elfdump%s%d.o",
+             (name_hint != nullptr) ? name_hint : "", file_num++);
     WriteBytes(file_name, reinterpret_cast<byte*>(entry->symfile_addr_),
                static_cast<int>(entry->symfile_size_));
   }
 #endif
 
-  auto result = map->emplace(region, entry);
-  DCHECK(result.second);  // Insertion happened.
-  USE(result);
+  CodeMap::Locator cur;
+  CHECK(map->Insert(range, &cur));
+  cur.set_value(entry);
 
   RegisterCodeEntry(entry);
 }
 
-static void AddCode(const char* name, base::AddressRegion region,
-                    SharedFunctionInfo shared, LineInfo* lineinfo,
-                    Isolate* isolate, bool is_function) {
-  DisallowGarbageCollection no_gc;
-  CodeDescription code_desc(name, region, shared, lineinfo, is_function);
+static void AddCode(const char* name, Code code, SharedFunctionInfo shared,
+                    LineInfo* lineinfo) {
+  DisallowHeapAllocation no_gc;
 
   CodeMap* code_map = GetCodeMap();
-  RemoveJITCodeEntries(code_map, region);
+  AddressRange range;
+  range.start = code.address();
+  range.end = code.address() + code.CodeSize();
+  RemoveJITCodeEntries(code_map, range);
+
+  CodeDescription code_desc(name, code, shared, lineinfo);
 
   if (!FLAG_gdbjit_full && !code_desc.IsLineInfoAvailable()) {
     delete lineinfo;
@@ -2019,6 +1981,7 @@ static void AddCode(const char* name, base::AddressRegion region,
   }
 
   AddUnwindInfo(&code_desc);
+  Isolate* isolate = code.GetIsolate();
   JITCodeEntry* entry = CreateELFObject(&code_desc, isolate);
 
   delete lineinfo;
@@ -2034,40 +1997,27 @@ static void AddCode(const char* name, base::AddressRegion region,
       should_dump = (name_hint != nullptr);
     }
   }
-  AddJITCodeEntry(code_map, region, entry, should_dump, name_hint);
+  AddJITCodeEntry(code_map, range, entry, should_dump, name_hint);
 }
 
 void EventHandler(const v8::JitCodeEvent* event) {
   if (!FLAG_gdbjit) return;
-  if ((event->code_type != v8::JitCodeEvent::JIT_CODE) &&
-      (event->code_type != v8::JitCodeEvent::WASM_CODE)) {
-    return;
-  }
+  if (event->code_type != v8::JitCodeEvent::JIT_CODE) return;
   base::MutexGuard lock_guard(mutex.Pointer());
   switch (event->type) {
     case v8::JitCodeEvent::CODE_ADDED: {
       Address addr = reinterpret_cast<Address>(event->code_start);
+      Isolate* isolate = reinterpret_cast<Isolate*>(event->isolate);
+      Code code = isolate->heap()->GcSafeFindCodeForInnerPointer(addr);
       LineInfo* lineinfo = GetLineInfo(addr);
-      std::string event_name(event->name.str, event->name.len);
+      EmbeddedVector<char, 256> buffer;
+      StringBuilder builder(buffer.begin(), buffer.length());
+      builder.AddSubstring(event->name.str, static_cast<int>(event->name.len));
       // It's called UnboundScript in the API but it's a SharedFunctionInfo.
       SharedFunctionInfo shared = event->script.IsEmpty()
                                       ? SharedFunctionInfo()
                                       : *Utils::OpenHandle(*event->script);
-      Isolate* isolate = reinterpret_cast<Isolate*>(event->isolate);
-      bool is_function = false;
-      // TODO(zhin): See if we can use event->code_type to determine
-      // is_function, the difference currently is that JIT_CODE is SparkPlug,
-      // TurboProp, TurboFan, whereas CodeKindIsOptimizedJSFunction is only
-      // TurboProp and TurboFan. is_function is used for AddUnwindInfo, and the
-      // prologue that SP generates probably matches that of TP/TF, so we can
-      // use event->code_type here instead of finding the Code.
-      // TODO(zhin): Rename is_function to be more accurate.
-      if (event->code_type == v8::JitCodeEvent::JIT_CODE) {
-        Code code = isolate->heap()->GcSafeFindCodeForInnerPointer(addr);
-        is_function = CodeKindIsOptimizedJSFunction(code.kind());
-      }
-      AddCode(event_name.c_str(), {addr, event->code_len}, shared, lineinfo,
-              isolate, is_function);
+      AddCode(builder.Finalize(), code, shared, lineinfo);
       break;
     }
     case v8::JitCodeEvent::CODE_MOVED:
@@ -2097,23 +2047,6 @@ void EventHandler(const v8::JitCodeEvent* event) {
     }
   }
 }
-
-void AddRegionForTesting(const base::AddressRegion region) {
-  // For testing purposes we don't care about JITCodeEntry, pass nullptr.
-  auto result = GetCodeMap()->emplace(region, nullptr);
-  DCHECK(result.second);  // Insertion happened.
-  USE(result);
-}
-
-void ClearCodeMapForTesting() { GetCodeMap()->clear(); }
-
-size_t NumOverlapEntriesForTesting(const base::AddressRegion region) {
-  if (auto overlaps = GetOverlappingRegions(GetCodeMap(), region)) {
-    return std::distance(overlaps->first, overlaps->second);
-  }
-  return 0;
-}
-
 #endif
 }  // namespace GDBJITInterface
 }  // namespace internal

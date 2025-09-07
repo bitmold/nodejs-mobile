@@ -21,9 +21,8 @@ class StrongTaggedValue
  public:
   constexpr StrongTaggedValue() : TaggedImpl() {}
   explicit constexpr StrongTaggedValue(Tagged_t ptr) : TaggedImpl(ptr) {}
-  explicit StrongTaggedValue(Object o);
 
-  inline static Object ToObject(Isolate* isolate, StrongTaggedValue object);
+  inline static Object ToObject(WITH_ROOT_PARAM(StrongTaggedValue object));
 };
 
 // Almost same as MaybeObject but this one deals with in-heap and potentially
@@ -33,9 +32,8 @@ class TaggedValue : public TaggedImpl<HeapObjectReferenceType::WEAK, Tagged_t> {
  public:
   constexpr TaggedValue() : TaggedImpl() {}
   explicit constexpr TaggedValue(Tagged_t ptr) : TaggedImpl(ptr) {}
-  explicit TaggedValue(MaybeObject o);
 
-  inline static MaybeObject ToMaybeObject(Isolate* isolate, TaggedValue object);
+  inline static MaybeObject ToMaybeObject(WITH_ROOT_PARAM(TaggedValue object));
 };
 
 }  // namespace internal

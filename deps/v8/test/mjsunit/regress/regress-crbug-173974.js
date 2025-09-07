@@ -29,9 +29,8 @@
 
 function f() {
   var count = "";
-  count[0]--;
-};
-%PrepareFunctionForOptimization(f);
+  count[0] --;
+}
 f();
 %OptimizeFunctionOnNextCall(f);
 f();

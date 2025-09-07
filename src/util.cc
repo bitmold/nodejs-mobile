@@ -22,12 +22,10 @@
 #include "util.h"  // NOLINT(build/include_inline)
 #include "util-inl.h"
 
-#include "debug_utils-inl.h"
 #include "env-inl.h"
 #include "node_buffer.h"
 #include "node_errors.h"
 #include "node_internals.h"
-#include "node_util.h"
 #include "string_bytes.h"
 #include "uv.h"
 
@@ -47,7 +45,6 @@
 
 #include <atomic>
 #include <cstdio>
-#include <cstring>
 #include <iomanip>
 #include <sstream>
 
@@ -64,7 +61,7 @@ using v8::Value;
 template <typename T>
 static void MakeUtf8String(Isolate* isolate,
                            Local<Value> value,
-                           MaybeStackBuffer<T>* target) {
+                           T* target) {
   Local<String> string;
   if (!value->ToString(isolate->GetCurrentContext()).ToLocal(&string)) return;
 
@@ -129,57 +126,37 @@ BufferValue::BufferValue(Isolate* isolate, Local<Value> value) {
 
 void LowMemoryNotification() {
   if (per_process::v8_initialized) {
-    auto isolate = Isolate::TryGetCurrent();
+    auto isolate = Isolate::GetCurrent();
     if (isolate != nullptr) {
       isolate->LowMemoryNotification();
     }
   }
 }
 
-std::string GetProcessTitle(const char* default_title) {
-  std::string buf(16, '\0');
-
-  for (;;) {
-    const int rc = uv_get_process_title(buf.data(), buf.size());
-
-    if (rc == 0)
-      break;
-
-    // If uv_setup_args() was not called, `uv_get_process_title()` will always
-    // return `UV_ENOBUFS`, no matter the input size. Guard against a possible
-    // infinite loop by limiting the buffer size.
-    if (rc != UV_ENOBUFS || buf.size() >= 1024 * 1024)
-      return default_title;
-
-    buf.resize(2 * buf.size());
-  }
-
-  // Strip excess trailing nul bytes. Using strlen() here is safe,
-  // uv_get_process_title() always zero-terminates the result.
-  buf.resize(strlen(buf.data()));
-
-  return buf;
-}
-
 std::string GetHumanReadableProcessName() {
-  return SPrintF("%s[%d]", GetProcessTitle("Node.js"), uv_os_getpid());
+  char name[1024];
+  GetHumanReadableProcessName(&name);
+  return name;
 }
 
-std::vector<std::string_view> SplitString(const std::string_view in,
-                                          const std::string_view delim) {
-  std::vector<std::string_view> out;
+void GetHumanReadableProcessName(char (*name)[1024]) {
+  // Leave room after title for pid, which can be up to 20 digits for 64 bit.
+  char title[1000] = "Node.js";
+  uv_get_process_title(title, sizeof(title));
+  snprintf(*name, sizeof(*name), "%s[%d]", title, uv_os_getpid());
+}
 
-  for (auto first = in.data(), second = in.data(), last = first + in.size();
-       second != last && first != last;
-       first = second + 1) {
-    second =
-        std::find_first_of(first, last, std::cbegin(delim), std::cend(delim));
-
-    if (first != second) {
-      out.emplace_back(first, second - first);
-    }
+std::vector<std::string> SplitString(const std::string& in, char delim) {
+  std::vector<std::string> out;
+  if (in.empty())
+    return out;
+  std::istringstream in_stream(in);
+  while (in_stream.good()) {
+    std::string item;
+    std::getline(in_stream, item, delim);
+    if (item.empty()) continue;
+    out.emplace_back(std::move(item));
   }
-
   return out;
 }
 
@@ -224,45 +201,6 @@ int WriteFileSync(v8::Isolate* isolate,
   node::Utf8Value utf8(isolate, string);
   uv_buf_t buf = uv_buf_init(utf8.out(), utf8.length());
   return WriteFileSync(path, buf);
-}
-
-int ReadFileSync(std::string* result, const char* path) {
-  uv_fs_t req;
-  auto defer_req_cleanup = OnScopeLeave([&req]() {
-    uv_fs_req_cleanup(&req);
-  });
-
-  uv_file file = uv_fs_open(nullptr, &req, path, O_RDONLY, 0, nullptr);
-  if (req.result < 0) {
-    // req will be cleaned up by scope leave.
-    return req.result;
-  }
-  uv_fs_req_cleanup(&req);
-
-  auto defer_close = OnScopeLeave([file]() {
-    uv_fs_t close_req;
-    CHECK_EQ(0, uv_fs_close(nullptr, &close_req, file, nullptr));
-    uv_fs_req_cleanup(&close_req);
-  });
-
-  *result = std::string("");
-  char buffer[4096];
-  uv_buf_t buf = uv_buf_init(buffer, sizeof(buffer));
-
-  while (true) {
-    const int r =
-        uv_fs_read(nullptr, &req, file, &buf, 1, result->length(), nullptr);
-    if (req.result < 0) {
-      // req will be cleaned up by scope leave.
-      return req.result;
-    }
-    uv_fs_req_cleanup(&req);
-    if (r <= 0) {
-      break;
-    }
-    result->append(buf.base, r);
-  }
-  return 0;
 }
 
 void DiagnosticFilename::LocalTime(TIME_TYPE* tm_struct) {
@@ -318,263 +256,6 @@ std::string DiagnosticFilename::MakeFilename(
   oss << "." << std::setfill('0') << std::setw(3) << ++seq;
   oss << "." << ext;
   return oss.str();
-}
-
-Local<v8::FunctionTemplate> NewFunctionTemplate(
-    v8::Isolate* isolate,
-    v8::FunctionCallback callback,
-    Local<v8::Signature> signature,
-    v8::ConstructorBehavior behavior,
-    v8::SideEffectType side_effect_type,
-    const v8::CFunction* c_function) {
-  return v8::FunctionTemplate::New(isolate,
-                                   callback,
-                                   Local<v8::Value>(),
-                                   signature,
-                                   0,
-                                   behavior,
-                                   side_effect_type,
-                                   c_function);
-}
-
-void SetMethod(Local<v8::Context> context,
-               Local<v8::Object> that,
-               const char* name,
-               v8::FunctionCallback callback) {
-  Isolate* isolate = context->GetIsolate();
-  Local<v8::Function> function =
-      NewFunctionTemplate(isolate,
-                          callback,
-                          Local<v8::Signature>(),
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasSideEffect)
-          ->GetFunction(context)
-          .ToLocalChecked();
-  // kInternalized strings are created in the old space.
-  const v8::NewStringType type = v8::NewStringType::kInternalized;
-  Local<v8::String> name_string =
-      v8::String::NewFromUtf8(isolate, name, type).ToLocalChecked();
-  that->Set(context, name_string, function).Check();
-  function->SetName(name_string);  // NODE_SET_METHOD() compatibility.
-}
-
-void SetMethod(v8::Isolate* isolate,
-               v8::Local<v8::Template> that,
-               const char* name,
-               v8::FunctionCallback callback) {
-  Local<v8::FunctionTemplate> t =
-      NewFunctionTemplate(isolate,
-                          callback,
-                          Local<v8::Signature>(),
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasSideEffect);
-  // kInternalized strings are created in the old space.
-  const v8::NewStringType type = v8::NewStringType::kInternalized;
-  Local<v8::String> name_string =
-      v8::String::NewFromUtf8(isolate, name, type).ToLocalChecked();
-  that->Set(name_string, t);
-}
-
-void SetFastMethod(Local<v8::Context> context,
-                   Local<v8::Object> that,
-                   const char* name,
-                   v8::FunctionCallback slow_callback,
-                   const v8::CFunction* c_function) {
-  Isolate* isolate = context->GetIsolate();
-  Local<v8::Function> function =
-      NewFunctionTemplate(isolate,
-                          slow_callback,
-                          Local<v8::Signature>(),
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasSideEffect,
-                          c_function)
-          ->GetFunction(context)
-          .ToLocalChecked();
-  const v8::NewStringType type = v8::NewStringType::kInternalized;
-  Local<v8::String> name_string =
-      v8::String::NewFromUtf8(isolate, name, type).ToLocalChecked();
-  that->Set(context, name_string, function).Check();
-}
-
-void SetFastMethodNoSideEffect(Local<v8::Context> context,
-                               Local<v8::Object> that,
-                               const char* name,
-                               v8::FunctionCallback slow_callback,
-                               const v8::CFunction* c_function) {
-  Isolate* isolate = context->GetIsolate();
-  Local<v8::Function> function =
-      NewFunctionTemplate(isolate,
-                          slow_callback,
-                          Local<v8::Signature>(),
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasNoSideEffect,
-                          c_function)
-          ->GetFunction(context)
-          .ToLocalChecked();
-  const v8::NewStringType type = v8::NewStringType::kInternalized;
-  Local<v8::String> name_string =
-      v8::String::NewFromUtf8(isolate, name, type).ToLocalChecked();
-  that->Set(context, name_string, function).Check();
-}
-
-void SetMethodNoSideEffect(Local<v8::Context> context,
-                           Local<v8::Object> that,
-                           const char* name,
-                           v8::FunctionCallback callback) {
-  Isolate* isolate = context->GetIsolate();
-  Local<v8::Function> function =
-      NewFunctionTemplate(isolate,
-                          callback,
-                          Local<v8::Signature>(),
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasNoSideEffect)
-          ->GetFunction(context)
-          .ToLocalChecked();
-  // kInternalized strings are created in the old space.
-  const v8::NewStringType type = v8::NewStringType::kInternalized;
-  Local<v8::String> name_string =
-      v8::String::NewFromUtf8(isolate, name, type).ToLocalChecked();
-  that->Set(context, name_string, function).Check();
-  function->SetName(name_string);  // NODE_SET_METHOD() compatibility.
-}
-
-void SetProtoMethod(v8::Isolate* isolate,
-                    Local<v8::FunctionTemplate> that,
-                    const char* name,
-                    v8::FunctionCallback callback) {
-  Local<v8::Signature> signature = v8::Signature::New(isolate, that);
-  Local<v8::FunctionTemplate> t =
-      NewFunctionTemplate(isolate,
-                          callback,
-                          signature,
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasSideEffect);
-  // kInternalized strings are created in the old space.
-  const v8::NewStringType type = v8::NewStringType::kInternalized;
-  Local<v8::String> name_string =
-      v8::String::NewFromUtf8(isolate, name, type).ToLocalChecked();
-  that->PrototypeTemplate()->Set(name_string, t);
-  t->SetClassName(name_string);  // NODE_SET_PROTOTYPE_METHOD() compatibility.
-}
-
-void SetProtoMethodNoSideEffect(v8::Isolate* isolate,
-                                Local<v8::FunctionTemplate> that,
-                                const char* name,
-                                v8::FunctionCallback callback) {
-  Local<v8::Signature> signature = v8::Signature::New(isolate, that);
-  Local<v8::FunctionTemplate> t =
-      NewFunctionTemplate(isolate,
-                          callback,
-                          signature,
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasNoSideEffect);
-  // kInternalized strings are created in the old space.
-  const v8::NewStringType type = v8::NewStringType::kInternalized;
-  Local<v8::String> name_string =
-      v8::String::NewFromUtf8(isolate, name, type).ToLocalChecked();
-  that->PrototypeTemplate()->Set(name_string, t);
-  t->SetClassName(name_string);  // NODE_SET_PROTOTYPE_METHOD() compatibility.
-}
-
-void SetInstanceMethod(v8::Isolate* isolate,
-                       Local<v8::FunctionTemplate> that,
-                       const char* name,
-                       v8::FunctionCallback callback) {
-  Local<v8::Signature> signature = v8::Signature::New(isolate, that);
-  Local<v8::FunctionTemplate> t =
-      NewFunctionTemplate(isolate,
-                          callback,
-                          signature,
-                          v8::ConstructorBehavior::kThrow,
-                          v8::SideEffectType::kHasSideEffect);
-  // kInternalized strings are created in the old space.
-  const v8::NewStringType type = v8::NewStringType::kInternalized;
-  Local<v8::String> name_string =
-      v8::String::NewFromUtf8(isolate, name, type).ToLocalChecked();
-  that->InstanceTemplate()->Set(name_string, t);
-  t->SetClassName(name_string);
-}
-
-void SetConstructorFunction(Local<v8::Context> context,
-                            Local<v8::Object> that,
-                            const char* name,
-                            Local<v8::FunctionTemplate> tmpl,
-                            SetConstructorFunctionFlag flag) {
-  Isolate* isolate = context->GetIsolate();
-  SetConstructorFunction(
-      context, that, OneByteString(isolate, name), tmpl, flag);
-}
-
-void SetConstructorFunction(Local<v8::Context> context,
-                            Local<v8::Object> that,
-                            Local<v8::String> name,
-                            Local<v8::FunctionTemplate> tmpl,
-                            SetConstructorFunctionFlag flag) {
-  if (LIKELY(flag == SetConstructorFunctionFlag::SET_CLASS_NAME))
-    tmpl->SetClassName(name);
-  that->Set(context, name, tmpl->GetFunction(context).ToLocalChecked()).Check();
-}
-
-namespace {
-
-class NonOwningExternalOneByteResource
-    : public v8::String::ExternalOneByteStringResource {
- public:
-  explicit NonOwningExternalOneByteResource(const UnionBytes& source)
-      : source_(source) {}
-  ~NonOwningExternalOneByteResource() override = default;
-
-  const char* data() const override {
-    return reinterpret_cast<const char*>(source_.one_bytes_data());
-  }
-  size_t length() const override { return source_.length(); }
-
-  NonOwningExternalOneByteResource(const NonOwningExternalOneByteResource&) =
-      delete;
-  NonOwningExternalOneByteResource& operator=(
-      const NonOwningExternalOneByteResource&) = delete;
-
- private:
-  const UnionBytes source_;
-};
-
-class NonOwningExternalTwoByteResource
-    : public v8::String::ExternalStringResource {
- public:
-  explicit NonOwningExternalTwoByteResource(const UnionBytes& source)
-      : source_(source) {}
-  ~NonOwningExternalTwoByteResource() override = default;
-
-  const uint16_t* data() const override { return source_.two_bytes_data(); }
-  size_t length() const override { return source_.length(); }
-
-  NonOwningExternalTwoByteResource(const NonOwningExternalTwoByteResource&) =
-      delete;
-  NonOwningExternalTwoByteResource& operator=(
-      const NonOwningExternalTwoByteResource&) = delete;
-
- private:
-  const UnionBytes source_;
-};
-
-}  // anonymous namespace
-
-Local<String> UnionBytes::ToStringChecked(Isolate* isolate) const {
-  if (UNLIKELY(length() == 0)) {
-    // V8 requires non-null data pointers for empty external strings,
-    // but we don't guarantee that. Solve this by not creating an
-    // external string at all in that case.
-    return String::Empty(isolate);
-  }
-  if (is_one_byte()) {
-    NonOwningExternalOneByteResource* source =
-        new NonOwningExternalOneByteResource(*this);
-    return String::NewExternalOneByte(isolate, source).ToLocalChecked();
-  } else {
-    NonOwningExternalTwoByteResource* source =
-        new NonOwningExternalTwoByteResource(*this);
-    return String::NewExternalTwoByte(isolate, source).ToLocalChecked();
-  }
 }
 
 }  // namespace node

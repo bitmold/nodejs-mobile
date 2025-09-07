@@ -4,17 +4,14 @@
 #if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #include <memory>
-#include <string_view>
 
 #include "env-inl.h"
 #include "node.h"
 #include "node_metadata.h"
-#include "node_platform.h"
 #include "node_options.h"
 #include "tracing/node_trace_writer.h"
 #include "tracing/trace_event.h"
 #include "tracing/traced_value.h"
-#include "util.h"
 
 namespace node {
 
@@ -24,12 +21,12 @@ class NodeTraceStateObserver
     : public v8::TracingController::TraceStateObserver {
  public:
   inline void OnTraceEnabled() override {
-    std::string title = GetProcessTitle("");
-    if (!title.empty()) {
+    char name_buffer[512];
+    if (uv_get_process_title(name_buffer, sizeof(name_buffer)) == 0) {
       // Only emit the metadata event if the title can be retrieved
       // successfully. Ignore it otherwise.
       TRACE_EVENT_METADATA1(
-          "__metadata", "process_name", "name", TRACE_STR_COPY(title.c_str()));
+          "__metadata", "process_name", "name", TRACE_STR_COPY(name_buffer));
     }
     TRACE_EVENT_METADATA1("__metadata",
                           "version",
@@ -82,12 +79,8 @@ class NodeTraceStateObserver
 };
 
 struct V8Platform {
-  bool initialized_ = false;
-
 #if NODE_USE_V8_PLATFORM
   inline void Initialize(int thread_pool_size) {
-    CHECK(!initialized_);
-    initialized_ = true;
     tracing_agent_ = std::make_unique<tracing::Agent>();
     node::tracing::TraceEventHelper::SetAgent(tracing_agent_.get());
     node::tracing::TracingController* controller =
@@ -104,13 +97,8 @@ struct V8Platform {
     platform_ = new NodePlatform(thread_pool_size, controller);
     v8::V8::InitializePlatform(platform_);
   }
-  // Make sure V8Platform don not call into Libuv threadpool,
-  // see DefaultProcessExitHandlerInternal in environment.cc
+
   inline void Dispose() {
-    if (!initialized_)
-      return;
-    initialized_ = false;
-    node::tracing::TraceEventHelper::SetAgent(nullptr);
     StopTracingAgent();
     platform_->Shutdown();
     delete platform_;
@@ -118,7 +106,6 @@ struct V8Platform {
     // Destroy tracing after the platform (and platform threads) have been
     // stopped.
     tracing_agent_.reset(nullptr);
-    // The observer remove itself in OnTraceEnabled
     trace_state_observer_.reset(nullptr);
   }
 
@@ -126,24 +113,20 @@ struct V8Platform {
     platform_->DrainTasks(isolate);
   }
 
+  inline void CancelVMTasks(v8::Isolate* isolate) {
+    platform_->CancelPendingDelayedTasks(isolate);
+  }
+
   inline void StartTracingAgent() {
-    constexpr auto convert_to_set =
-        [](std::vector<std::string_view> categories) -> std::set<std::string> {
-      std::set<std::string> out;
-      for (const auto& s : categories) {
-        out.emplace(s);
-      }
-      return out;
-    };
     // Attach a new NodeTraceWriter only if this function hasn't been called
     // before.
     if (tracing_file_writer_.IsDefaultHandle()) {
-      using std::string_view_literals::operator""sv;
-      const std::vector<std::string_view> categories =
-          SplitString(per_process::cli_options->trace_event_categories, ","sv);
+      std::vector<std::string> categories =
+          SplitString(per_process::cli_options->trace_event_categories, ',');
 
       tracing_file_writer_ = tracing_agent_->AddClient(
-          convert_to_set(categories),
+          std::set<std::string>(std::make_move_iterator(categories.begin()),
+                                std::make_move_iterator(categories.end())),
           std::unique_ptr<tracing::AsyncTraceWriter>(
               new tracing::NodeTraceWriter(
                   per_process::cli_options->trace_event_file_pattern)),
@@ -167,6 +150,7 @@ struct V8Platform {
   inline void Initialize(int thread_pool_size) {}
   inline void Dispose() {}
   inline void DrainVMTasks(v8::Isolate* isolate) {}
+  inline void CancelVMTasks(v8::Isolate* isolate) {}
   inline void StartTracingAgent() {
     if (!per_process::cli_options->trace_event_categories.empty()) {
       fprintf(stderr,

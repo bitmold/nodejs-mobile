@@ -4,16 +4,10 @@
 
 // Flags: --allow-natives-syntax
 
-const obj = new class A extends async function
-() {}
-.constructor {}
-();
+const obj = new class A extends (async function (){}.constructor) {};
 delete obj.name;
 Number.prototype.__proto__ = obj;
-function foo() {
-  return obj.bind();
-};
-%PrepareFunctionForOptimization(foo);
+function foo() { return obj.bind(); }
 foo();
 foo();
 %OptimizeFunctionOnNextCall(foo);

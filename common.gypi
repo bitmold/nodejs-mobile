@@ -26,19 +26,24 @@
     'uv_library%': 'static_library',
 
     'clang%': 0,
-    'error_on_warn%': 'false',
 
-    'openssl_product': '<(STATIC_LIB_PREFIX)openssl<(STATIC_LIB_SUFFIX)',
-    'openssl_no_asm%': 0,
+    'openssl_fips%': '',
+
+    # Some STL containers (e.g. std::vector) do not preserve ABI compatibility
+    # between debug and non-debug mode.
+    'disable_glibcxx_debug': 1,
 
     # Don't use ICU data file (icudtl.dat) from V8, we use our own.
     'icu_use_data_file_flag%': 0,
 
     # Reset this number to 0 on major V8 upgrades.
     # Increment by one for each non-official patch applied to deps/v8.
-    'v8_embedder_string': '-node.37',
+    'v8_embedder_string': '-node.15',
 
     ##### V8 defaults for Node.js #####
+
+    # Old time default, now explicitly stated.
+    'v8_use_snapshot': 1,
 
     # Turn on SipHash for hash seed generation, addresses HashWick
     'v8_use_siphash': 'true',
@@ -54,20 +59,12 @@
     # Enable disassembler for `--print-code` v8 options
     'v8_enable_disassembler': 1,
 
-    # Sets -dOBJECT_PRINT.
-    'v8_enable_object_print%': 1,
-
     # https://github.com/nodejs/node/pull/22920/files#r222779926
     'v8_enable_handle_zapping': 0,
 
-    # Disable pointer compression. Can be enabled at build time via configure
-    # options but default values are required here as this file is also used by
-    # node-gyp to build addons.
-    'v8_enable_pointer_compression%': 0,
-    'v8_enable_31bit_smis_on_64bit_arch%': 0,
-
-    # Disable v8 hugepage by default.
-    'v8_enable_hugepage%': 0,
+    # Disable V8 untrusted code mitigations.
+    # See https://github.com/v8/v8/wiki/Untrusted-code-mitigations
+    'v8_untrusted_code_mitigations': 0,
 
     # This is more of a V8 dev setting
     # https://github.com/nodejs/node/pull/22920/files#r222779926
@@ -81,42 +78,64 @@
     ##### end V8 defaults #####
 
     'conditions': [
+      ['target_arch=="arm64"', {
+        # Disabled pending https://github.com/nodejs/node/issues/23913.
+        'openssl_no_asm%': 1,
+      }, {
+        'openssl_no_asm%': 0,
+      }],
       ['OS == "win"', {
         'os_posix': 0,
         'v8_postmortem_support%': 0,
-        'obj_dir': '<(PRODUCT_DIR)/obj',
-        'v8_base': '<(PRODUCT_DIR)/lib/libv8_snapshot.a',
       }, {
         'os_posix': 1,
         'v8_postmortem_support%': 1,
       }],
-      ['GENERATOR == "ninja"', {
-        'obj_dir': '<(PRODUCT_DIR)/obj',
-        'v8_base': '<(PRODUCT_DIR)/obj/tools/v8_gypfiles/libv8_snapshot.a',
+      ['v8_use_snapshot==1', {
+        'conditions': [
+          ['GENERATOR == "ninja"', {
+            'obj_dir': '<(PRODUCT_DIR)/obj',
+            'v8_base': '<(PRODUCT_DIR)/obj/tools/v8_gypfiles/libv8_snapshot.a',
+           }, {
+            'obj_dir%': '<(PRODUCT_DIR)/obj.target',
+            'v8_base': '<(PRODUCT_DIR)/obj.target/tools/v8_gypfiles/libv8_snapshot.a',
+          }],
+          ['OS == "win"', {
+            'obj_dir': '<(PRODUCT_DIR)/obj',
+            'v8_base': '<(PRODUCT_DIR)/lib/libv8_snapshot.a',
+          }],
+          ['OS == "mac"', {
+            'obj_dir%': '<(PRODUCT_DIR)/obj.target',
+            'v8_base': '<(PRODUCT_DIR)/libv8_snapshot.a',
+          }],
+        ],
       }, {
-        'obj_dir%': '<(PRODUCT_DIR)/obj.target',
-        'v8_base': '<(PRODUCT_DIR)/obj.target/tools/v8_gypfiles/libv8_snapshot.a',
+        'conditions': [
+          ['GENERATOR == "ninja"', {
+            'obj_dir': '<(PRODUCT_DIR)/obj',
+            'v8_base': '<(PRODUCT_DIR)/obj/tools/v8_gypfiles/libv8_nosnapshot.a',
+           }, {
+            'obj_dir%': '<(PRODUCT_DIR)/obj.target',
+            'v8_base': '<(PRODUCT_DIR)/obj.target/tools/v8_gypfiles/libv8_nosnapshot.a',
+          }],
+          ['OS == "win"', {
+            'obj_dir': '<(PRODUCT_DIR)/obj',
+            'v8_base': '<(PRODUCT_DIR)/lib/libv8_nosnapshot.a',
+          }],
+          ['OS == "mac"', {
+            'obj_dir%': '<(PRODUCT_DIR)/obj.target',
+            'v8_base': '<(PRODUCT_DIR)/libv8_nosnapshot.a',
+          }],
+        ],
       }],
-      ['OS=="mac" or OS == "ios"', {
+      ['openssl_fips != ""', {
+        'openssl_product': '<(STATIC_LIB_PREFIX)crypto<(STATIC_LIB_SUFFIX)',
+      }, {
+        'openssl_product': '<(STATIC_LIB_PREFIX)openssl<(STATIC_LIB_SUFFIX)',
+      }],
+      ['OS=="mac"', {
         'clang%': 1,
-        'obj_dir%': '<(PRODUCT_DIR)/obj.target',
-        'v8_base': '<(PRODUCT_DIR)/libv8_snapshot.a',
       }],
-      # V8 pointer compression only supports 64bit architectures.
-      ['target_arch in "arm ia32 mips mipsel ppc"', {
-        'v8_enable_pointer_compression': 0,
-        'v8_enable_31bit_smis_on_64bit_arch': 0,
-      }],
-      ['target_arch in "ppc64 s390x"', {
-        'v8_enable_backtrace': 1,
-      }],
-      ['OS=="linux"', {
-        'node_section_ordering_info%': ''
-      }],
-      ['OS == "zos"', {
-        # use ICU data file on z/OS
-        'icu_use_data_file_flag%': 1
-      }]
     ],
   },
 
@@ -137,13 +156,13 @@
         'defines': [ 'DEBUG', '_DEBUG', 'V8_ENABLE_CHECKS' ],
         'cflags': [ '-g', '-O0' ],
         'conditions': [
-          ['OS in "aix os400"', {
+          ['OS=="aix"', {
             'cflags': [ '-gxcoff' ],
             'ldflags': [ '-Wl,-bbigtoc' ],
           }],
           ['OS == "android"', {
-            'cflags': [ '-fPIC' ],
-            'ldflags': [ '-fPIC' ]
+            'cflags': [ '-fPIE' ],
+            'ldflags': [ '-fPIE', '-pie' ]
           }],
         ],
         'msvs_settings': {
@@ -167,54 +186,22 @@
           'v8_enable_handle_zapping': 0,
           'pgo_generate': ' -fprofile-generate ',
           'pgo_use': ' -fprofile-use -fprofile-correction ',
+          'lto': ' -flto=4 -fuse-linker-plugin -ffat-lto-objects ',
           'conditions': [
             ['node_shared != "true"', {
               'MSVC_runtimeType': 0    # MultiThreaded (/MT)
             }, {
               'MSVC_runtimeType': 2   # MultiThreadedDLL (/MD)
             }],
-            ['llvm_version=="0.0"', {
-              'lto': ' -flto=4 -fuse-linker-plugin -ffat-lto-objects ', # GCC
-            }, {
-              'lto': ' -flto ', # Clang
-            }],
           ],
         },
         'cflags': [ '-O3' ],
         'conditions': [
-          ['enable_lto=="true"', {
-            'cflags': ['<(lto)'],
-            'ldflags': ['<(lto)'],
-            'xcode_settings': {
-              'LLVM_LTO': 'YES',
-            },
-          }],
-          ['OS=="linux"', {
-            'conditions': [
-              ['node_section_ordering_info!=""', {
-                'cflags': [
-                  '-fuse-ld=gold',
-                  '-ffunction-sections',
-                ],
-                'ldflags': [
-                  '-fuse-ld=gold',
-                  '-Wl,--section-ordering-file=<(node_section_ordering_info)',
-                ],
-              }],
-            ],
-          }],
           ['OS=="solaris"', {
             # pull in V8's postmortem metadata
             'ldflags': [ '-Wl,-z,allextract' ]
           }],
-          ['OS=="zos"', {
-            # increase performance, number from experimentation
-            'cflags': [ '-qINLINE=::150:100000' ]
-          }],
-          ['OS!="mac" and OS!="ios" and OS!="win" and OS!="zos"', {
-            # -fno-omit-frame-pointer is necessary for the --perf_basic_prof
-            # flag to work correctly. perf(1) gets confused about JS stack
-            # frames otherwise, even with --call-graph dwarf.
+          ['OS!="mac" and OS!="win"', {
             'cflags': [ '-fno-omit-frame-pointer' ],
           }],
           ['OS=="linux"', {
@@ -227,20 +214,19 @@
                 'cflags': ['<(pgo_use)'],
                 'ldflags': ['<(pgo_use)'],
               },],
+              ['enable_lto=="true"', {
+                'cflags': ['<(lto)'],
+                'ldflags': ['<(lto)'],
+              },],
             ],
           },],
           ['OS == "android"', {
-            'cflags': [ '-fPIC' ],
-            'ldflags': [ '-fPIC' ]
+            'cflags': [ '-fPIE' ],
+            'ldflags': [ '-fPIE', '-pie' ]
           }],
         ],
         'msvs_settings': {
           'VCCLCompilerTool': {
-            'conditions': [
-              ['target_arch=="arm64"', {
-                'FloatingPointModel': 1 # /fp:strict
-              }]
-            ],
             'EnableFunctionLevelLinking': 'true',
             'EnableIntrinsicFunctions': 'true',
             'FavorSizeOrSpeed': 1,          # /Ot, favor speed over size
@@ -250,10 +236,7 @@
             'RuntimeLibrary': '<(MSVC_runtimeType)',
             'RuntimeTypeInfo': 'false',
           }
-        },
-        'xcode_settings': {
-          'GCC_OPTIMIZATION_LEVEL': '3', # stop gyp from defaulting to -Os
-        },
+        }
       }
     },
 
@@ -262,26 +245,14 @@
     'defines': [
       'V8_DEPRECATION_WARNINGS',
       'V8_IMMINENT_DEPRECATION_WARNINGS',
-      '_GLIBCXX_USE_CXX11_ABI=1',
     ],
 
     # Forcibly disable -Werror.  We support a wide range of compilers, it's
     # simply not feasible to squelch all warnings, never mind that the
     # libraries in deps/ are not under our control.
-    'conditions': [
-      [ 'error_on_warn=="false"', {
-        'cflags!': ['-Werror'],
-      }, '(_target_name!="<(node_lib_target_name)" or '
-          '_target_name!="<(node_core_target_name)")', {
-        'cflags!': ['-Werror'],
-      }],
-    ],
+    'cflags!': ['-Werror'],
     'msvs_settings': {
       'VCCLCompilerTool': {
-        'AdditionalOptions': [
-          '/Zc:__cplusplus',
-          '-std:c++17'
-        ],
         'BufferSecurityCheck': 'true',
         'DebugInformationFormat': 1,          # /Z7 embed info in .obj files
         'ExceptionHandling': 0,               # /EHsc
@@ -341,17 +312,16 @@
       [ 'target_arch=="arm64"', {
         'msvs_configuration_platform': 'arm64',
       }],
-      ['asan == 1 and OS != "mac" and OS != "ios" and OS != "zos"', {
+      ['asan == 1 and OS != "mac"', {
         'cflags+': [
           '-fno-omit-frame-pointer',
           '-fsanitize=address',
-          '-fsanitize-address-use-after-scope',
+          '-DLEAK_SANITIZER'
         ],
-        'defines': [ 'LEAK_SANITIZER', 'V8_USE_ADDRESS_SANITIZER' ],
         'cflags!': [ '-fomit-frame-pointer' ],
         'ldflags': [ '-fsanitize=address' ],
       }],
-      ['asan == 1 and (OS == "mac" or OS=="ios")', {
+      ['asan == 1 and OS == "mac"', {
         'xcode_settings': {
           'OTHER_CFLAGS+': [
             '-fno-omit-frame-pointer',
@@ -369,15 +339,6 @@
           }],
         ],
       }],
-      ['v8_enable_pointer_compression == 1', {
-        'defines': [
-          'V8_COMPRESS_POINTERS',
-          'V8_COMPRESS_POINTERS_IN_ISOLATE_CAGE',
-        ],
-      }],
-      ['v8_enable_pointer_compression == 1 or v8_enable_31bit_smis_on_64bit_arch == 1', {
-        'defines': ['V8_31BIT_SMIS_ON_64BIT_ARCH'],
-      }],
       ['OS == "win"', {
         'defines': [
           'WIN32',
@@ -393,14 +354,13 @@
           'BUILDING_UV_SHARED=1',
         ],
       }],
-      [ 'OS in "linux freebsd openbsd solaris aix os400"', {
+      [ 'OS in "linux freebsd openbsd solaris aix"', {
         'cflags': [ '-pthread' ],
         'ldflags': [ '-pthread' ],
       }],
-      [ 'OS in "linux freebsd openbsd solaris android aix os400 cloudabi"', {
-        'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', '-Wno-enum-constexpr-conversion' ],
-        'cflags_cc': [ '-fno-rtti', '-fno-exceptions', '-std=gnu++17' ],
-        'defines': [ '__STDC_FORMAT_MACROS' ],
+      [ 'OS in "linux freebsd openbsd solaris android aix cloudabi"', {
+        'cflags': [ '-Wall', '-Wextra', '-Wno-unused-parameter', ],
+        'cflags_cc': [ '-fno-rtti', '-fno-exceptions', '-std=gnu++1y' ],
         'ldflags': [ '-rdynamic' ],
         'target_conditions': [
           # The 1990s toolchain on SmartOS can't handle thin archives.
@@ -411,56 +371,32 @@
             'cflags': [ '-I/usr/local/include' ],
             'ldflags': [ '-Wl,-z,wxneeded' ],
           }],
-          ['_toolset=="host"', {
-            'conditions': [
-              [ 'host_arch=="ia32"', {
-                'cflags': [ '-m32' ],
-                'ldflags': [ '-m32' ],
-              }],
-              [ 'host_arch=="x64"', {
-                'cflags': [ '-m64' ],
-                'ldflags': [ '-m64' ],
-              }],
-              [ 'host_arch=="ppc" and OS not in "aix os400"', {
-                'cflags': [ '-m32' ],
-                'ldflags': [ '-m32' ],
-              }],
-              [ 'host_arch=="ppc64" and OS not in "aix os400"', {
-                'cflags': [ '-m64', '-mminimal-toc' ],
-                'ldflags': [ '-m64' ],
-              }],
-              [ 'host_arch=="s390x" and OS=="linux"', {
-                'cflags': [ '-m64', '-march=z196' ],
-                'ldflags': [ '-m64', '-march=z196' ],
-              }],
-            ],
-          }],
-          ['_toolset=="target"', {
-            'conditions': [
-              [ 'target_arch=="ia32"', {
-                'cflags': [ '-m32' ],
-                'ldflags': [ '-m32' ],
-              }],
-              [ 'target_arch=="x64"', {
-                'cflags': [ '-m64' ],
-                'ldflags': [ '-m64' ],
-              }],
-              [ 'target_arch=="ppc" and OS not in "aix os400"', {
-                'cflags': [ '-m32' ],
-                'ldflags': [ '-m32' ],
-              }],
-              [ 'target_arch=="ppc64" and OS not in "aix os400"', {
-                'cflags': [ '-m64', '-mminimal-toc' ],
-                'ldflags': [ '-m64' ],
-              }],
-              [ 'target_arch=="s390x" and OS=="linux"', {
-                'cflags': [ '-m64', '-march=z196' ],
-                'ldflags': [ '-m64', '-march=z196' ],
-              }],
-            ],
-          }],
         ],
         'conditions': [
+          [ 'target_arch=="ia32"', {
+            'cflags': [ '-m32' ],
+            'ldflags': [ '-m32' ],
+          }],
+          [ 'target_arch=="x32"', {
+            'cflags': [ '-mx32' ],
+            'ldflags': [ '-mx32' ],
+          }],
+          [ 'target_arch=="x64"', {
+            'cflags': [ '-m64' ],
+            'ldflags': [ '-m64' ],
+          }],
+          [ 'target_arch=="ppc" and OS!="aix"', {
+            'cflags': [ '-m32' ],
+            'ldflags': [ '-m32' ],
+          }],
+          [ 'target_arch=="ppc64" and OS!="aix"', {
+            'cflags': [ '-m64', '-mminimal-toc' ],
+            'ldflags': [ '-m64' ],
+          }],
+          [ 'target_arch=="s390x"', {
+            'cflags': [ '-m64', '-march=z196' ],
+            'ldflags': [ '-m64', '-march=z196' ],
+          }],
           [ 'OS=="solaris"', {
             'cflags': [ '-pthreads' ],
             'ldflags': [ '-pthreads' ],
@@ -472,7 +408,7 @@
           }],
         ],
       }],
-      [ 'OS in "aix os400"', {
+      [ 'OS=="aix"', {
         'variables': {
           # Used to differentiate `AIX` and `OS400`(IBM i).
           'aix_variant_name': '<!(uname -s)',
@@ -490,15 +426,6 @@
               '-Wl,-brtl',
             ],
           }, {                                             # else it's `AIX`
-            # Disable the following compiler warning:
-            #
-            #   warning: visibility attribute not supported in this
-            #   configuration; ignored [-Wattributes]
-            #
-            # This is gcc complaining about __attribute((visibility("default"))
-            # in static library builds. Legitimate but harmless and it drowns
-            # out more relevant warnings.
-            'cflags': [ '-Wno-attributes' ],
             'ldflags': [
               '-Wl,-blibpath:/usr/lib:/lib:/opt/freeware/lib/pthread/ppc64',
             ],
@@ -510,27 +437,6 @@
           ['_toolset=="target"', {
             'defines': [ '_GLIBCXX_USE_C99_MATH' ],
             'libraries': [ '-llog' ],
-          }],
-          ['_type=="loadable_module"', {
-            'conditions': [
-              # While loading a native node module, Android needs to have a
-              # (NEEDED) entry for libnode.so, or it won't be able to locate
-              # referenced symbols.
-              # We link to the binary libraries that are distributed with the
-              # nodejs-mobile headers so the (NEEDED) entry is created
-              [ 'target_arch=="arm"', {
-                'libraries': ['>(node_root_dir)/bin/armeabi-v7a/libnode.so'],
-              }],
-              [ 'target_arch=="arm64"', {
-                'libraries': ['>(node_root_dir)/bin/arm64-v8a/libnode.so'],
-              }],
-              [ 'target_arch=="x86"', {
-                'libraries': ['>(node_root_dir)/bin/x86/libnode.so'],
-              }],
-              [ 'target_arch=="x86_64"', {
-                'libraries': ['>(node_root_dir)/bin/x86_64/libnode.so'],
-              }],
-            ],
           }],
         ],
       }],
@@ -545,7 +451,7 @@
           'GCC_ENABLE_CPP_RTTI': 'NO',              # -fno-rtti
           'GCC_ENABLE_PASCAL_STRINGS': 'NO',        # No -mpascal-strings
           'PREBINDING': 'NO',                       # No -Wl,-prebind
-          'MACOSX_DEPLOYMENT_TARGET': '10.15',      # -mmacosx-version-min=10.15
+          'MACOSX_DEPLOYMENT_TARGET': '10.10',      # -mmacosx-version-min=10.10
           'USE_HEADERMAP': 'NO',
           'OTHER_CFLAGS': [
             '-fno-strict-aliasing',
@@ -555,63 +461,6 @@
             '-Wendif-labels',
             '-W',
             '-Wno-unused-parameter',
-          ],
-        },
-        'target_conditions': [
-          ['_type!="static_library"', {
-            'xcode_settings': {
-              'OTHER_LDFLAGS': [
-                '-Wl,-search_paths_first'
-              ],
-            },
-          }],
-        ],
-        'conditions': [
-          ['target_arch=="ia32"', {
-            'xcode_settings': {'ARCHS': ['i386']},
-          }],
-          ['target_arch=="x64"', {
-            'xcode_settings': {'ARCHS': ['x86_64']},
-          }],
-          ['target_arch=="arm64"', {
-            'xcode_settings': {
-              'ARCHS': ['arm64'],
-              'OTHER_LDFLAGS!': [
-                '-Wl,-no_pie',
-              ],
-            },
-          }],
-          ['clang==1', {
-            'xcode_settings': {
-              'GCC_VERSION': 'com.apple.compilers.llvm.clang.1_0',
-              'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++17',  # -std=gnu++17
-              'CLANG_CXX_LIBRARY': 'libc++',
-            },
-          }],
-        ],
-      }],
-      ['OS=="ios"', {
-        'defines': ['_DARWIN_USE_64_BIT_INODE=1'],
-        'xcode_settings': {
-          'ALWAYS_SEARCH_USER_PATHS': 'NO',
-          'GCC_CW_ASM_SYNTAX': 'NO',                # No -fasm-blocks
-          'GCC_DYNAMIC_NO_PIC': 'NO',               # No -mdynamic-no-pic
-                                                    # (Equivalent to -fPIC)
-          'GCC_ENABLE_CPP_EXCEPTIONS': 'NO',        # -fno-exceptions
-          'GCC_ENABLE_CPP_RTTI': 'NO',              # -fno-rtti
-          'GCC_ENABLE_PASCAL_STRINGS': 'NO',        # No -mpascal-strings
-          'PREBINDING': 'NO',                       # No -Wl,-prebind
-          'IPHONEOS_DEPLOYMENT_TARGET': '13.0',     # -miphoneos-version-min=13.0
-          'USE_HEADERMAP': 'NO',
-          'OTHER_CFLAGS': [
-            '-fno-strict-aliasing',
-          ],
-          'WARNING_CFLAGS': [
-            '-Wall',
-            '-Wendif-labels',
-            '-W',
-            '-Wno-unused-parameter',
-            '-Wno-enum-constexpr-conversion',
           ],
         },
         'target_conditions': [
@@ -631,38 +480,17 @@
           ['target_arch=="x64"', {
             'xcode_settings': {'ARCHS': ['x86_64']},
           }],
-          ['iossim!="true" and target_arch in "arm64 arm armv7s"', {
-            'xcode_settings': {
-              'OTHER_CFLAGS': [
-                '-fembed-bitcode'
-              ],
-              'OTHER_CPLUSPLUSFLAGS': [
-                '-fembed-bitcode'
-              ],
-            }
-          }],
-          [ 'target_arch=="arm64"', {
-            'xcode_settings': {'ARCHS': ['arm64']},
-          }],
-          [ 'target_arch=="arm"', {
-            'xcode_settings': {'ARCHS': ['armv7']},
-          }],
-          [ 'target_arch=="armv7s"', {
-            'xcode_settings': {'ARCHS': ['armv7s']},
-          }],
           ['clang==1', {
             'xcode_settings': {
               'GCC_VERSION': 'com.apple.compilers.llvm.clang.1_0',
-              'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++17',  # -std=gnu++17
+              'CLANG_CXX_LANGUAGE_STANDARD': 'gnu++1y',  # -std=gnu++1y
               'CLANG_CXX_LIBRARY': 'libc++',
             },
           }],
-          ['target_arch=="x64" or target_arch=="ia32" or (target_arch=="arm64" and iossim=="true")', {
-            'xcode_settings': { 'SDKROOT': 'iphonesimulator' },
-          }, {
-            'xcode_settings': { 'SDKROOT': 'iphoneos', 'ENABLE_BITCODE': 'YES' },
-          }],
         ],
+      }],
+      ['OS=="freebsd" and node_use_dtrace=="true"', {
+        'libraries': [ '-lelf' ],
       }],
       ['OS=="freebsd"', {
         'ldflags': [
@@ -691,50 +519,6 @@
         'defines': [
           'OPENSSL_NO_ASM',
         ],
-      }],
-      ['OS == "zos"', {
-        'defines': [
-          '_XOPEN_SOURCE_EXTENDED',
-          '_XOPEN_SOURCE=600',
-          '_UNIX03_THREADS',
-          '_UNIX03_WITHDRAWN',
-          '_UNIX03_SOURCE',
-          '_OPEN_SYS_SOCK_IPV6',
-          '_OPEN_SYS_FILE_EXT=1',
-          '_POSIX_SOURCE',
-          '_OPEN_SYS',
-          '_OPEN_SYS_IF_EXT',
-          '_OPEN_SYS_SOCK_IPV6',
-          '_OPEN_MSGQ_EXT',
-          '_LARGE_TIME_API',
-          '_ALL_SOURCE',
-          '_AE_BIMODAL=1',
-          '__IBMCPP_TR1__',
-          'NODE_PLATFORM="os390"',
-          'PATH_MAX=1024',
-          '_ENHANCED_ASCII_EXT=0xFFFFFFFF',
-          '_Export=extern',
-          '__static_assert=static_assert',
-        ],
-        'cflags': [
-          '-q64',
-          '-Wc,DLL',
-          '-Wa,GOFF',
-          '-qARCH=10',
-          '-qASCII',
-          '-qTUNE=12',
-          '-qENUM=INT',
-          '-qEXPORTALL',
-          '-qASM',
-        ],
-        'cflags_cc': [
-          '-qxclang=-std=c++14',
-        ],
-        'ldflags': [
-          '-q64',
-        ],
-        # for addons due to v8config.h include of "zos-base.h":
-        'include_dirs':  ['<(zoslib_include_dir)'],
       }],
     ],
   }

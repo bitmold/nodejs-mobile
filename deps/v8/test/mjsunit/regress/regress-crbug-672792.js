@@ -7,8 +7,6 @@
 // Generate a function {f} containing a large array literal of doubles.
 eval("function f() { return [" + String("0.1,").repeat(65535) + "] }");
 
-%PrepareFunctionForOptimization(f);
-
 // Running the function once will initialize the boilerplate.
 assertEquals(65535, f().length);
 
