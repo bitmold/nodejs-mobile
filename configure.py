@@ -1990,7 +1990,8 @@ def configure_intl(o):
   return  # end of configure_intl
 
 def configure_inspector(o):
-  disable_inspector = disable_inspector
+  disable_inspector = 1
+  o['variables']['v8_enable_inspector'] = 0 
 
 def configure_section_file(o):
   try:
