@@ -1990,9 +1990,7 @@ def configure_intl(o):
   return  # end of configure_intl
 
 def configure_inspector(o):
-  disable_inspector = (options.without_inspector or
-                       options.without_ssl)
-  o['variables']['v8_enable_inspector'] = 0 if disable_inspector else 1
+  disable_inspector = disable_inspector
 
 def configure_section_file(o):
   try:

@@ -43,6 +43,8 @@
     # Turn on SipHash for hash seed generation, addresses HashWick
     'v8_use_siphash': 'true',
 
+    'v8_enable_inspector': 0,
+
     # These are more relevant for V8 internal development.
     # Refs: https://github.com/nodejs/node/issues/23122
     # Refs: https://github.com/nodejs/node/issues/23167
