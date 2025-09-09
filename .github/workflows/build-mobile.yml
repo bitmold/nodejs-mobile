@@ -4,14 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to build (e.g. v18.20.4.4)"
+        description: "Tag to build (e.g. v18.20.4.5)"
         required: true
-        default: v18.20.4.3
+        default: v18.20.4.5
         
 env:
   SCCACHE_GHA_ENABLED: 'true'
   ANDROID_NDK_VERSION: r24
-  ANDROID_TARGET_SDK_VERSION: 24
+  ANDROID_TARGET_SDK_VERSION: 26
 
 permissions:
   contents: read
