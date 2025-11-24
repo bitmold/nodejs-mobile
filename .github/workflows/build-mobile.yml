@@ -6,7 +6,7 @@ on:
       tag:
         description: "Tag to build (e.g. v22.21.1)"
         required: true
-        default: v22.21.1
+        default: v22.18.0-1
         
 env:
   SCCACHE_GHA_ENABLED: 'true'
