@@ -45,8 +45,6 @@
     # Turn on SipHash for hash seed generation, addresses HashWick
     'v8_use_siphash': 'true',
 
-    'v8_enable_inspector': 0,
-
     # These are more relevant for V8 internal development.
     # Refs: https://github.com/nodejs/node/issues/23122
     # Refs: https://github.com/nodejs/node/issues/23167
@@ -699,7 +697,6 @@
           'GCC_ENABLE_PASCAL_STRINGS': 'NO',        # No -mpascal-strings
           'GCC_STRICT_ALIASING': 'NO',              # -fno-strict-aliasing
           'PREBINDING': 'NO',                       # No -Wl,-prebind
-          'IPHONEOS_DEPLOYMENT_TARGET': '17.1',     # -miphoneos-version-min=13.0
           'USE_HEADERMAP': 'NO',
         },
         'target_conditions': [
